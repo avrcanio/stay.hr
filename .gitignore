@@ -11,4 +11,6 @@ __pycache__/
 .venv/
 venv/
 staticfiles/
+data/media/*
+!data/media/.gitkeep
 *.log

@@ -137,6 +137,7 @@ Stay.hr does **not** run its own Postgres or Redis containers. It attaches to th
 | PostGIS | `/opt/stacks/data` → `postgis` | `postgis` | DB `stay_platform_db`, user `stay` |
 | Redis | `/opt/stacks/redis` → `infra-redis` | `hetzner_net` | Redis logical DB **2** (broker + results) |
 | Traefik | `/opt/stacks/traefik` | `proxy` | TLS for `api.stay.hr`, `admin.stay.hr` |
+| Document media | `/opt/stacks/stay.hr/data/media` | bind mount | Reception face/ID photos (`MEDIA_ROOT`) |
 
 Create the database once on shared PostGIS (as superuser):
 
@@ -152,8 +153,8 @@ Match `DB_PASSWORD` in `.env`. Celery beat runs an hourly `apps.core.tasks.ping`
 
 | Service | Role |
 |---------|------|
-| `django` | Gunicorn, API + admin, Traefik labels |
-| `celery-worker` | Background tasks |
+| `django` | Gunicorn, API + admin, Traefik labels; `./data/media` → `/app/backend/media` |
+| `celery-worker` | Background tasks; same media volume as django |
 | `celery-beat` | Scheduled tasks |
 | `infra-redis` (`hetzner_net`, DB 2) | Celery broker and result backend |
 | PostGIS (`postgis` network) | Database `stay_platform_db` |

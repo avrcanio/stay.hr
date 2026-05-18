@@ -6,6 +6,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - ./data/media:/app/backend/media
     networks:
       - postgis
       - proxy
@@ -40,6 +42,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - ./data/media:/app/backend/media
     networks:
       - postgis
       - hetzner_net
