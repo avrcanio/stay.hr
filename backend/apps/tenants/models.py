@@ -1,5 +1,6 @@
 from django.db import models
 
+from apps.tenants.token_encryption import decrypt_api_token, encrypt_api_token
 from apps.tenants.tokens import DEFAULT_KEY_PREFIX, generate_token, hash_token
 
 VALID_SCOPES = frozenset(
@@ -87,6 +88,7 @@ class ApiApplication(models.Model):
     name = models.CharField(max_length=255)
     key_prefix = models.CharField(max_length=32, default=DEFAULT_KEY_PREFIX)
     public_key_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    token_encrypted = models.TextField(blank=True, default="")
     scopes = models.JSONField(default=list)
     is_active = models.BooleanField(default=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
@@ -115,7 +117,21 @@ class ApiApplication(models.Model):
         if raw_token is None:
             raw_token = generate_token(self.key_prefix)
         self.public_key_hash = hash_token(raw_token)
+        self.token_encrypted = encrypt_api_token(raw_token)
         return raw_token
+
+    def get_stored_token(self) -> str | None:
+        if not self.token_encrypted:
+            return None
+        return decrypt_api_token(self.token_encrypted)
+
+    def regenerate_token(self) -> str:
+        raw = self.set_token()
+        self.full_clean()
+        self.save(
+            update_fields=["public_key_hash", "token_encrypted", "updated_at"],
+        )
+        return raw
 
     @classmethod
     def create_with_token(

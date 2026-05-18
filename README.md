@@ -99,7 +99,8 @@ Tenant context is resolved from the API token (primary) or from the `Host` heade
 
 - https://admin.stay.hr/admin/
 - Create tenants, domains, properties, units, reservations
-- When adding an **API application** in admin, the raw token is shown once in a warning message
+- **API applications:** device tokens are stored **encrypted** (`token_encrypted`, Fernet via `STAY_INTEGRATION_FERNET_KEY`). On the change form, **Device token** shows the full bearer for copy into Hospira. Legacy rows without ciphertext: use admin action **Regenerate API token** (invalidates the old bearer).
+- When adding an **API application**, the raw token is also shown once in a warning message
 
 ## Cloudflare DNS (api + admin)
 
@@ -123,8 +124,9 @@ Wildcard `*.stay.hr` router labels are commented in `docker-compose.yml`. Enable
 
 ## Security notes
 
-- Raw API tokens are never stored or logged
-- Tokens are hashed with SHA-256 before persistence
+- API authentication uses SHA-256 **hash** lookup (`public_key_hash`); requests do not decrypt `token_encrypted`
+- Recoverable copies for admin are **Fernet-encrypted** in the database (`STAY_INTEGRATION_FERNET_KEY` required in production)
+- Regenerating a token in admin invalidates the previous bearer immediately
 - Revoke access with `is_active=False` on the API application
 - Flutter/mobile tokens must not include `admin:read` or `admin:write`
 

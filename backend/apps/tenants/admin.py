@@ -1,5 +1,7 @@
 from django.contrib import admin, messages
 from django import forms
+from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from apps.tenants.models import VALID_SCOPES, ApiApplication, Tenant, TenantDomain
 
@@ -67,6 +69,29 @@ def deactivate_api_applications(modeladmin, request, queryset):
     )
 
 
+@admin.action(description="Regenerate API token (invalidates previous bearer tokens)")
+def regenerate_api_tokens(modeladmin, request, queryset):
+    lines: list[str] = []
+    for app in queryset:
+        raw = app.regenerate_token()
+        lines.append(f"{app.name} ({app.tenant.slug}):\n{raw}")
+
+    if not lines:
+        modeladmin.message_user(request, "No applications selected.", level=messages.WARNING)
+        return
+
+    body = "\n\n".join(lines[:5])
+    if len(lines) > 5:
+        body += f"\n\n… and {len(lines) - 5} more (open each record for token_display)."
+
+    modeladmin.message_user(
+        request,
+        "New token(s) generated. Update Hospira / clients — old bearer tokens no longer work.\n\n"
+        + body,
+        level=messages.WARNING,
+    )
+
+
 @admin.register(ApiApplication)
 class ApiApplicationAdmin(admin.ModelAdmin):
     form = ApiApplicationAdminForm
@@ -74,14 +99,63 @@ class ApiApplicationAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "tenant")
     search_fields = ("name", "tenant__name", "tenant__slug")
     raw_id_fields = ("tenant",)
-    readonly_fields = ("last_used_at", "created_at", "updated_at")
-    actions = [deactivate_api_applications]
+    readonly_fields = (
+        "token_display",
+        "last_used_at",
+        "created_at",
+        "updated_at",
+    )
+    actions = [regenerate_api_tokens, deactivate_api_applications]
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": ("tenant", "name", "scopes", "is_active"),
+            },
+        ),
+        (
+            "Credentials",
+            {
+                "fields": ("token_display", "public_key_hash", "key_prefix"),
+                "description": (
+                    "Device token for Hospira (Bearer). Regenerate invalidates the previous token. "
+                    "Stored encrypted in the database."
+                ),
+            },
+        ),
+        (
+            "Timestamps",
+            {
+                "fields": ("last_used_at", "created_at", "updated_at"),
+            },
+        ),
+    )
 
     def get_readonly_fields(self, request, obj=None):
         readonly = list(super().get_readonly_fields(request, obj))
-        if obj is not None:
-            readonly.append("public_key_hash")
+        readonly.append("public_key_hash")
         return readonly
+
+    @admin.display(description="Device token")
+    def token_display(self, obj: ApiApplication | None) -> str:
+        if obj is None or not obj.pk:
+            return "—"
+        try:
+            raw = obj.get_stored_token()
+        except Exception as exc:
+            return format_html(
+                '<span style="color:#b00020">{}</span>',
+                str(exc),
+            )
+        if not raw:
+            return mark_safe(
+                "<em>Token nije pohranjen — koristi admin akciju "
+                "„Regenerate API token”.</em>"
+            )
+        return format_html(
+            '<code style="user-select:all;word-break:break-all">{}</code>',
+            raw,
+        )
 
     def save_model(self, request, obj, form, change):
         if change:
@@ -94,6 +168,7 @@ class ApiApplicationAdmin(admin.ModelAdmin):
         obj.save()
         self.message_user(
             request,
-            f"API application created. Copy this token now — it will not be shown again:\n\n{raw_token}",
+            f"API application created. Copy this token now — it is also stored encrypted "
+            f"and visible on this page after save:\n\n{raw_token}",
             level=messages.WARNING,
         )
