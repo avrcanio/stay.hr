@@ -27,9 +27,10 @@ class AppConfigView(TenantAPIView):
 
     def get(self, request):
         tenant = request.tenant
-        properties = Property.objects.filter(tenant=tenant).order_by("name")
+        properties = Property.objects.for_tenant(tenant).order_by("name")
         units = (
-            Unit.objects.filter(tenant=tenant, is_active=True)
+            Unit.objects.for_tenant(tenant)
+            .filter(is_active=True)
             .select_related("property")
             .order_by("property__name", "code")
         )
@@ -57,7 +58,7 @@ class PublicPropertiesView(TenantAPIView):
     permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
 
     def get(self, request):
-        properties = Property.objects.filter(tenant=request.tenant).order_by("name")
+        properties = Property.objects.for_tenant(request.tenant).order_by("name")
         serializer = PublicPropertySerializer(properties, many=True)
         return Response({"results": serializer.data})
 
@@ -67,8 +68,7 @@ class PublicUnitsView(TenantAPIView):
     permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
 
     def get(self, request):
-        units = Unit.objects.filter(
-            tenant=request.tenant,
+        units = Unit.objects.for_tenant(request.tenant).filter(
             is_active=True,
         ).select_related("property")
         property_slug = request.query_params.get("property")
@@ -109,15 +109,13 @@ class PublicAvailabilityView(TenantAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        units = Unit.objects.filter(
-            tenant=request.tenant,
+        units = Unit.objects.for_tenant(request.tenant).filter(
             is_active=True,
         ).select_related("property")
         if property_slug:
             units = units.filter(property__slug=property_slug)
 
-        reservations = Reservation.objects.filter(
-            tenant=request.tenant,
+        reservations = Reservation.objects.for_tenant(request.tenant).filter(
             status__in=[Reservation.Status.PENDING, Reservation.Status.CONFIRMED],
             check_in__lt=to_date,
             check_out__gt=from_date,

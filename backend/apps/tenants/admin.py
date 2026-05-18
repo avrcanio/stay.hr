@@ -54,6 +54,16 @@ class ApiApplicationAdminForm(forms.ModelForm):
         return list(self.cleaned_data.get("scopes") or [])
 
 
+@admin.action(description="Deactivate selected API applications")
+def deactivate_api_applications(modeladmin, request, queryset):
+    updated = queryset.update(is_active=False)
+    modeladmin.message_user(
+        request,
+        f"Deactivated {updated} API application(s).",
+        level=messages.SUCCESS,
+    )
+
+
 @admin.register(ApiApplication)
 class ApiApplicationAdmin(admin.ModelAdmin):
     form = ApiApplicationAdminForm
@@ -62,6 +72,7 @@ class ApiApplicationAdmin(admin.ModelAdmin):
     search_fields = ("name", "tenant__name", "tenant__slug")
     raw_id_fields = ("tenant",)
     readonly_fields = ("last_used_at", "created_at", "updated_at")
+    actions = [deactivate_api_applications]
 
     def get_readonly_fields(self, request, obj=None):
         readonly = list(super().get_readonly_fields(request, obj))

@@ -128,6 +128,26 @@ Wildcard `*.stay.hr` router labels are commented in `docker-compose.yml`. Enable
 - Revoke access with `is_active=False` on the API application
 - Flutter/mobile tokens must not include `admin:read` or `admin:write`
 
+## Shared infra layout
+
+Stay.hr does **not** run its own Postgres or Redis containers. It attaches to the shared Hetzner stack:
+
+| Component | Path / container | Network | Stay usage |
+|-----------|------------------|---------|------------|
+| PostGIS | `/opt/stacks/data` → `postgis` | `postgis` | DB `stay_platform_db`, user `stay` |
+| Redis | `/opt/stacks/redis` → `infra-redis` | `hetzner_net` | Redis logical DB **2** (broker + results) |
+| Traefik | `/opt/stacks/traefik` | `proxy` | TLS for `api.stay.hr`, `admin.stay.hr` |
+
+Create the database once on shared PostGIS (as superuser):
+
+```sql
+CREATE USER stay WITH PASSWORD 'your-password';
+CREATE DATABASE stay_platform_db OWNER stay;
+GRANT ALL PRIVILEGES ON DATABASE stay_platform_db TO stay;
+```
+
+Match `DB_PASSWORD` in `.env`. Celery beat runs an hourly `apps.core.tasks.ping` task to verify the worker pipeline.
+
 ## Stack layout
 
 | Service | Role |

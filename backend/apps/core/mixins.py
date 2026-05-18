@@ -12,4 +12,4 @@ class TenantViewMixin:
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.filter(tenant=self.get_tenant())
+        return queryset.for_tenant(self.get_tenant())

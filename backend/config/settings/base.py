@@ -128,6 +128,12 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+CELERY_BEAT_SCHEDULE = {
+    "core-ping": {
+        "task": "apps.core.tasks.ping",
+        "schedule": 3600.0,
+    },
+}
 
 LOGGING = {
     "version": 1,
