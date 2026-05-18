@@ -1,6 +1,7 @@
 from rest_framework.permissions import BasePermission
 
 ADMIN_SCOPES = frozenset({"admin:read", "admin:write"})
+RECEPTION_SCOPES = frozenset({"reception:read", "reception:write"})
 
 
 class HasApiApplication(BasePermission):

@@ -6,10 +6,24 @@ VALID_SCOPES = frozenset(
     {
         "public:read",
         "reservations:create",
+        "reception:read",
+        "reception:write",
         "admin:read",
         "admin:write",
     }
 )
+
+# Hospira / recepcija (Flutter tablet) — device token scopes per plan.
+RECEPTION_DEVICE_SCOPES = [
+    "reception:read",
+    "reception:write",
+    "public:read",
+]
+
+PUBLIC_BOOKING_SCOPES = [
+    "public:read",
+    "reservations:create",
+]
 
 
 class Tenant(models.Model):

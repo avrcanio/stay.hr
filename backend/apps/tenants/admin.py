@@ -38,7 +38,10 @@ class ApiApplicationAdminForm(forms.ModelForm):
         choices=[(s, s) for s in sorted(VALID_SCOPES)],
         required=False,
         widget=forms.CheckboxSelectMultiple,
-        help_text="Flutter apps should use public:read and optionally reservations:create only.",
+        help_text=(
+            "Hospira/recepcija: reception:read, reception:write, public:read. "
+            "Public booking: public:read, reservations:create. No admin scopes on tablets."
+        ),
     )
 
     class Meta:

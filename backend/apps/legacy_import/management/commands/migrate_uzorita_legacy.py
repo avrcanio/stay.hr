@@ -57,7 +57,11 @@ class Command(BaseCommand):
             if len(stats.errors) > 20:
                 self.stdout.write(f"    ... and {len(stats.errors) - 20} more")
 
+        tenant = options["tenant_slug"]
         self.stdout.write(
-            "\nNext: python manage.py validate_uzorita_migration "
-            f"--tenant-slug {options['tenant_slug']}"
+            f"\nNext: python manage.py validate_uzorita_migration --tenant-slug {tenant}"
+        )
+        self.stdout.write(
+            "Then (once): python manage.py create_api_app "
+            f'--tenant {tenant} --name "Hospira tablet 1" --profile reception'
         )

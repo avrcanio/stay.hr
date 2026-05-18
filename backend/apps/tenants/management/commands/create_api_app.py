@@ -1,8 +1,17 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.tenants.models import VALID_SCOPES, ApiApplication, Tenant
+from apps.tenants.models import (
+    PUBLIC_BOOKING_SCOPES,
+    RECEPTION_DEVICE_SCOPES,
+    VALID_SCOPES,
+    ApiApplication,
+    Tenant,
+)
 
-DEFAULT_SCOPES = ["public:read", "reservations:create"]
+PROFILE_SCOPES = {
+    "public": PUBLIC_BOOKING_SCOPES,
+    "reception": RECEPTION_DEVICE_SCOPES,
+}
 
 
 class Command(BaseCommand):
@@ -12,9 +21,15 @@ class Command(BaseCommand):
         parser.add_argument("--tenant", required=True, help="Tenant slug")
         parser.add_argument("--name", required=True, help="Application display name")
         parser.add_argument(
+            "--profile",
+            choices=sorted(PROFILE_SCOPES),
+            default="public",
+            help="Scope preset: public (booking widget) or reception (Hospira tablet).",
+        )
+        parser.add_argument(
             "--scopes",
-            default=",".join(DEFAULT_SCOPES),
-            help=f"Comma-separated scopes (default: {','.join(DEFAULT_SCOPES)})",
+            default="",
+            help="Comma-separated scopes; overrides --profile when set.",
         )
 
     def handle(self, *args, **options):
@@ -23,7 +38,11 @@ class Command(BaseCommand):
         except Tenant.DoesNotExist as exc:
             raise CommandError(f"Tenant '{options['tenant']}' not found.") from exc
 
-        scopes = [s.strip() for s in options["scopes"].split(",") if s.strip()]
+        if options["scopes"]:
+            scopes = [s.strip() for s in options["scopes"].split(",") if s.strip()]
+        else:
+            scopes = list(PROFILE_SCOPES[options["profile"]])
+
         invalid = set(scopes) - VALID_SCOPES
         if invalid:
             raise CommandError(f"Unknown scopes: {', '.join(sorted(invalid))}")
@@ -33,6 +52,12 @@ class Command(BaseCommand):
                 self.style.WARNING(
                     "Warning: admin scopes should not be used for Flutter/mobile apps."
                 )
+            )
+
+        if options["profile"] == "reception" and not options["scopes"]:
+            self.stdout.write(
+                "Reception device token scopes: "
+                + ", ".join(RECEPTION_DEVICE_SCOPES)
             )
 
         application, raw_token = ApiApplication.create_with_token(
