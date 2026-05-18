@@ -1,0 +1,86 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: stay_redis
+    restart: unless-stopped
+    networks:
+      - stay_internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  django:
+    build: .
+    image: stay-hr-django:latest
+    container_name: stay_django
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - stay_internal
+      - postgis
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      # API
+      - traefik.http.routers.stay-api.rule=Host(`api.stay.hr`)
+      - traefik.http.routers.stay-api.entrypoints=websecure
+      - traefik.http.routers.stay-api.tls=true
+      - traefik.http.routers.stay-api.tls.certresolver=cloudflare
+      - traefik.http.routers.stay-api.service=stay-django
+      # Admin (same backend)
+      - traefik.http.routers.stay-admin.rule=Host(`admin.stay.hr`)
+      - traefik.http.routers.stay-admin.entrypoints=websecure
+      - traefik.http.routers.stay-admin.tls=true
+      - traefik.http.routers.stay-admin.tls.certresolver=cloudflare
+      - traefik.http.routers.stay-admin.service=stay-django
+      - traefik.http.services.stay-django.loadbalancer.server.port=8000
+      # Future tenant subdomains (*.stay.hr) — enable when DNS wildcard is ready:
+      # - traefik.http.routers.stay-tenant.rule=HostRegexp(`^[a-z0-9-]+\.stay\.hr$`)
+      # - traefik.http.routers.stay-tenant.entrypoints=websecure
+      # - traefik.http.routers.stay-tenant.tls=true
+      # - traefik.http.routers.stay-tenant.tls.certresolver=cloudflare
+      # - traefik.http.routers.stay-tenant.service=stay-django
+
+  celery-worker:
+    image: stay-hr-django:latest
+    container_name: stay_celery_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - stay_internal
+      - postgis
+    command: ["celery", "-A", "config", "worker", "-l", "info"]
+
+  celery-beat:
+    image: stay-hr-django:latest
+    container_name: stay_celery_beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - stay_internal
+      - postgis
+    command: ["celery", "-A", "config", "beat", "-l", "info"]
+
+networks:
+  stay_internal:
+    driver: bridge
+    internal: true
+  postgis:
+    external: true
+  proxy:
+    external: true
