@@ -6,8 +6,14 @@ from apps.core.models import TenantScopedModel
 class Reservation(TenantScopedModel):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
-        CONFIRMED = "confirmed", "Confirmed"
-        CANCELLED = "cancelled", "Cancelled"
+        EXPECTED = "expected", "Expected"
+        CHECKED_IN = "checked_in", "Checked in"
+        CHECKED_OUT = "checked_out", "Checked out"
+        CANCELED = "canceled", "Canceled"
+
+    OPERATIONAL_STATUSES = frozenset(
+        {Status.EXPECTED, Status.CHECKED_IN, Status.CHECKED_OUT, Status.CANCELED}
+    )
 
     property = models.ForeignKey(
         "properties.Property",
@@ -15,20 +21,42 @@ class Reservation(TenantScopedModel):
         related_name="reservations",
     )
     external_id = models.CharField(max_length=255, blank=True)
+    legacy_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
     booking_code = models.CharField(max_length=64, blank=True)
     check_in = models.DateField()
     check_out = models.DateField()
     status = models.CharField(
-        max_length=20,
+        max_length=32,
         choices=Status.choices,
-        default=Status.PENDING,
+        default=Status.EXPECTED,
     )
+    booking_status = models.CharField(max_length=64, blank=True)
     booker_name = models.CharField(max_length=255)
     booker_email = models.EmailField(blank=True)
-    booker_phone = models.CharField(max_length=32, blank=True)
+    booker_phone = models.CharField(max_length=64, blank=True)
+    booker_country = models.CharField(max_length=8, blank=True)
+    booker_address = models.TextField(blank=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     currency = models.CharField(max_length=3, default="EUR")
     source = models.CharField(max_length=64, blank=True)
+    import_source = models.CharField(max_length=32, blank=True)
+    booked_at = models.DateTimeField(null=True, blank=True)
+    units_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    persons_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    adults_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    children_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    children_ages = models.CharField(max_length=128, blank=True)
+    commission_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    commission_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    payment_status = models.CharField(max_length=128, blank=True)
+    payment_provider = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    travel_purpose = models.CharField(max_length=128, blank=True)
+    booking_device = models.CharField(max_length=64, blank=True)
+    nights_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    canceled_at = models.DateTimeField(null=True, blank=True)
+    details_pending = models.BooleanField(default=False)
+    imported_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -40,11 +68,59 @@ class Reservation(TenantScopedModel):
                 condition=models.Q(booking_code__gt=""),
                 name="reservations_reservation_unique_tenant_booking_code",
             ),
+            models.UniqueConstraint(
+                fields=["tenant", "external_id"],
+                condition=models.Q(external_id__gt=""),
+                name="reservations_reservation_unique_tenant_external_id",
+            ),
+            models.UniqueConstraint(
+                fields=["tenant", "legacy_id"],
+                condition=models.Q(legacy_id__isnull=False),
+                name="reservations_reservation_unique_tenant_legacy_id",
+            ),
         ]
 
     def __str__(self) -> str:
         label = self.booking_code or self.external_id or str(self.pk)
         return f"{label} ({self.check_in} → {self.check_out})"
+
+
+class ReservationUnit(TenantScopedModel):
+    reservation = models.ForeignKey(
+        Reservation,
+        on_delete=models.CASCADE,
+        related_name="units",
+    )
+    unit = models.ForeignKey(
+        "properties.Unit",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reservation_units",
+    )
+    legacy_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    room_name = models.CharField(max_length=256)
+    amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["reservation_id", "sort_order", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reservation", "sort_order"],
+                name="reservations_unit_unique_sort_order_per_reservation",
+            ),
+            models.UniqueConstraint(
+                fields=["tenant", "legacy_id"],
+                condition=models.Q(legacy_id__isnull=False),
+                name="reservations_unit_unique_tenant_legacy_id",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.reservation_id} #{self.sort_order}: {self.room_name}"
 
 
 class Guest(TenantScopedModel):
@@ -53,15 +129,87 @@ class Guest(TenantScopedModel):
         on_delete=models.CASCADE,
         related_name="guests",
     )
+    legacy_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100, blank=True)
     name = models.CharField(max_length=255)
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=32, blank=True)
-    # document_type / document_number — add when guest ID capture is implemented
+    date_of_birth = models.DateField(null=True, blank=True)
+    document_number = models.CharField(max_length=64, blank=True)
+    nationality = models.CharField(max_length=2, blank=True)
+    sex = models.CharField(max_length=16, blank=True)
+    address = models.TextField(blank=True)
+    date_of_issue = models.DateField(null=True, blank=True)
+    date_of_expiry = models.DateField(null=True, blank=True)
+    issuing_authority = models.CharField(max_length=255, blank=True)
+    personal_id_number = models.CharField(max_length=64, blank=True)
+    document_additional_number = models.CharField(max_length=64, blank=True)
+    additional_personal_id_number = models.CharField(max_length=64, blank=True)
+    document_code = models.CharField(max_length=16, blank=True)
+    document_type = models.CharField(max_length=64, blank=True)
+    document_country = models.CharField(max_length=64, blank=True)
+    document_country_iso2 = models.CharField(max_length=2, blank=True)
+    document_country_iso3 = models.CharField(max_length=3, blank=True)
+    document_country_numeric = models.CharField(max_length=8, blank=True)
+    mrz_raw_text = models.TextField(blank=True)
+    mrz_verified = models.BooleanField(null=True, blank=True)
+    is_primary = models.BooleanField(default=False)
+    evisitor_status = models.CharField(max_length=16, blank=True, default="")
+    evisitor_registration_id = models.UUIDField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["name"]
+        ordering = ["reservation_id", "-is_primary", "last_name", "first_name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reservation"],
+                condition=models.Q(is_primary=True),
+                name="reservations_guest_unique_primary_per_reservation",
+            ),
+            models.UniqueConstraint(
+                fields=["tenant", "legacy_id"],
+                condition=models.Q(legacy_id__isnull=False),
+                name="reservations_guest_unique_tenant_legacy_id",
+            ),
+        ]
 
     def __str__(self) -> str:
-        return self.name
+        return self.name or f"{self.first_name} {self.last_name}".strip()
+
+    def save(self, *args, **kwargs):
+        full = f"{self.first_name} {self.last_name}".strip()
+        if full:
+            self.name = full
+        super().save(*args, **kwargs)
+
+
+class EvisitorSubmission(TenantScopedModel):
+    guest = models.ForeignKey(
+        Guest,
+        on_delete=models.CASCADE,
+        related_name="evisitor_submissions",
+    )
+    legacy_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    registration_id = models.UUIDField()
+    status = models.CharField(max_length=16)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    error_user_message = models.TextField(blank=True)
+    error_system_message = models.TextField(blank=True)
+    request_payload = models.JSONField(default=dict, blank=True)
+    response_payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "legacy_id"],
+                condition=models.Q(legacy_id__isnull=False),
+                name="reservations_evisitor_unique_tenant_legacy_id",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"eVisitor {self.status} guest={self.guest_id}"

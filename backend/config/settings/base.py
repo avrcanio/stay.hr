@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     "apps.properties",
     "apps.reservations",
     "apps.integrations",
+    "apps.legacy_import",
     "apps.api",
 ]
 
@@ -76,6 +77,21 @@ DATABASES = {
         "CONN_MAX_AGE": env("DB_CONN_MAX_AGE"),
     }
 }
+
+_uzorita_db_name = env("UZORITA_DB_NAME", default="")
+if _uzorita_db_name:
+    DATABASES["uzorita_legacy"] = {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": _uzorita_db_name,
+        "USER": env("UZORITA_DB_USER", default="postgres"),
+        "PASSWORD": env("UZORITA_DB_PASSWORD", default=""),
+        "HOST": env("UZORITA_DB_HOST", default="localhost"),
+        "PORT": env("UZORITA_DB_PORT", default="5432"),
+        "CONN_MAX_AGE": env("DB_CONN_MAX_AGE"),
+        "OPTIONS": {
+            "options": "-c default_transaction_read_only=on",
+        },
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {
