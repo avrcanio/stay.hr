@@ -116,6 +116,9 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+DOCUMENT_PHOTO_MAX_BYTES = 8 * 1024 * 1024
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",

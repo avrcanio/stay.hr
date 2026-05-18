@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from apps.reservations.models import EvisitorSubmission, Guest, Reservation, ReservationUnit
+from apps.reservations.models import (
+    DocumentScanLog,
+    EvisitorSubmission,
+    Guest,
+    IdDocument,
+    Reservation,
+    ReservationUnit,
+)
 
 
 class GuestInline(admin.TabularInline):
@@ -50,6 +57,19 @@ class GuestAdmin(admin.ModelAdmin):
     list_filter = ("tenant",)
     search_fields = ("name", "email", "reservation__booking_code")
     raw_id_fields = ("tenant", "reservation")
+
+
+@admin.register(IdDocument)
+class IdDocumentAdmin(admin.ModelAdmin):
+    list_display = ("id", "guest", "created_at")
+    raw_id_fields = ("guest",)
+
+
+@admin.register(DocumentScanLog)
+class DocumentScanLogAdmin(admin.ModelAdmin):
+    list_display = ("id", "guest", "status", "method", "created_at", "tenant")
+    list_filter = ("status", "tenant")
+    raw_id_fields = ("tenant", "reservation", "guest")
 
 
 @admin.register(EvisitorSubmission)

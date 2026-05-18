@@ -221,3 +221,93 @@ class EvisitorSubmission(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"eVisitor {self.status} guest={self.guest_id}"
+
+
+def id_document_face_upload_to(instance, filename: str) -> str:
+    return f"id_documents/faces/{filename}"
+
+
+def id_document_signature_upload_to(instance, filename: str) -> str:
+    return f"id_documents/signatures/{filename}"
+
+
+def id_document_front_upload_to(instance, filename: str) -> str:
+    if getattr(instance, "_passport_photo", False):
+        return f"id_documents/passports/{filename}"
+    return f"id_documents/{filename}"
+
+
+def id_document_back_upload_to(instance, filename: str) -> str:
+    return f"id_documents/{filename}"
+
+
+class IdDocument(models.Model):
+    guest = models.ForeignKey(
+        Guest,
+        on_delete=models.CASCADE,
+        related_name="id_documents",
+    )
+    image_path = models.CharField(max_length=500, blank=True, default="")
+    face_photo = models.ImageField(
+        upload_to=id_document_face_upload_to,
+        null=True,
+        blank=True,
+    )
+    signature_photo = models.ImageField(
+        upload_to=id_document_signature_upload_to,
+        null=True,
+        blank=True,
+    )
+    front_photo = models.ImageField(
+        upload_to=id_document_front_upload_to,
+        null=True,
+        blank=True,
+    )
+    back_photo = models.ImageField(
+        upload_to=id_document_back_upload_to,
+        null=True,
+        blank=True,
+    )
+    extracted_payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+
+    def __str__(self) -> str:
+        return f"IdDocument #{self.pk} guest={self.guest_id}"
+
+
+class DocumentScanStatus(models.TextChoices):
+    OK = "ok", "OK"
+    FAILED = "failed", "Failed"
+
+
+class DocumentScanLog(TenantScopedModel):
+    reservation = models.ForeignKey(
+        Reservation,
+        on_delete=models.CASCADE,
+        related_name="document_scan_logs",
+    )
+    guest = models.ForeignKey(
+        Guest,
+        on_delete=models.CASCADE,
+        related_name="document_scan_logs",
+    )
+    status = models.CharField(max_length=16, choices=DocumentScanStatus.choices)
+    method = models.CharField(max_length=8, blank=True, default="")
+    device_id = models.CharField(max_length=128, blank=True, default="")
+    scanned_at = models.DateTimeField(null=True, blank=True)
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    suggested_fields = models.JSONField(default=dict, blank=True)
+    corrected_fields = models.JSONField(default=dict, blank=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+
+    def __str__(self) -> str:
+        return f"DocumentScanLog #{self.pk} guest={self.guest_id}"

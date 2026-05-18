@@ -1,0 +1,57 @@
+from django.urls import path
+
+from apps.api.reception_views import (
+    DocumentPhotosUploadView,
+    DocumentScanIngestView,
+    EvisitorSubmitView,
+    GuestFacePhotoView,
+    ReceptionHealthView,
+    ReservationDetailView,
+    ReservationGuestDetailView,
+    ReservationGuestListCreateView,
+    ReservationTimelineListView,
+)
+
+urlpatterns = [
+    path("health/", ReceptionHealthView.as_view(), name="reception-health"),
+    path(
+        "reservations/",
+        ReservationTimelineListView.as_view(),
+        name="reception-reservations-list",
+    ),
+    path(
+        "reservations/<int:pk>/",
+        ReservationDetailView.as_view(),
+        name="reception-reservation-detail",
+    ),
+    path(
+        "reservations/<int:reservation_id>/guests/",
+        ReservationGuestListCreateView.as_view(),
+        name="reception-guest-list-create",
+    ),
+    path(
+        "reservations/<int:reservation_id>/guests/<int:guest_id>/",
+        ReservationGuestDetailView.as_view(),
+        name="reception-guest-detail",
+    ),
+    path(
+        "reservations/<int:reservation_id>/guests/<int:guest_id>/face-photo/",
+        GuestFacePhotoView.as_view(),
+        name="reception-guest-face-photo",
+    ),
+    path(
+        "reservations/<int:reservation_id>/guests/<int:guest_id>/document-scan/",
+        DocumentScanIngestView.as_view(),
+        name="reception-document-scan",
+    ),
+    path(
+        "reservations/<int:reservation_id>/guests/<int:guest_id>/document-photos/",
+        DocumentPhotosUploadView.as_view(),
+        name="reception-document-photos",
+    ),
+    path(
+        "reservations/<int:reservation_id>/guests/<int:guest_id>/evisitor-submit/",
+        EvisitorSubmitView.as_view(),
+        name="reception-evisitor-submit",
+    ),
+]

@@ -1,0 +1,357 @@
+from rest_framework import serializers
+
+from apps.integrations.evisitor.exceptions import (
+    EvisitorApiError,
+    EvisitorConfigError,
+    EvisitorValidationError,
+)
+from apps.integrations.evisitor.service import checkout_reservation_guests_in_evisitor
+from apps.integrations.evisitor.summary import (
+    evisitor_status_for_guest,
+    evisitor_summary_for_reservation,
+)
+from apps.reservations.face_photo import guest_face_photo_url
+from apps.reservations.models import (
+    EvisitorGuestStatus,
+    Guest,
+    Reservation,
+    ReservationUnit,
+)
+from apps.reservations.reservation_units import joined_room_names
+
+
+def payment_status_key(raw: str) -> str:
+    value = (raw or "").strip().lower()
+    if not value:
+        return "unknown"
+    if "booking" in value:
+        return "booking"
+    if any(token in value for token in ("plać", "plac", "paid", "naplać", "naplac")):
+        return "paid"
+    if any(token in value for token in ("neplać", "neplac", "unpaid", "duguje")):
+        return "unpaid"
+    if "kartic" in value or "card" in value:
+        return "card"
+    if "gotov" in value or "cash" in value:
+        return "cash"
+    return "other"
+
+
+class GuestLiteSerializer(serializers.ModelSerializer):
+    evisitor_status = serializers.SerializerMethodField()
+    evisitor_error = serializers.SerializerMethodField()
+    face_photo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Guest
+        fields = (
+            "id",
+            "first_name",
+            "last_name",
+            "email",
+            "is_primary",
+            "nationality",
+            "document_number",
+            "date_of_expiry",
+            "evisitor_status",
+            "evisitor_error",
+            "face_photo_url",
+        )
+
+    def get_evisitor_status(self, obj) -> str:
+        return evisitor_status_for_guest(obj)
+
+    def get_evisitor_error(self, obj) -> str:
+        if evisitor_status_for_guest(obj) != EvisitorGuestStatus.FAILED:
+            return ""
+        submission = (
+            obj.evisitor_submissions.filter(status=EvisitorGuestStatus.FAILED)
+            .order_by("-created_at")
+            .first()
+        )
+        if submission:
+            return submission.error_user_message or submission.error_system_message or ""
+        return ""
+
+    def get_face_photo_url(self, obj) -> str:
+        request = self.context.get("request")
+        if not request:
+            return ""
+        return guest_face_photo_url(obj, request)
+
+
+class ReservationUnitSerializer(serializers.ModelSerializer):
+    room = serializers.IntegerField(source="unit_id", read_only=True, allow_null=True)
+    room_code = serializers.SerializerMethodField()
+    room_type = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ReservationUnit
+        fields = (
+            "id",
+            "sort_order",
+            "room_name",
+            "room_type",
+            "room",
+            "room_code",
+            "amount",
+        )
+
+    def get_room_code(self, obj) -> str | None:
+        if obj.unit_id and obj.unit:
+            return obj.unit.code
+        return None
+
+    def get_room_type(self, obj):
+        return None
+
+
+class ReservationTimelineSerializer(serializers.ModelSerializer):
+    check_in_date = serializers.DateField(source="check_in", read_only=True)
+    check_out_date = serializers.DateField(source="check_out", read_only=True)
+    total_amount = serializers.DecimalField(
+        source="amount",
+        max_digits=12,
+        decimal_places=2,
+        read_only=True,
+        allow_null=True,
+    )
+    guests = GuestLiteSerializer(many=True, read_only=True)
+    units = ReservationUnitSerializer(many=True, read_only=True)
+    guests_count = serializers.IntegerField(read_only=True)
+    primary_guest_name = serializers.SerializerMethodField()
+    primary_guest_nationality_iso2 = serializers.SerializerMethodField()
+    room_codes = serializers.SerializerMethodField()
+    room_name = serializers.SerializerMethodField()
+    effective_units_count = serializers.SerializerMethodField()
+    payment_status_key = serializers.SerializerMethodField()
+    evisitor_summary = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Reservation
+        fields = (
+            "id",
+            "external_id",
+            "room_name",
+            "units",
+            "room_codes",
+            "check_in_date",
+            "check_out_date",
+            "status",
+            "booking_status",
+            "total_amount",
+            "currency",
+            "booker_name",
+            "booker_phone",
+            "booker_address",
+            "booker_country",
+            "payment_provider",
+            "commission_percent",
+            "commission_amount",
+            "travel_purpose",
+            "booking_device",
+            "units_count",
+            "effective_units_count",
+            "persons_count",
+            "adults_count",
+            "children_count",
+            "children_ages",
+            "notes",
+            "payment_status",
+            "payment_status_key",
+            "nights_count",
+            "booked_at",
+            "import_source",
+            "guests_count",
+            "primary_guest_name",
+            "primary_guest_nationality_iso2",
+            "guests",
+            "evisitor_summary",
+        )
+
+    def get_primary_guest_name(self, obj):
+        primary_guest = next((g for g in obj.guests.all() if g.is_primary), None)
+        if primary_guest:
+            return f"{primary_guest.first_name} {primary_guest.last_name}".strip()
+        return ""
+
+    def get_primary_guest_nationality_iso2(self, obj):
+        primary_guest = next((g for g in obj.guests.all() if g.is_primary), None)
+        if not primary_guest:
+            return ""
+        return (primary_guest.nationality or "").strip().upper()
+
+    def get_room_codes(self, obj):
+        codes = []
+        for unit in obj.units.all():
+            if unit.unit_id and unit.unit:
+                codes.append(unit.unit.code)
+        return codes
+
+    def get_room_name(self, obj) -> str:
+        return joined_room_names(obj)
+
+    def get_effective_units_count(self, obj) -> int:
+        unit_list = list(obj.units.all())
+        from_units = len(unit_list)
+        from_field = obj.units_count or 0
+        return max(from_field, from_units)
+
+    def get_payment_status_key(self, obj) -> str:
+        return payment_status_key(obj.payment_status)
+
+    def get_evisitor_summary(self, obj) -> str:
+        return evisitor_summary_for_reservation(obj)
+
+
+_ALLOWED_STATUS_TRANSITIONS = {
+    Reservation.Status.EXPECTED: {
+        Reservation.Status.CHECKED_IN,
+        Reservation.Status.CANCELED,
+    },
+    Reservation.Status.CHECKED_IN: {Reservation.Status.CHECKED_OUT},
+    Reservation.Status.CHECKED_OUT: set(),
+    Reservation.Status.CANCELED: set(),
+}
+
+
+class ReservationUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Reservation
+        fields = ("status",)
+
+    def update(self, instance, validated_data):
+        new_status = validated_data.get("status", instance.status)
+        if (
+            instance.status == Reservation.Status.CHECKED_IN
+            and new_status == Reservation.Status.CHECKED_OUT
+        ):
+            try:
+                checkout_reservation_guests_in_evisitor(instance)
+            except EvisitorValidationError as exc:
+                field_errors = getattr(exc, "field_errors", None) or {}
+                if field_errors:
+                    raise serializers.ValidationError(
+                        {"status": "; ".join(f"{k}: {v}" for k, v in field_errors.items())}
+                    ) from exc
+                raise serializers.ValidationError({"status": str(exc)}) from exc
+            except (EvisitorApiError, EvisitorConfigError) as exc:
+                user_msg = getattr(exc, "user_message", "") or str(exc)
+                raise serializers.ValidationError(
+                    {"status": f"eVisitor odjava nije uspjela: {user_msg}"}
+                ) from exc
+        return super().update(instance, validated_data)
+
+    def validate_status(self, value):
+        allowed = {choice[0] for choice in Reservation.Status.choices}
+        if value not in allowed:
+            raise serializers.ValidationError("Nepoznat status rezervacije.")
+
+        instance = getattr(self, "instance", None)
+        if instance is not None:
+            current = instance.status
+            if value == current:
+                return value
+            next_allowed = _ALLOWED_STATUS_TRANSITIONS.get(current, set())
+            if value not in next_allowed:
+                raise serializers.ValidationError(
+                    "Nedozvoljen prijelaz statusa rezervacije."
+                )
+            if (
+                current == Reservation.Status.CHECKED_IN
+                and value == Reservation.Status.CHECKED_OUT
+                and evisitor_summary_for_reservation(instance) != "complete"
+            ):
+                raise serializers.ValidationError(
+                    "Odjava nije moguća dok svi gosti nisu prijavljeni u eVisitor."
+                )
+        return value
+
+
+_GUEST_WRITABLE_FIELDS = (
+    "first_name",
+    "last_name",
+    "email",
+    "date_of_birth",
+    "document_number",
+    "nationality",
+    "sex",
+    "address",
+    "date_of_issue",
+    "date_of_expiry",
+    "issuing_authority",
+    "personal_id_number",
+    "document_additional_number",
+    "additional_personal_id_number",
+    "document_code",
+    "document_type",
+    "document_country",
+    "document_country_iso2",
+    "document_country_iso3",
+    "document_country_numeric",
+    "mrz_raw_text",
+    "mrz_verified",
+    "is_primary",
+)
+
+
+class GuestDetailSerializer(serializers.ModelSerializer):
+    face_photo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Guest
+        fields = ("id", "reservation", "face_photo_url", *_GUEST_WRITABLE_FIELDS)
+        read_only_fields = ("id", "reservation", "face_photo_url")
+
+    def get_face_photo_url(self, obj) -> str:
+        request = self.context.get("request")
+        if not request:
+            return ""
+        return guest_face_photo_url(obj, request)
+
+    def update(self, instance, validated_data):
+        if validated_data.get("is_primary", False):
+            (
+                Guest.objects.filter(reservation=instance.reservation)
+                .exclude(pk=instance.pk)
+                .update(is_primary=False)
+            )
+        return super().update(instance, validated_data)
+
+
+class GuestCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Guest
+        fields = _GUEST_WRITABLE_FIELDS
+        extra_kwargs = {
+            "first_name": {"required": False, "allow_blank": True},
+            "last_name": {"required": False, "allow_blank": True},
+        }
+
+    def validate(self, attrs):
+        first_name = (attrs.get("first_name") or "").strip()
+        last_name = (attrs.get("last_name") or "").strip()
+        if not first_name:
+            attrs["first_name"] = "Novi"
+        else:
+            attrs["first_name"] = first_name
+        if not last_name:
+            attrs["last_name"] = "gost"
+        else:
+            attrs["last_name"] = last_name
+        return attrs
+
+    def create(self, validated_data):
+        reservation = self.context["reservation"]
+        tenant = self.context["tenant"]
+        if "is_primary" not in validated_data:
+            validated_data["is_primary"] = not Guest.objects.filter(
+                reservation=reservation
+            ).exists()
+        if validated_data.get("is_primary", False):
+            Guest.objects.filter(reservation=reservation).update(is_primary=False)
+        return Guest.objects.create(
+            tenant=tenant,
+            reservation=reservation,
+            **validated_data,
+        )

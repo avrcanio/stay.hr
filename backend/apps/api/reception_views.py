@@ -1,0 +1,662 @@
+from __future__ import annotations
+
+import base64
+import json
+import mimetypes
+import time
+from datetime import date as date_type
+
+from django.conf import settings
+from django.core.files.base import ContentFile
+from django.db.models import Count, Prefetch, Q
+from django.http import FileResponse
+from django.utils import timezone
+from django.utils.dateparse import parse_date
+from rest_framework import generics, serializers, status
+from rest_framework.exceptions import NotFound
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from apps.api.permissions import DenyAdminScopes, HasApiApplication, HasScope
+from apps.api.reception_serializers import (
+    GuestCreateSerializer,
+    GuestDetailSerializer,
+    ReservationTimelineSerializer,
+    ReservationUpdateSerializer,
+)
+from apps.api.views import TenantAPIView
+from apps.integrations.evisitor.exceptions import (
+    EvisitorApiError,
+    EvisitorConfigError,
+    EvisitorValidationError,
+)
+from apps.integrations.evisitor.service import submit_guest_checkin
+from apps.reservations.document_photo_storage import (
+    DOCUMENT_TYPE_NATIONAL_ID,
+    DOCUMENT_TYPE_PASSPORT,
+    document_photo_filename,
+)
+from apps.reservations.face_photo import guest_face_photo_document
+from apps.reservations.models import (
+    DocumentScanLog,
+    DocumentScanStatus,
+    EvisitorGuestStatus,
+    Guest,
+    IdDocument,
+    Reservation,
+    ReservationUnit,
+)
+
+
+class ReceptionReadView(TenantAPIView):
+    required_scopes = ["reception:read"]
+    permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
+
+
+class ReceptionWriteView(TenantAPIView):
+    required_scopes = ["reception:write"]
+    permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
+
+
+def _reservation_queryset(tenant):
+    return (
+        Reservation.objects.for_tenant(tenant)
+        .annotate(guests_count=Count("guests", distinct=True))
+        .prefetch_related(
+            Prefetch("guests", queryset=Guest.objects.order_by("-is_primary", "id")),
+            _guest_face_photo_prefetch(),
+            Prefetch(
+                "units",
+                queryset=ReservationUnit.objects.select_related("unit").order_by(
+                    "sort_order", "id"
+                ),
+            ),
+        )
+    )
+
+
+def _guest_face_photo_prefetch() -> Prefetch:
+    return Prefetch(
+        "guests__id_documents",
+        queryset=IdDocument.objects.filter(face_photo__isnull=False)
+        .exclude(face_photo="")
+        .order_by("-created_at"),
+    )
+
+
+def _guest_id_documents_prefetch() -> Prefetch:
+    return Prefetch(
+        "id_documents",
+        queryset=IdDocument.objects.filter(face_photo__isnull=False)
+        .exclude(face_photo="")
+        .order_by("-created_at"),
+    )
+
+
+def _get_reservation(tenant, reservation_id: int) -> Reservation:
+    reservation = (
+        Reservation.objects.for_tenant(tenant).filter(pk=reservation_id).first()
+    )
+    if reservation is None:
+        raise NotFound("Rezervacija nije pronađena.")
+    return reservation
+
+
+def _get_guest(tenant, reservation_id: int, guest_id: int) -> Guest:
+    guest = (
+        Guest.objects.for_tenant(tenant)
+        .filter(pk=guest_id, reservation_id=reservation_id)
+        .first()
+    )
+    if guest is None:
+        raise NotFound("Gost nije pronađen.")
+    return guest
+
+
+class ReceptionHealthView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response({"service": "reception", "status": "ok"})
+
+
+class ReservationTimelineListView(ReceptionReadView, generics.ListAPIView):
+    serializer_class = ReservationTimelineSerializer
+
+    def get_queryset(self):
+        queryset = _reservation_queryset(self.request.tenant).order_by("check_in", "id")
+
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            queryset = queryset.filter(status=status_param)
+
+        day = self._parse_date("date")
+        if day:
+            queryset = queryset.filter(check_in__lte=day, check_out__gt=day)
+
+        check_in_from = self._parse_date("check_in_from")
+        if check_in_from:
+            queryset = queryset.filter(check_in__gte=check_in_from)
+
+        check_in_to = self._parse_date("check_in_to")
+        if check_in_to:
+            queryset = queryset.filter(check_in__lte=check_in_to)
+
+        period_from = self._parse_date("period_from")
+        period_to = self._parse_date("period_to")
+        if period_from and period_to:
+            queryset = queryset.filter(
+                Q(status=Reservation.Status.CHECKED_IN)
+                | Q(check_in__gte=period_from, check_in__lte=period_to)
+                | Q(check_out__gte=period_from, check_out__lte=period_to)
+            )
+
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(external_id__icontains=search)
+                | Q(units__room_name__icontains=search)
+                | Q(guests__first_name__icontains=search)
+                | Q(guests__last_name__icontains=search)
+            ).distinct()
+
+        return queryset
+
+    def _parse_date(self, key: str) -> date_type | None:
+        raw_value = self.request.query_params.get(key)
+        if not raw_value:
+            return None
+        return parse_date(raw_value)
+
+
+class ReservationDetailView(TenantAPIView, generics.RetrieveUpdateAPIView):
+    permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
+
+    def get_permissions(self):
+        if self.request.method in ("PATCH", "PUT"):
+            self.required_scopes = ["reception:write"]
+        else:
+            self.required_scopes = ["reception:read"]
+        return [permission() for permission in self.permission_classes]
+
+    def get_serializer_class(self):
+        if self.request.method in ("PUT", "PATCH"):
+            return ReservationUpdateSerializer
+        return ReservationTimelineSerializer
+
+    def get_queryset(self):
+        return _reservation_queryset(self.request.tenant).order_by("id")
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        update_serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        update_serializer.is_valid(raise_exception=True)
+        self.perform_update(update_serializer)
+        detail = self.get_queryset().get(pk=instance.pk)
+        output = ReservationTimelineSerializer(detail, context=self.get_serializer_context())
+        return Response(output.data)
+
+
+class ReservationGuestListCreateView(ReceptionWriteView, generics.CreateAPIView):
+    serializer_class = GuestCreateSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["reservation"] = _get_reservation(
+            self.request.tenant, self.kwargs["reservation_id"]
+        )
+        context["tenant"] = self.request.tenant
+        return context
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        guest = serializer.save()
+        output = GuestDetailSerializer(guest, context=self.get_serializer_context())
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+
+class ReservationGuestDetailView(TenantAPIView, generics.RetrieveUpdateAPIView):
+    serializer_class = GuestDetailSerializer
+    lookup_url_kwarg = "guest_id"
+    permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
+
+    def get_permissions(self):
+        if self.request.method in ("PATCH", "PUT"):
+            self.required_scopes = ["reception:write"]
+        else:
+            self.required_scopes = ["reception:read"]
+        return [permission() for permission in self.permission_classes]
+
+    def get_queryset(self):
+        return (
+            Guest.objects.for_tenant(self.request.tenant)
+            .filter(reservation_id=self.kwargs["reservation_id"])
+            .prefetch_related(_guest_id_documents_prefetch())
+            .order_by("id")
+        )
+
+
+class GuestFacePhotoView(ReceptionReadView, APIView):
+    def get(self, request, reservation_id: int, guest_id: int):
+        guest = _get_guest(request.tenant, reservation_id, guest_id)
+        doc = guest_face_photo_document(guest)
+        if doc is None or not doc.face_photo:
+            raise NotFound("Fotografija gosta nije dostupna.")
+        content_type, _ = mimetypes.guess_type(doc.face_photo.name)
+        return FileResponse(
+            doc.face_photo.open("rb"),
+            content_type=content_type or "image/jpeg",
+        )
+
+
+class DocumentScanIngestView(ReceptionWriteView, APIView):
+    parser_classes = [JSONParser]
+
+    def post(self, request, reservation_id: int, guest_id: int):
+        _get_reservation(request.tenant, reservation_id)
+        guest = _get_guest(request.tenant, reservation_id, guest_id)
+
+        started = time.perf_counter()
+        status_value = DocumentScanStatus.FAILED
+        error_message = ""
+        raw_payload = self._parse_json_field(request.data)
+        (
+            normalized_suggested,
+            guest_updates,
+            face_photo_b64,
+            signature_b64,
+            scanned_at,
+            method,
+            device_id,
+        ) = self._build_guest_updates_from_document_scan_payload(raw_payload=raw_payload)
+
+        suggested_fields = normalized_suggested
+
+        if guest_updates:
+            status_value = DocumentScanStatus.OK
+        else:
+            status_value = DocumentScanStatus.FAILED
+            error_message = "Ne mogu mapirati payload u polja gosta."
+
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        duration_ms = self._parse_int(request.data.get("duration_ms")) or elapsed_ms
+
+        scan_log = DocumentScanLog.objects.create(
+            tenant=request.tenant,
+            reservation_id=reservation_id,
+            guest=guest,
+            status=status_value,
+            method=method,
+            device_id=device_id,
+            scanned_at=scanned_at,
+            duration_ms=duration_ms,
+            raw_payload=raw_payload,
+            suggested_fields=suggested_fields,
+            corrected_fields={},
+            error_message=error_message,
+        )
+
+        if status_value == DocumentScanStatus.OK and guest_updates:
+            for field, value in guest_updates.items():
+                setattr(guest, field, value)
+            guest.save(update_fields=list(guest_updates.keys()) + ["updated_at", "name"])
+
+        id_document_id = None
+        if status_value == DocumentScanStatus.OK and (face_photo_b64 or signature_b64):
+            id_document = IdDocument.objects.create(
+                guest=guest, image_path="", extracted_payload={}
+            )
+            id_document_id = id_document.id
+
+            if face_photo_b64:
+                content = self._decode_b64_image(face_photo_b64)
+                if content:
+                    id_document.face_photo.save(f"guest_{guest_id}_face.jpg", content, save=True)
+
+            if signature_b64:
+                content = self._decode_b64_image(signature_b64)
+                if content:
+                    id_document.signature_photo.save(
+                        f"guest_{guest_id}_signature.jpg", content, save=True
+                    )
+
+        return Response(
+            {
+                "scan_log_id": scan_log.id,
+                "scan_status": status_value,
+                "duration_ms": duration_ms,
+                "id_document_id": id_document_id,
+                "suggested_fields": suggested_fields,
+                "raw_payload": raw_payload,
+                "error": error_message,
+            }
+        )
+
+    def _decode_b64_image(self, value: str):
+        try:
+            raw = (value or "").strip()
+            if not raw:
+                return None
+            if raw.startswith("data:"):
+                raw = raw.split(",", 1)[1]
+            decoded = base64.b64decode(raw, validate=False)
+            if not decoded:
+                return None
+            return ContentFile(decoded)
+        except Exception:
+            return None
+
+    def _build_guest_updates_from_document_scan_payload(self, raw_payload: dict):
+        meta = raw_payload.get("metapodaci") if isinstance(raw_payload.get("metapodaci"), dict) else {}
+        guest_data = (
+            raw_payload.get("podaci_gosta")
+            if isinstance(raw_payload.get("podaci_gosta"), dict)
+            else {}
+        )
+        biom = (
+            raw_payload.get("biometrija")
+            if isinstance(raw_payload.get("biometrija"), dict)
+            else {}
+        )
+
+        method = str(meta.get("metoda_ocitanja", "")).strip().upper()
+        if method not in {"OCR", "NFC"}:
+            method = ""
+
+        device_id = str(meta.get("uredaj_id", "")).strip()
+
+        scanned_at = timezone.now()
+        scanned_raw = str(meta.get("vrijeme_skeniranja", "")).strip()
+        if scanned_raw:
+            try:
+                scanned_at = timezone.datetime.fromisoformat(scanned_raw.replace("Z", "+00:00"))
+            except ValueError:
+                pass
+
+        def as_str(key: str) -> str:
+            val = guest_data.get(key)
+            return str(val).strip() if val is not None else ""
+
+        updates = {}
+        first_name = as_str("ime")
+        last_name = as_str("prezime")
+        if first_name:
+            updates["first_name"] = first_name
+        if last_name:
+            updates["last_name"] = last_name
+
+        doc_no = as_str("broj_dokumenta")
+        if doc_no:
+            updates["document_number"] = doc_no
+
+        sex = as_str("spol")
+        if sex:
+            updates["sex"] = sex
+
+        oib = as_str("oib")
+        if oib:
+            updates["personal_id_number"] = oib
+
+        dob = as_str("datum_rodenja")
+        if dob:
+            parsed = parse_date(dob)
+            if parsed:
+                updates["date_of_birth"] = parsed
+
+        doe = as_str("datum_isteka")
+        if doe:
+            parsed = parse_date(doe)
+            if parsed:
+                updates["date_of_expiry"] = parsed
+
+        nat = as_str("drzavljanstvo").upper()
+        if nat == "HRV":
+            nat = "HR"
+        if len(nat) > 2:
+            nat = nat[:2]
+        if nat:
+            updates["nationality"] = nat
+
+        issue_iso3 = as_str("drzava_izdavanja").upper()
+        if issue_iso3:
+            updates["document_country_iso3"] = issue_iso3[:3]
+            if issue_iso3[:3] == "HRV":
+                updates["document_country_iso2"] = "HR"
+
+        adresa = as_str("adresa")
+        if adresa:
+            updates["address"] = adresa
+
+        tip = str(meta.get("tip_dokumenta", "")).strip().lower()
+        if tip == "passport":
+            updates["document_type"] = "Putovnica"
+        elif tip == "national_id":
+            updates["document_type"] = "Osobna iskaznica"
+
+        mrz = str(raw_payload.get("sirovi_mrz", "")).strip()
+        if mrz:
+            updates["mrz_raw_text"] = mrz
+            updates["mrz_verified"] = True
+
+        face_photo_b64 = str(biom.get("fotografija_b64", "")).strip()
+        signature_b64 = str(biom.get("potpis_b64", "")).strip()
+
+        suggested_fields = {
+            "first_name": first_name,
+            "last_name": last_name,
+            "document_number": doc_no,
+            "nationality": nat,
+            "date_of_birth": dob,
+            "address": adresa,
+        }
+        suggested_fields = {k: v for k, v in suggested_fields.items() if v}
+
+        return suggested_fields, updates, face_photo_b64, signature_b64, scanned_at, method, device_id
+
+    def _parse_json_field(self, value):
+        if isinstance(value, dict):
+            return value
+        if value is None or value == "":
+            return {}
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                return parsed if isinstance(parsed, dict) else {}
+            except json.JSONDecodeError:
+                return {}
+        return {}
+
+    def _parse_int(self, value):
+        try:
+            if value in (None, ""):
+                return None
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+
+def _max_photo_bytes() -> int:
+    return int(getattr(settings, "DOCUMENT_PHOTO_MAX_BYTES", 8 * 1024 * 1024))
+
+
+def _validate_photo_file(value) -> object:
+    max_bytes = _max_photo_bytes()
+    if value.size > max_bytes:
+        raise serializers.ValidationError(f"Datoteka je prevelika (max {max_bytes} bajtova).")
+    return value
+
+
+class DocumentPhotosUploadSerializer(serializers.Serializer):
+    document_type = serializers.ChoiceField(
+        choices=[DOCUMENT_TYPE_PASSPORT, DOCUMENT_TYPE_NATIONAL_ID],
+    )
+    front = serializers.FileField()
+    back = serializers.FileField(required=False, allow_null=True)
+
+    def validate_front(self, value):
+        return _validate_photo_file(value)
+
+    def validate_back(self, value):
+        if value is None:
+            return value
+        return _validate_photo_file(value)
+
+    def validate(self, attrs):
+        document_type = attrs["document_type"]
+        back = attrs.get("back")
+        if document_type == DOCUMENT_TYPE_NATIONAL_ID and not back:
+            raise serializers.ValidationError(
+                {"back": "Stražnja strana je obavezna za osobnu iskaznicu."}
+            )
+        return attrs
+
+
+_GUEST_DOCUMENT_TYPE_LABELS = {
+    DOCUMENT_TYPE_PASSPORT: "Putovnica",
+    DOCUMENT_TYPE_NATIONAL_ID: "Osobna iskaznica",
+}
+
+
+def _active_id_document_for_guest(guest: Guest) -> IdDocument:
+    doc = guest.id_documents.order_by("-created_at", "-id").first()
+    if doc is None:
+        doc = IdDocument.objects.create(guest=guest, image_path="")
+    return doc
+
+
+class DocumentPhotosUploadView(ReceptionWriteView, APIView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, reservation_id: int, guest_id: int):
+        _get_reservation(request.tenant, reservation_id)
+        guest = _get_guest(request.tenant, reservation_id, guest_id)
+
+        serializer = DocumentPhotosUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        id_document = _active_id_document_for_guest(guest)
+        front_saved = False
+        back_saved = False
+
+        doc_type = data["document_type"]
+        id_document._passport_photo = doc_type == DOCUMENT_TYPE_PASSPORT
+
+        front = data["front"]
+        front_name = document_photo_filename(
+            guest_id=guest.id,
+            document_type=doc_type,
+            side="front",
+        )
+        id_document.front_photo.save(front_name, front, save=False)
+        front_saved = True
+
+        back = data.get("back")
+        if back is not None:
+            back_name = document_photo_filename(
+                guest_id=guest.id,
+                document_type=doc_type,
+                side="back",
+            )
+            id_document.back_photo.save(back_name, back, save=False)
+            back_saved = True
+
+        id_document.save(update_fields=["front_photo", "back_photo", "updated_at"])
+
+        guest.document_type = _GUEST_DOCUMENT_TYPE_LABELS[data["document_type"]]
+        guest.save(update_fields=["document_type", "updated_at", "name"])
+
+        return Response(
+            {
+                "id_document_id": id_document.id,
+                "document_type": data["document_type"],
+                "front_saved": front_saved,
+                "back_saved": back_saved,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+_EVISITOR_FIELD_LABELS_HR = {
+    "first_name": "Ime",
+    "last_name": "Prezime",
+    "sex": "Spol",
+    "date_of_birth": "Datum rođenja",
+    "nationality": "Državljanstvo",
+    "document_type": "Tip dokumenta",
+    "document_number": "Broj dokumenta",
+    "facility": "Šifra objekta",
+    "stay_dates": "Datumi boravka",
+}
+
+
+def _evisitor_validation_message(exc: EvisitorValidationError, field_errors: dict) -> str:
+    if not field_errors:
+        return str(exc)
+    lines = [
+        f"{_EVISITOR_FIELD_LABELS_HR.get(key, key)}: {msg}"
+        for key, msg in field_errors.items()
+    ]
+    return "Podaci nisu potpuni za eVisitor prijavu.\n" + "\n".join(lines)
+
+
+class EvisitorSubmitView(ReceptionWriteView, APIView):
+    def post(self, request, reservation_id: int, guest_id: int):
+        _get_reservation(request.tenant, reservation_id)
+        guest = _get_guest(request.tenant, reservation_id, guest_id)
+
+        force_retry = bool(request.data.get("force_retry")) if isinstance(
+            request.data, dict
+        ) else False
+
+        if guest.evisitor_status == EvisitorGuestStatus.SENT and not force_retry:
+            return Response(
+                {
+                    "status": EvisitorGuestStatus.SENT,
+                    "registration_id": str(guest.evisitor_registration_id or ""),
+                    "message": "Gost je već prijavljen u eVisitor.",
+                }
+            )
+
+        try:
+            submission = submit_guest_checkin(guest, force_retry=force_retry)
+        except EvisitorValidationError as exc:
+            field_errors = exc.field_errors or {}
+            return Response(
+                {
+                    "status": "validation_failed",
+                    "message": _evisitor_validation_message(exc, field_errors),
+                    "field_errors": field_errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except EvisitorConfigError as exc:
+            return Response(
+                {
+                    "status": "config_error",
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except EvisitorApiError as exc:
+            return Response(
+                {
+                    "status": EvisitorGuestStatus.FAILED,
+                    "user_message": exc.user_message or str(exc),
+                    "system_message": exc.system_message,
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {
+                "status": submission.status,
+                "registration_id": str(submission.registration_id),
+                "submitted_at": submission.submitted_at,
+            }
+        )
