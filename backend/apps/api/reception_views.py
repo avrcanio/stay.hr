@@ -48,6 +48,7 @@ from apps.reservations.models import (
     Reservation,
     ReservationUnit,
 )
+from apps.reservations.statistics import aggregate_monthly_statistics
 
 
 class ReceptionReadView(TenantAPIView):
@@ -121,6 +122,28 @@ class ReceptionHealthView(APIView):
 
     def get(self, request):
         return Response({"service": "reception", "status": "ok"})
+
+
+class ReceptionMonthlyStatisticsView(ReceptionReadView):
+    def get(self, request):
+        year_param = request.query_params.get("year")
+        if year_param is None or str(year_param).strip() == "":
+            year = timezone.localdate().year
+        else:
+            try:
+                year = int(year_param)
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "year mora biti cijeli broj."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if year < 2000 or year > 2100:
+                return Response(
+                    {"detail": "year izvan dopuštenog raspona."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        return Response(aggregate_monthly_statistics(request.tenant, year))
 
 
 class ReservationTimelineListView(ReceptionReadView, generics.ListAPIView):

@@ -148,6 +148,29 @@ class ReceptionAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         mock_submit.assert_called_once()
 
+    def test_monthly_statistics(self):
+        self.reservation.status = Reservation.Status.CHECKED_IN
+        self.reservation.save(update_fields=["status", "updated_at"])
+
+        response = self.client.get(
+            "/api/v1/reception/statistics/monthly/?year=2026",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["year"], 2026)
+        self.assertEqual(data["comparison_year"], 2025)
+        self.assertEqual(len(data["months"]), 12)
+        may = next(m for m in data["months"] if m["month"] == 5)
+        self.assertEqual(may["current"]["revenue"], "120.00")
+
+    def test_monthly_statistics_invalid_year(self):
+        response = self.client.get(
+            "/api/v1/reception/statistics/monthly/?year=abc",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_read_scope_blocks_write(self):
         read_only_app, read_token = ApiApplication.create_with_token(
             tenant=self.tenant,
