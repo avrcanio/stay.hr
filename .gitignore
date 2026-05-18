@@ -1,6 +1,7 @@
 .env
 .env.local
 scripts/.env
+.cursor/
 *.pyc
 __pycache__/
 .pytest_cache/
