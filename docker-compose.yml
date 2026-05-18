@@ -1,16 +1,4 @@
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: stay_redis
-    restart: unless-stopped
-    networks:
-      - stay_internal
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
   django:
     build: .
     image: stay-hr-django:latest
@@ -18,13 +6,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    depends_on:
-      redis:
-        condition: service_healthy
     networks:
-      - stay_internal
       - postgis
       - proxy
+      - hetzner_net
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
@@ -49,38 +34,33 @@ services:
       # - traefik.http.routers.stay-tenant.service=stay-django
 
   celery-worker:
+    build: .
     image: stay-hr-django:latest
     container_name: stay_celery_worker
     restart: unless-stopped
     env_file:
       - .env
-    depends_on:
-      redis:
-        condition: service_healthy
     networks:
-      - stay_internal
       - postgis
+      - hetzner_net
     command: ["celery", "-A", "config", "worker", "-l", "info"]
 
   celery-beat:
+    build: .
     image: stay-hr-django:latest
     container_name: stay_celery_beat
     restart: unless-stopped
     env_file:
       - .env
-    depends_on:
-      redis:
-        condition: service_healthy
     networks:
-      - stay_internal
       - postgis
+      - hetzner_net
     command: ["celery", "-A", "config", "beat", "-l", "info"]
 
 networks:
-  stay_internal:
-    driver: bridge
-    internal: true
   postgis:
     external: true
   proxy:
+    external: true
+  hetzner_net:
     external: true
