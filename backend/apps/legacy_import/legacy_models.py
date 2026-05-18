@@ -114,6 +114,23 @@ class LegacyGuest(models.Model):
         db_table = "reception_guest"
 
 
+class LegacyIdDocument(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    guest_id = models.BigIntegerField()
+    image_path = models.CharField(max_length=500)
+    face_photo = models.CharField(max_length=100)
+    signature_photo = models.CharField(max_length=100)
+    front_photo = models.CharField(max_length=100)
+    back_photo = models.CharField(max_length=100)
+    extracted_payload = models.JSONField()
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "reception_iddocument"
+
+
 class LegacyEvisitorSubmission(models.Model):
     id = models.BigAutoField(primary_key=True)
     guest_id = models.BigIntegerField()
