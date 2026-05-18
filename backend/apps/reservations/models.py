@@ -123,6 +123,14 @@ class ReservationUnit(TenantScopedModel):
         return f"{self.reservation_id} #{self.sort_order}: {self.room_name}"
 
 
+class EvisitorGuestStatus(models.TextChoices):
+    NOT_SENT = "not_sent", "Nije poslano"
+    PENDING = "pending", "U tijeku"
+    SENT = "sent", "Poslano"
+    CHECKED_OUT = "checked_out", "Odjavljeno"
+    FAILED = "failed", "Neuspješno"
+
+
 class Guest(TenantScopedModel):
     reservation = models.ForeignKey(
         Reservation,

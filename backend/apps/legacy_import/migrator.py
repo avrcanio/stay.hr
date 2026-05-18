@@ -340,11 +340,13 @@ class UzoritaLegacyMigrator:
             ).strip(),
         }
 
-        _, created = IntegrationConfig.objects.update_or_create(
+        row, created = IntegrationConfig.objects.update_or_create(
             tenant=tenant,
             provider=IntegrationConfig.Provider.EVISITOR,
             property=prop,
-            defaults={"config": config, "is_active": enabled or bool(username)},
+            defaults={"is_active": enabled or bool(username)},
         )
+        row.set_config_dict(config)
+        row.save(update_fields=["config", "config_encrypted", "is_active", "updated_at"])
         if created:
             self.stats.integration_configs += 1
