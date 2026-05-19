@@ -7,12 +7,14 @@ from apps.api.views import (
     PublicReservationCreateView,
     PublicUnitsView,
 )
+from apps.api.fcm_views import FcmTokenRegisterView
 
 urlpatterns = [
     path("integrations/", include("apps.api.integrations_urls")),
     path("reception/", include("apps.api.reception_urls")),
     path("rooms/", include("apps.api.rooms_urls")),
     path("app/config", AppConfigView.as_view(), name="app-config"),
+    path("app/fcm-token", FcmTokenRegisterView.as_view(), name="app-fcm-token"),
     path("public/properties", PublicPropertiesView.as_view(), name="public-properties"),
     path("public/units", PublicUnitsView.as_view(), name="public-units"),
     path(

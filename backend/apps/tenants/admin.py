@@ -114,12 +114,14 @@ def regenerate_api_tokens(modeladmin, request, queryset):
 @admin.register(ApiApplication)
 class ApiApplicationAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     form = ApiApplicationAdminForm
-    list_display = ("name", "tenant", "key_prefix", "is_active", "last_used_at", "created_at")
+    list_display = ("name", "tenant", "key_prefix", "is_active", "has_fcm_token", "last_used_at", "created_at")
     list_filter = ("is_active", "tenant")
     search_fields = ("name", "tenant__name", "tenant__slug")
     raw_id_fields = ("tenant",)
     readonly_fields = (
         "token_display",
+        "fcm_token_display",
+        "fcm_token_updated_at",
         "last_used_at",
         "created_at",
         "updated_at",
@@ -140,6 +142,13 @@ class ApiApplicationAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                     "Device token for Hospira (Bearer). Regenerate invalidates the previous token. "
                     "Stored encrypted in the database."
                 ),
+            },
+        ),
+        (
+            "Push (FCM)",
+            {
+                "fields": ("fcm_token_display", "fcm_token_updated_at"),
+                "description": "Registered by Hospira via PUT /api/v1/app/fcm-token.",
             },
         ),
         (
@@ -175,6 +184,21 @@ class ApiApplicationAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             '<code style="user-select:all;word-break:break-all">{}</code>',
             raw,
         )
+
+    @admin.display(description="FCM", boolean=True)
+    def has_fcm_token(self, obj: ApiApplication) -> bool:
+        return bool(obj.fcm_token)
+
+    @admin.display(description="FCM token")
+    def fcm_token_display(self, obj: ApiApplication | None) -> str:
+        if obj is None or not obj.pk or not obj.fcm_token:
+            return "—"
+        token = obj.fcm_token
+        if len(token) <= 24:
+            masked = token
+        else:
+            masked = f"{token[:12]}…{token[-8:]}"
+        return format_html("<code>{}</code>", masked)
 
     def save_model(self, request, obj, form, change):
         self._enforce_tenant_on_save(request, obj)
