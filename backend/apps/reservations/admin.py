@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from apps.core.admin import TenantScopedAdminMixin
 from apps.reservations.models import (
     DocumentScanLog,
     EvisitorSubmission,
@@ -22,7 +23,7 @@ class ReservationUnitInline(admin.TabularInline):
 
 
 @admin.register(Reservation)
-class ReservationAdmin(admin.ModelAdmin):
+class ReservationAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "booking_code",
         "property",
@@ -45,14 +46,14 @@ class ReservationAdmin(admin.ModelAdmin):
 
 
 @admin.register(ReservationUnit)
-class ReservationUnitAdmin(admin.ModelAdmin):
+class ReservationUnitAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("reservation", "room_name", "unit", "sort_order", "tenant")
     list_filter = ("tenant",)
     raw_id_fields = ("tenant", "reservation", "unit")
 
 
 @admin.register(Guest)
-class GuestAdmin(admin.ModelAdmin):
+class GuestAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("name", "reservation", "tenant", "is_primary", "evisitor_status", "email")
     list_filter = ("tenant",)
     search_fields = ("name", "email", "reservation__booking_code")
@@ -60,20 +61,21 @@ class GuestAdmin(admin.ModelAdmin):
 
 
 @admin.register(IdDocument)
-class IdDocumentAdmin(admin.ModelAdmin):
+class IdDocumentAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    tenant_field = "guest__tenant"
     list_display = ("id", "guest", "created_at")
     raw_id_fields = ("guest",)
 
 
 @admin.register(DocumentScanLog)
-class DocumentScanLogAdmin(admin.ModelAdmin):
+class DocumentScanLogAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("id", "guest", "status", "method", "created_at", "tenant")
     list_filter = ("status", "tenant")
     raw_id_fields = ("tenant", "reservation", "guest")
 
 
 @admin.register(EvisitorSubmission)
-class EvisitorSubmissionAdmin(admin.ModelAdmin):
+class EvisitorSubmissionAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("guest", "status", "registration_id", "submitted_at", "tenant")
     list_filter = ("status", "tenant")
     raw_id_fields = ("tenant", "guest")

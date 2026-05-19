@@ -1,9 +1,20 @@
-from django.contrib import admin, messages
 from django import forms
+from django.contrib import admin, messages
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
-from apps.tenants.models import VALID_SCOPES, ApiApplication, Tenant, TenantDomain
+from apps.core.admin import SuperuserOnlyAdminMixin, TenantScopedAdminMixin
+from apps.tenants.models import (
+    VALID_SCOPES,
+    ApiApplication,
+    Tenant,
+    TenantDomain,
+    TenantMembership,
+)
+
+User = get_user_model()
 
 
 class TenantDomainInline(admin.TabularInline):
@@ -11,8 +22,16 @@ class TenantDomainInline(admin.TabularInline):
     extra = 0
 
 
+class TenantMembershipInline(admin.TabularInline):
+    model = TenantMembership
+    extra = 1
+    raw_id_fields = ("tenant",)
+    verbose_name = "Tenant access"
+    verbose_name_plural = "Tenant access"
+
+
 @admin.register(Tenant)
-class TenantAdmin(admin.ModelAdmin):
+class TenantAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     list_display = (
         "name",
         "slug",
@@ -28,7 +47,7 @@ class TenantAdmin(admin.ModelAdmin):
 
 
 @admin.register(TenantDomain)
-class TenantDomainAdmin(admin.ModelAdmin):
+class TenantDomainAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("domain", "tenant", "domain_type", "is_primary", "is_verified")
     list_filter = ("domain_type", "is_primary", "is_verified")
     search_fields = ("domain", "tenant__name", "tenant__slug")
@@ -93,7 +112,7 @@ def regenerate_api_tokens(modeladmin, request, queryset):
 
 
 @admin.register(ApiApplication)
-class ApiApplicationAdmin(admin.ModelAdmin):
+class ApiApplicationAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     form = ApiApplicationAdminForm
     list_display = ("name", "tenant", "key_prefix", "is_active", "last_used_at", "created_at")
     list_filter = ("is_active", "tenant")
@@ -158,6 +177,7 @@ class ApiApplicationAdmin(admin.ModelAdmin):
         )
 
     def save_model(self, request, obj, form, change):
+        self._enforce_tenant_on_save(request, obj)
         if change:
             obj.full_clean()
             obj.save()
@@ -172,3 +192,12 @@ class ApiApplicationAdmin(admin.ModelAdmin):
             f"and visible on this page after save:\n\n{raw_token}",
             level=messages.WARNING,
         )
+
+
+# Replace default User admin (platform superusers manage staff + tenant access).
+admin.site.unregister(User)
+
+
+@admin.register(User)
+class StayUserAdmin(SuperuserOnlyAdminMixin, DjangoUserAdmin):
+    inlines = list(DjangoUserAdmin.inlines) + [TenantMembershipInline]

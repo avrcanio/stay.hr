@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from apps.core.admin import TenantScopedAdminMixin
 from apps.properties.models import Property, Unit
 
 
@@ -10,7 +11,7 @@ class UnitInline(admin.TabularInline):
 
 
 @admin.register(Property)
-class PropertyAdmin(admin.ModelAdmin):
+class PropertyAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("name", "slug", "tenant", "updated_at")
     list_filter = ("tenant",)
     search_fields = ("name", "slug", "tenant__name", "tenant__slug")
@@ -20,7 +21,7 @@ class PropertyAdmin(admin.ModelAdmin):
 
 
 @admin.register(Unit)
-class UnitAdmin(admin.ModelAdmin):
+class UnitAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "code",
         "name",

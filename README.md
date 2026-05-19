@@ -98,7 +98,25 @@ Tenant context is resolved from the API token (primary) or from the `Host` heade
 ## Django admin
 
 - https://admin.stay.hr/admin/
-- Create tenants, domains, properties, units, reservations
+
+### Platform superuser vs tenant staff
+
+| Role | Access |
+|------|--------|
+| **Superuser** | All tenants, users, domains, platform settings |
+| **Staff + tenant membership** | Only data for assigned tenant(s): properties, reservations, integrations, API applications |
+
+Staff users **do not** see the Tenants or Users modules. API login (device bearer tokens) and admin login are separate channels.
+
+### Adding a tenant staff user (superuser only)
+
+1. **Users** → **Add user** — set username, password, enable **Staff status** (not superuser unless intended).
+2. In **Tenant access** inline, add one or more tenants.
+3. The user signs in at `admin.stay.hr` and sees only those tenants’ records (multiple tenants appear in one changelist with a **tenant** column/filter).
+
+### Day-to-day operations
+
+- Create tenants, domains, properties, units, reservations (superuser for tenants/domains; staff within their tenants for the rest).
 - **API applications:** device tokens are stored **encrypted** (`token_encrypted`, Fernet via `STAY_INTEGRATION_FERNET_KEY`). On the change form, **Device token** shows the full bearer for copy into Hospira. Legacy rows without ciphertext: use admin action **Regenerate API token** (invalidates the old bearer).
 - When adding an **API application**, the raw token is also shown once in a warning message
 

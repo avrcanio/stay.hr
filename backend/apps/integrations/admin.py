@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from apps.core.admin import TenantScopedAdminMixin
 from apps.integrations.models import (
     ChannelRatePlan,
     ChannexAriOutbox,
@@ -11,7 +12,7 @@ from apps.integrations.models import (
 
 
 @admin.register(IntegrationConfig)
-class IntegrationConfigAdmin(admin.ModelAdmin):
+class IntegrationConfigAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("provider", "tenant", "property", "is_active", "updated_at")
     list_filter = ("provider", "is_active", "tenant")
     search_fields = ("tenant__name", "tenant__slug", "property__slug")
@@ -34,21 +35,21 @@ class IntegrationConfigAdmin(admin.ModelAdmin):
 
 
 @admin.register(ChannelRatePlan)
-class ChannelRatePlanAdmin(admin.ModelAdmin):
+class ChannelRatePlanAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("unit", "code", "title", "default_rate", "currency", "is_active")
     list_filter = ("property", "is_active")
     search_fields = ("unit__code", "code", "channex_rate_plan_id")
 
 
 @admin.register(UnitAvailabilityDay)
-class UnitAvailabilityDayAdmin(admin.ModelAdmin):
+class UnitAvailabilityDayAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("unit", "date", "availability", "synced_at")
     list_filter = ("unit__property",)
     date_hierarchy = "date"
 
 
 @admin.register(RatePlanDay)
-class RatePlanDayAdmin(admin.ModelAdmin):
+class RatePlanDayAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "rate_plan",
         "date",
@@ -62,13 +63,13 @@ class RatePlanDayAdmin(admin.ModelAdmin):
 
 
 @admin.register(ChannexAriOutbox)
-class ChannexAriOutboxAdmin(admin.ModelAdmin):
+class ChannexAriOutboxAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("property", "kind", "status", "sent_at", "created_at")
     list_filter = ("kind", "status", "property")
     readonly_fields = ("values", "channex_task_ids", "error_message")
 
 
 @admin.register(ChannexBookingRevision)
-class ChannexBookingRevisionAdmin(admin.ModelAdmin):
+class ChannexBookingRevisionAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("revision_id", "booking_id", "channex_status", "reservation", "acknowledged_at")
     search_fields = ("revision_id", "booking_id")

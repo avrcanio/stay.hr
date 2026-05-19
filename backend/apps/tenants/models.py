@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 from apps.tenants.token_encryption import decrypt_api_token, encrypt_api_token
@@ -77,6 +78,32 @@ class TenantDomain(models.Model):
 
     def __str__(self) -> str:
         return self.domain
+
+
+class TenantMembership(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="tenant_memberships",
+    )
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["tenant__name", "user__username"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "tenant"],
+                name="tenants_membership_unique_user_tenant",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} → {self.tenant}"
 
 
 class ApiApplication(models.Model):
