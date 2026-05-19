@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from apps.integrations.models import IntegrationConfig
+from apps.integrations.models import (
+    ChannelRatePlan,
+    ChannexAriOutbox,
+    ChannexBookingRevision,
+    IntegrationConfig,
+    RatePlanDay,
+    UnitAvailabilityDay,
+)
 
 
 @admin.register(IntegrationConfig)
@@ -24,3 +31,44 @@ class IntegrationConfigAdmin(admin.ModelAdmin):
         plain = dict(form.cleaned_data.get("config") or {})
         obj.set_config_dict(plain)
         super().save_model(request, obj, form, change)
+
+
+@admin.register(ChannelRatePlan)
+class ChannelRatePlanAdmin(admin.ModelAdmin):
+    list_display = ("unit", "code", "title", "default_rate", "currency", "is_active")
+    list_filter = ("property", "is_active")
+    search_fields = ("unit__code", "code", "channex_rate_plan_id")
+
+
+@admin.register(UnitAvailabilityDay)
+class UnitAvailabilityDayAdmin(admin.ModelAdmin):
+    list_display = ("unit", "date", "availability", "synced_at")
+    list_filter = ("unit__property",)
+    date_hierarchy = "date"
+
+
+@admin.register(RatePlanDay)
+class RatePlanDayAdmin(admin.ModelAdmin):
+    list_display = (
+        "rate_plan",
+        "date",
+        "rate",
+        "min_stay_arrival",
+        "stop_sell",
+        "synced_at",
+    )
+    list_filter = ("rate_plan__property", "stop_sell")
+    date_hierarchy = "date"
+
+
+@admin.register(ChannexAriOutbox)
+class ChannexAriOutboxAdmin(admin.ModelAdmin):
+    list_display = ("property", "kind", "status", "sent_at", "created_at")
+    list_filter = ("kind", "status", "property")
+    readonly_fields = ("values", "channex_task_ids", "error_message")
+
+
+@admin.register(ChannexBookingRevision)
+class ChannexBookingRevisionAdmin(admin.ModelAdmin):
+    list_display = ("revision_id", "booking_id", "channex_status", "reservation", "acknowledged_at")
+    search_fields = ("revision_id", "booking_id")

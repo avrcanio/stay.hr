@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import httpx
+
+from apps.integrations.channex.config import ChannexRuntimeConfig
+from apps.integrations.channex.exceptions import ChannexApiError
+
+logger = logging.getLogger(__name__)
+
+
+class ChannexClient:
+    def __init__(self, config: ChannexRuntimeConfig) -> None:
+        self._config = config
+        self._session = httpx.Client(
+            timeout=30.0,
+            headers={
+                "user-api-key": config.api_key,
+                "Accept": "application/json",
+            },
+        )
+
+    def close(self) -> None:
+        self._session.close()
+
+    def __enter__(self) -> ChannexClient:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+    def _url(self, path: str) -> str:
+        return f"{self._config.base_url}{path}"
+
+    def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        try:
+            response = self._session.request(method, self._url(path), **kwargs)
+        except httpx.HTTPError as exc:
+            raise ChannexApiError(f"Channex HTTP error: {exc}") from exc
+
+        if response.status_code >= 400:
+            body = response.text[:500]
+            raise ChannexApiError(
+                f"Channex {method} {path} failed ({response.status_code}): {body}"
+            )
+
+        if not response.content:
+            return {}
+        data = response.json()
+        if not isinstance(data, dict):
+            raise ChannexApiError(f"Unexpected Channex response type for {path}")
+        return data
+
+    def get_booking_revision(self, revision_id: str) -> dict[str, Any]:
+        payload = self._request("GET", f"/booking_revisions/{revision_id}")
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ChannexApiError(f"Booking revision {revision_id} not found in response")
+        return data
+
+    def acknowledge_booking_revision(self, revision_id: str) -> None:
+        self._request("POST", f"/booking_revisions/{revision_id}/ack")
+
+    def update_availability(self, values: list[dict[str, Any]]) -> dict[str, Any]:
+        return self._request("POST", "/availability", json={"values": values})
+
+    def update_restrictions(self, values: list[dict[str, Any]]) -> dict[str, Any]:
+        return self._request("POST", "/restrictions", json={"values": values})
+
+    @staticmethod
+    def extract_task_ids(response: dict[str, Any]) -> list[str]:
+        task_ids: list[str] = []
+        for item in response.get("data") or []:
+            if isinstance(item, dict) and item.get("type") == "task" and item.get("id"):
+                task_ids.append(str(item["id"]))
+        return task_ids

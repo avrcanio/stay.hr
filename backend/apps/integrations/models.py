@@ -12,6 +12,7 @@ class IntegrationConfig(TenantScopedModel):
         EMAIL = "email", "Email"
         ICAL = "ical", "iCal"
         EVISITOR = "evisitor", "eVisitor"
+        CHANNEX = "channex", "Channex"
         OTHER = "other", "Other"
 
     property = models.ForeignKey(
@@ -53,3 +54,166 @@ class IntegrationConfig(TenantScopedModel):
     def set_config_dict(self, data: dict[str, Any]) -> None:
         self.config = {}
         self.config_encrypted = encrypt_config(data) if data else ""
+
+
+class ChannexBookingRevision(TenantScopedModel):
+    """Tracks processed Channex booking revisions (idempotency + audit)."""
+
+    revision_id = models.CharField(max_length=36, unique=True)
+    booking_id = models.CharField(max_length=36, db_index=True)
+    reservation = models.ForeignKey(
+        "reservations.Reservation",
+        on_delete=models.CASCADE,
+        related_name="channex_revisions",
+    )
+    channex_status = models.CharField(max_length=32, blank=True)
+    acknowledged_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-acknowledged_at"]
+        indexes = [
+            models.Index(fields=["tenant", "booking_id"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Channex revision {self.revision_id} → reservation {self.reservation_id}"
+
+
+class ChannelRatePlan(TenantScopedModel):
+    """Maps stay.hr unit + rate code to Channex rate plan UUID."""
+
+    property = models.ForeignKey(
+        "properties.Property",
+        on_delete=models.CASCADE,
+        related_name="channel_rate_plans",
+    )
+    unit = models.ForeignKey(
+        "properties.Unit",
+        on_delete=models.CASCADE,
+        related_name="channel_rate_plans",
+    )
+    code = models.CharField(max_length=32)
+    title = models.CharField(max_length=128, blank=True)
+    channex_room_type_id = models.CharField(max_length=36)
+    channex_rate_plan_id = models.CharField(max_length=36)
+    default_rate = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    currency = models.CharField(max_length=3, default="GBP")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["property_id", "unit_id", "code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "property", "unit", "code"],
+                name="integrations_rateplan_unique_tenant_property_unit_code",
+            ),
+            models.UniqueConstraint(
+                fields=["tenant", "channex_rate_plan_id"],
+                name="integrations_rateplan_unique_tenant_channex_id",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.unit.code}/{self.code} → {self.channex_rate_plan_id[:8]}"
+
+
+class UnitAvailabilityDay(TenantScopedModel):
+    unit = models.ForeignKey(
+        "properties.Unit",
+        on_delete=models.CASCADE,
+        related_name="availability_days",
+    )
+    date = models.DateField()
+    availability = models.PositiveSmallIntegerField(default=1)
+    synced_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["date", "unit_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "unit", "date"],
+                name="integrations_unitavail_unique_tenant_unit_date",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "unit", "synced_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.unit.code} {self.date}: {self.availability}"
+
+
+class RatePlanDay(TenantScopedModel):
+    rate_plan = models.ForeignKey(
+        ChannelRatePlan,
+        on_delete=models.CASCADE,
+        related_name="days",
+    )
+    date = models.DateField()
+    rate = models.DecimalField(max_digits=10, decimal_places=2)
+    min_stay_arrival = models.PositiveSmallIntegerField(null=True, blank=True)
+    min_stay_through = models.PositiveSmallIntegerField(null=True, blank=True)
+    max_stay = models.PositiveSmallIntegerField(null=True, blank=True)
+    stop_sell = models.BooleanField(default=False)
+    closed_to_arrival = models.BooleanField(default=False)
+    closed_to_departure = models.BooleanField(default=False)
+    synced_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["date", "rate_plan_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "rate_plan", "date"],
+                name="integrations_rateplanday_unique_tenant_plan_date",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "rate_plan", "synced_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.rate_plan} {self.date}: {self.rate}"
+
+
+class ChannexAriOutbox(TenantScopedModel):
+    class Kind(models.TextChoices):
+        AVAILABILITY = "availability", "Availability"
+        RESTRICTIONS = "restrictions", "Rates & restrictions"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
+    property = models.ForeignKey(
+        "properties.Property",
+        on_delete=models.CASCADE,
+        related_name="channex_ari_outbox",
+    )
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    values = models.JSONField(default=list)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    channex_task_ids = models.JSONField(default=list, blank=True)
+    error_message = models.TextField(blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["tenant", "property", "kind", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.kind} {self.status} ({len(self.values)} values)"

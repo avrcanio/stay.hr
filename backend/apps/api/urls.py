@@ -9,6 +9,7 @@ from apps.api.views import (
 )
 
 urlpatterns = [
+    path("integrations/", include("apps.api.integrations_urls")),
     path("reception/", include("apps.api.reception_urls")),
     path("rooms/", include("apps.api.rooms_urls")),
     path("app/config", AppConfigView.as_view(), name="app-config"),
