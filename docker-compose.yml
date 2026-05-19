@@ -8,6 +8,7 @@ services:
       - .env
     volumes:
       - ./data/media:/app/backend/media
+      - ./hospira-fc0dc-f77596470912.json:/run/secrets/firebase-service-account.json:ro
     networks:
       - postgis
       - proxy
@@ -44,6 +45,7 @@ services:
       - .env
     volumes:
       - ./data/media:/app/backend/media
+      - ./hospira-fc0dc-f77596470912.json:/run/secrets/firebase-service-account.json:ro
     networks:
       - postgis
       - hetzner_net
@@ -56,6 +58,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - ./hospira-fc0dc-f77596470912.json:/run/secrets/firebase-service-account.json:ro
     networks:
       - postgis
       - hetzner_net

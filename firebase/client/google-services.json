@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "36948128139",
+    "project_id": "hospira-fc0dc",
+    "storage_bucket": "hospira-fc0dc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:36948128139:android:9ed5c88af6909c08f8bf8e",
+        "android_client_info": {
+          "package_name": "hr.finestar.hospira"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyArV4PPTcCqI7jqca-fI8AInaK_ih3it3I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
