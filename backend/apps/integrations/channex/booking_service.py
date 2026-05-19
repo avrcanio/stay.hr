@@ -9,7 +9,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
-from apps.integrations.channex.booking_test import CHANNEX_BOOKING_TEST_PROPERTY_SLUG
+from apps.integrations.channex.booking_test import certification_property_slug
 from apps.integrations.channex.client import ChannexClient
 from apps.integrations.channex.config import ChannexBookingTestRoomLink, ChannexRuntimeConfig
 from apps.integrations.channex.exceptions import ChannexBookingIngestError
@@ -77,7 +77,7 @@ def resolve_certification_property(
     tenant: Tenant,
     config: ChannexRuntimeConfig,
 ) -> Property:
-    slug = config.certification_property_slug or CHANNEX_BOOKING_TEST_PROPERTY_SLUG
+    slug = config.certification_property_slug or certification_property_slug(tenant.slug)
     try:
         return Property.objects.get(tenant=tenant, slug=slug)
     except Property.DoesNotExist as exc:

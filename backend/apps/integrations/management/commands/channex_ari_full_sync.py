@@ -6,13 +6,14 @@ from apps.integrations.channex.ari_service import (
     push_channex_ari,
     seed_channel_rate_plans_from_config,
 )
+from apps.integrations.channex.demo_property import CHANNEX_CERT_TENANT_SLUG
 
 
 class Command(BaseCommand):
     help = "Build 500-day ARI in stay.hr and push full sync to Channex (cert test 1)."
 
     def add_arguments(self, parser):
-        parser.add_argument("--tenant-slug", default="uzorita")
+        parser.add_argument("--tenant-slug", default=CHANNEX_CERT_TENANT_SLUG)
         parser.add_argument("--days", type=int, default=500)
         parser.add_argument(
             "--dry-run",

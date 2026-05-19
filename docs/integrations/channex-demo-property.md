@@ -1,5 +1,13 @@
 # Channex demo property
 
+**Channex PMS certification** runs on stay.hr tenant **`demo` (id=1)**, property **`channex-demo`**.
+
+Migrate from uzorita (one-time):
+
+```bash
+docker exec stay_django python manage.py migrate_channex_cert_to_demo
+```
+
 ## stay.hr (tenant Demo, id=1)
 
 ```bash
@@ -91,7 +99,9 @@ Map Booking.com channel: Holiday Home → Holiday Home, Studio → Studio.
 }
 ```
 
-Run `python manage.py seed_channex_booking_test_property --tenant-slug uzorita` to print/sync secret if missing.
+Run `python manage.py seed_channex_booking_test_property` (default tenant `demo`) to print/sync secret if missing.
+
+Legacy uzorita cert data lived on tenant `uzorita` / property `channex-bcom-test`; use `migrate_channex_cert_to_demo` to switch.
 
 ## Booking ingest (cert test 11)
 

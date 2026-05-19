@@ -13,7 +13,7 @@ from apps.integrations.channex.ari_payload import (
     build_availability_value,
     build_restriction_value,
 )
-from apps.integrations.channex.booking_test import CHANNEX_BOOKING_TEST_PROPERTY_SLUG
+from apps.integrations.channex.booking_test import certification_property_slug
 from apps.integrations.channex.client import ChannexClient
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.channex.exceptions import ChannexBookingIngestError
@@ -34,7 +34,7 @@ FULL_SYNC_DAYS = 500
 
 
 def certification_property(tenant: Tenant, config: ChannexRuntimeConfig) -> Property:
-    slug = config.certification_property_slug or CHANNEX_BOOKING_TEST_PROPERTY_SLUG
+    slug = config.certification_property_slug or certification_property_slug(tenant.slug)
     try:
         return Property.objects.get(tenant=tenant, slug=slug)
     except Property.DoesNotExist as exc:
@@ -504,7 +504,7 @@ def push_channex_ari(
     return []
 
 
-def get_active_channex_integration(tenant_slug: str = "uzorita") -> IntegrationConfig:
+def get_active_channex_integration(tenant_slug: str = "demo") -> IntegrationConfig:
     row = (
         IntegrationConfig.objects.filter(
             tenant__slug=tenant_slug,

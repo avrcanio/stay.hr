@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
-def flush_channex_ari_outbox_task(self, tenant_slug: str = "uzorita") -> list[dict]:
+def flush_channex_ari_outbox_task(self, tenant_slug: str = "demo") -> list[dict]:
     try:
         integration = get_active_channex_integration(tenant_slug)
         results = flush_channex_ari_outbox(integration)

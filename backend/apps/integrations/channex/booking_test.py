@@ -9,12 +9,64 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+from apps.integrations.channex.demo_property import CHANNEX_CERT_TENANT_SLUG
+
 # Demo tenant channel → Test Property - Stay.hr (Booking.com test hotel 10745030)
 CHANNEX_BOOKING_TEST_CHANNEL_ID = "8ee9c7aa-6433-4037-924b-4f95598782d5"
 BOOKING_COM_TEST_HOTEL_ID = "10745030"
 
-# Property slug created in stay.hr for certification mapping
+# Property slug on uzorita (legacy); certification uses channex-demo on tenant demo.
 CHANNEX_BOOKING_TEST_PROPERTY_SLUG = "channex-bcom-test"
+
+
+def certification_property_slug(tenant_slug: str | None = None) -> str:
+    from apps.integrations.channex.demo_property import (
+        CHANNEX_CERT_TENANT_SLUG,
+        CHANNEX_DEMO_PROPERTY_SLUG,
+    )
+
+    slug = (tenant_slug or CHANNEX_CERT_TENANT_SLUG).strip()
+    if slug == CHANNEX_CERT_TENANT_SLUG:
+        return CHANNEX_DEMO_PROPERTY_SLUG
+    return CHANNEX_BOOKING_TEST_PROPERTY_SLUG
+
+
+def booking_test_room_types_config_payload(
+    tenant_slug: str | None = None,
+    property_slug: str | None = None,
+) -> list[dict[str, str | int]]:
+    """Booking.com test room types with unit_id for certification property."""
+    from apps.properties.models import Property, Unit
+    from apps.tenants.models import Tenant
+
+    prop_slug = property_slug or certification_property_slug(tenant_slug)
+    tenant = Tenant.objects.filter(slug=tenant_slug or CHANNEX_CERT_TENANT_SLUG).first()
+    if tenant is None:
+        return [
+            {
+                "unit_code": row["unit_code"],
+                "channex_room_type_id": row["channex_room_type_id"],
+                "channex_title": row["channex_title"],
+            }
+            for row in BOOKING_COM_TEST_ROOMS
+        ]
+
+    prop = Property.objects.filter(tenant=tenant, slug=prop_slug).first()
+    payload: list[dict[str, str | int]] = []
+    for spec in BOOKING_COM_TEST_ROOMS:
+        item: dict[str, str | int] = {
+            "unit_code": spec["unit_code"],
+            "channex_room_type_id": spec["channex_room_type_id"],
+            "channex_title": spec["channex_title"],
+        }
+        if prop is not None:
+            unit = Unit.objects.filter(
+                tenant=tenant, property=prop, code=spec["unit_code"]
+            ).first()
+            if unit is not None:
+                item["unit_id"] = unit.id
+        payload.append(item)
+    return payload
 
 
 class BookingTestRatePlanSpec(TypedDict):

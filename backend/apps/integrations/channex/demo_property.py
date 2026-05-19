@@ -6,6 +6,10 @@ CHANNEX_DEMO_PROPERTY_SLUG = "channex-demo"
 CHANNEX_DEMO_PROPERTY_TITLE = "Test Property - Stay.hr"
 CHANNEX_DEMO_PROPERTY_ID = "e00e6034-c154-4754-b5d9-9fff73ad12f6"
 
+# Channex PMS certification runs on stay.hr tenant Demo (id=1).
+CHANNEX_CERT_TENANT_SLUG = "demo"
+CHANNEX_CERT_TENANT_ID = 1
+
 # Booking channel uses GBP; certification doc often mentions USD — use GBP for this test hotel.
 CHANNEX_DEMO_CURRENCY = "GBP"
 

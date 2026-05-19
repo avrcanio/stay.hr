@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.integrations.channex.booking_service import process_channex_booking_revision
+from apps.integrations.channex.demo_property import CHANNEX_CERT_TENANT_SLUG
 from apps.integrations.models import IntegrationConfig
 
 
@@ -9,7 +10,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("revision_id", help="Channex booking revision UUID")
-        parser.add_argument("--tenant-slug", default="uzorita")
+        parser.add_argument("--tenant-slug", default=CHANNEX_CERT_TENANT_SLUG)
 
     def handle(self, *args, **options):
         tenant_slug = options["tenant_slug"]
