@@ -81,7 +81,8 @@ class ReceptionAPITests(TestCase):
         self.assertEqual(row["room_name"], "Soba 101")
         self.assertEqual(len(row["guests"]), 1)
 
-    def test_reservation_detail_and_patch_status(self):
+    @patch("apps.core.tasks.notify_reservation_status_changed.delay")
+    def test_reservation_detail_and_patch_status(self, mock_notify_status):
         detail = self.client.get(
             f"/api/v1/reception/reservations/{self.reservation.id}/",
             **self.auth,
@@ -92,10 +93,17 @@ class ReceptionAPITests(TestCase):
             f"/api/v1/reception/reservations/{self.reservation.id}/",
             {"status": Reservation.Status.CHECKED_IN},
             format="json",
-            **self.auth,
+            HTTP_AUTHORIZATION=self.auth["HTTP_AUTHORIZATION"],
+            HTTP_X_INSTALLATION_ID="tablet-a-uuid",
         )
         self.assertEqual(patch.status_code, 200)
         self.assertEqual(patch.json()["status"], Reservation.Status.CHECKED_IN)
+        mock_notify_status.assert_called_once_with(
+            self.reservation.id,
+            Reservation.Status.EXPECTED,
+            Reservation.Status.CHECKED_IN,
+            "tablet-a-uuid",
+        )
 
     def test_create_guest(self):
         response = self.client.post(

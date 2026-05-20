@@ -27,6 +27,7 @@ from apps.api.reception_serializers import (
     ReservationTimelineSerializer,
     ReservationUpdateSerializer,
 )
+from apps.api.request_context import installation_id_from_request
 from apps.api.views import TenantAPIView
 from apps.integrations.evisitor.exceptions import (
     EvisitorApiError,
@@ -243,9 +244,20 @@ class ReservationDetailView(TenantAPIView, generics.RetrieveUpdateAPIView):
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
+        old_status = instance.status
         update_serializer = self.get_serializer(instance, data=request.data, partial=partial)
         update_serializer.is_valid(raise_exception=True)
         self.perform_update(update_serializer)
+        instance.refresh_from_db()
+        if old_status != instance.status:
+            from apps.core.tasks import notify_reservation_status_changed
+
+            notify_reservation_status_changed.delay(
+                instance.pk,
+                old_status,
+                instance.status,
+                installation_id_from_request(request),
+            )
         detail = self.get_queryset().get(pk=instance.pk)
         output = ReservationTimelineSerializer(detail, context=self.get_serializer_context())
         return Response(output.data)

@@ -86,7 +86,7 @@ def send_fcm_message(
             notification=messaging.AndroidNotification(
                 title=title,
                 body=body,
-                channel_id="reservations",
+                channel_id="hospira_reception",
             ),
         ),
         apns=messaging.APNSConfig(
