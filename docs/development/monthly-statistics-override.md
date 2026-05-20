@@ -7,6 +7,7 @@ Omogućuje unos **povijesnih** prihoda, provizija i noćenja po mjesecu kada u b
 1. API `GET /api/v1/reception/statistics/monthly/?year=YYYY`:
    - **`current.revenue` / `nights`** — **realizirano**: `checked_in` + `checked_out` (check-in u tekućoj godini).
    - **`current.reserved_*`** — **rezervirano**: sve osim `canceled` (`expected` + `checked_in` + `checked_out`) za check-in u tekućoj godini.
+   - **`current.canceled_*`** — **otkazano**: `canceled` po check-in u tekućoj godini.
    - **`previous.*`** — realizirano za prošlu godinu (ili override).
 2. Ako postoji zapis **`MonthlyStatisticsOverride`** za `(tenant, godina, mjesec)`, te vrijednosti **potpuno zamjenjuju** realizirani zbroj (`revenue`, `commission`, `nights`) za taj mjesec — **ne** diraju `reserved_*`.
 

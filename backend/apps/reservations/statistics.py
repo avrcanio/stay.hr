@@ -81,6 +81,24 @@ def _decimal_str(value: Decimal) -> str:
     return format(value.quantize(Decimal("0.01")), "f")
 
 
+def _canceled_queryset(tenant, year: int):
+    return (
+        Reservation.objects.for_tenant(tenant)
+        .filter(
+            status=Reservation.Status.CANCELED,
+            check_in__gte=date(year, 1, 1),
+            check_in__lte=date(year, 12, 31),
+        )
+        .only(
+            "check_in",
+            "check_out",
+            "amount",
+            "nights_count",
+            "currency",
+        )
+    )
+
+
 def _empty_current_bucket() -> dict:
     return {
         "revenue": Decimal("0"),
@@ -89,6 +107,8 @@ def _empty_current_bucket() -> dict:
         "reserved_revenue": Decimal("0"),
         "reserved_commission": Decimal("0"),
         "reserved_nights": 0,
+        "canceled_revenue": Decimal("0"),
+        "canceled_nights": 0,
     }
 
 
@@ -139,6 +159,17 @@ def aggregate_monthly_statistics(tenant, year: int) -> dict:
         if reservation.currency:
             currency = reservation.currency
 
+    for reservation in _canceled_queryset(tenant, year).iterator():
+        check_in = reservation.check_in
+        if check_in is None:
+            continue
+        month = check_in.month
+        slot = buckets[month]["current"]
+        slot["canceled_revenue"] += reservation.amount or Decimal("0")
+        slot["canceled_nights"] += _effective_nights(reservation)
+        if reservation.currency:
+            currency = reservation.currency
+
     overrides = {
         (row.year, row.month): row
         for row in MonthlyStatisticsOverride.objects.for_tenant(tenant).filter(
@@ -171,6 +202,8 @@ def aggregate_monthly_statistics(tenant, year: int) -> dict:
                     "reserved_revenue": _decimal_str(current["reserved_revenue"]),
                     "reserved_commission": _decimal_str(current["reserved_commission"]),
                     "reserved_nights": current["reserved_nights"],
+                    "canceled_revenue": _decimal_str(current["canceled_revenue"]),
+                    "canceled_nights": current["canceled_nights"],
                 },
                 "previous": {
                     "revenue": _decimal_str(previous["revenue"]),

@@ -89,6 +89,25 @@ class MonthlyStatisticsTests(TestCase):
         self.assertEqual(june["current"]["reserved_revenue"], "500.00")
         self.assertEqual(june["current"]["reserved_nights"], 5)
 
+    def test_canceled_aggregated_for_current_year_only(self):
+        self._create_reservation(
+            check_in=date(2026, 5, 12),
+            amount=Decimal("400.00"),
+            status=Reservation.Status.CANCELED,
+            nights=4,
+        )
+        self._create_reservation(
+            check_in=date(2025, 5, 12),
+            amount=Decimal("200.00"),
+            status=Reservation.Status.CANCELED,
+            nights=2,
+        )
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        may = next(m for m in payload["months"] if m["month"] == 5)
+        self.assertEqual(may["current"]["canceled_revenue"], "400.00")
+        self.assertEqual(may["current"]["canceled_nights"], 4)
+        self.assertNotIn("canceled_revenue", may["previous"])
+
     def test_override_does_not_touch_reserved(self):
         self._create_reservation(
             check_in=date(2026, 7, 10),
