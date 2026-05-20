@@ -5,6 +5,7 @@ from apps.api.reception_views import (
     DocumentScanIngestView,
     EvisitorSubmitView,
     GuestFacePhotoView,
+    IdScanSampleUploadView,
     ReceptionHealthView,
     ReceptionMonthlyStatisticsView,
     ReservationDetailView,
@@ -54,6 +55,11 @@ urlpatterns = [
         "reservations/<int:reservation_id>/guests/<int:guest_id>/document-photos/",
         DocumentPhotosUploadView.as_view(),
         name="reception-document-photos",
+    ),
+    path(
+        "reservations/<int:reservation_id>/guests/<int:guest_id>/id-scan-samples/",
+        IdScanSampleUploadView.as_view(),
+        name="reception-id-scan-samples",
     ),
     path(
         "reservations/<int:reservation_id>/guests/<int:guest_id>/evisitor-submit/",

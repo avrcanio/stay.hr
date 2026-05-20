@@ -6,6 +6,7 @@ from apps.reservations.models import (
     EvisitorSubmission,
     Guest,
     IdDocument,
+    IdRecognitionSample,
     Reservation,
     ReservationUnit,
 )
@@ -65,6 +66,23 @@ class IdDocumentAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     tenant_field = "guest__tenant"
     list_display = ("id", "guest", "created_at")
     raw_id_fields = ("guest",)
+
+
+@admin.register(IdRecognitionSample)
+class IdRecognitionSampleAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    list_display = (
+        "id",
+        "guest",
+        "source",
+        "document_type",
+        "device_id",
+        "created_at",
+        "tenant",
+    )
+    list_filter = ("source", "document_type", "tenant")
+    search_fields = ("raw_mrz", "device_id", "guest__name")
+    raw_id_fields = ("tenant", "reservation", "guest")
+    readonly_fields = ("content_sha256", "created_at")
 
 
 @admin.register(DocumentScanLog)

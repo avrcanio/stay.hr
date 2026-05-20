@@ -17,3 +17,9 @@ def document_photo_filename(*, guest_id: int, document_type: str, side: str) -> 
     if side == "front":
         return f"{ts}_{guest_id}_frontID.jpg"
     return f"{ts}_{guest_id}_backID.jpg"
+
+
+def id_recognition_sample_filename(*, guest_id: int, source: str) -> str:
+    ts = _photo_timestamp()
+    safe_source = (source or "unknown").replace("/", "_")[:32]
+    return f"{ts}_{guest_id}_{safe_source}.jpg"

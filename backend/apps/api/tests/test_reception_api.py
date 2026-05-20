@@ -1,12 +1,14 @@
+import io
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.properties.models import Property, Unit
-from apps.reservations.models import Guest, Reservation, ReservationUnit
+from apps.reservations.models import Guest, IdRecognitionSample, Reservation, ReservationUnit
 from apps.tenants.models import RECEPTION_DEVICE_SCOPES, ApiApplication, Tenant
 
 
@@ -104,6 +106,47 @@ class ReceptionAPITests(TestCase):
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["first_name"], "Petra")
+
+    @override_settings(MEDIA_ROOT="/tmp/stay_test_media")
+    def test_id_scan_sample_upload(self):
+        # Minimal valid JPEG (1x1)
+        jpeg_bytes = (
+            b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+            b"\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c"
+            b"\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c"
+            b"\x1c $.\x27 ,#\x1c\x1c(7),01444\x1f\x27=9=82<.7\xff\xc0\x00\x0b\x08"
+            b"\x00\x01\x00\x01\x01\x01\x11\x00\xff\xc4\x00\x1f\x00\x00\x01\x05\x01\x01"
+            b"\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07"
+            b"\x08\t\n\x0b\xff\xc4\x00\xb5\x10\x00\x02\x01\x03\x03\x02\x04\x03\x05\x05"
+            b"\x04\x04\x00\x00\x01}\x01\x02\x03\x00\x04\x11\x05\x12!1A\x06\x13Qa\x07"
+            b"\"q\x142\x81\x91\xa1\x08#B\xb1\xc1\x15R\xd1\xf0$3br\x82\t\n\x16\x17\x18"
+            b"\x19\x1a%&'()*456789:CDEFGHIJSTUVWXYZcdefghijstuvwxyz\x83\x84\x85\x86"
+            b"\x87\x88\x89\x8a\x92\x93\x94\x95\x96\x97\x98\x99\x9a\xa2\xa3\xa4\xa5\xa6"
+            b"\xa7\xa8\xa9\xaa\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xc2\xc3\xc4\xc5\xc6"
+            b"\xc7\xc8\xc9\xca\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xe1\xe2\xe3\xe4\xe5"
+            b"\xe6\xe7\xe8\xe9\xea\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xff\xda\x00"
+            b"\x08\x01\x01\x00\x00?\x00\xfb\xd5\xdb\x20\xff\xd9"
+        )
+        image = SimpleUploadedFile("sample.jpg", jpeg_bytes, content_type="image/jpeg")
+        response = self.client.post(
+            f"/api/v1/reception/reservations/{self.reservation.id}/guests/{self.guest.id}/id-scan-samples/",
+            {
+                "image": image,
+                "document_type": "passport",
+                "source": "mrz_plus",
+                "raw_mrz": "P<HRVMARKO<<MARKOVIC",
+                "device_id": "tablet-test",
+            },
+            format="multipart",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201)
+        sample_id = response.json()["sample_id"]
+        sample = IdRecognitionSample.objects.get(pk=sample_id)
+        self.assertEqual(sample.tenant_id, self.tenant.id)
+        self.assertEqual(sample.source, "mrz_plus")
+        self.assertTrue(sample.image.name)
+        self.assertTrue(io.BytesIO(sample.image.read()).getvalue())
 
     def test_document_scan_ingest(self):
         response = self.client.post(

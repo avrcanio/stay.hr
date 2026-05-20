@@ -284,6 +284,50 @@ class DocumentScanStatus(models.TextChoices):
     FAILED = "failed", "Failed"
 
 
+def id_recognition_sample_upload_to(instance, filename: str) -> str:
+    tenant_id = getattr(instance, "tenant_id", None) or "unknown"
+    return f"id_recognition_samples/{tenant_id}/{filename}"
+
+
+class IdRecognitionSampleSource(models.TextChoices):
+    MRZ_PLUS = "mrz_plus", "MRZ Plus"
+    MRZ_LEGACY = "mrz_legacy", "MRZ Legacy"
+
+
+class IdRecognitionSample(TenantScopedModel):
+    """Cropped document images for ID recognition model training."""
+
+    reservation = models.ForeignKey(
+        Reservation,
+        on_delete=models.CASCADE,
+        related_name="id_recognition_samples",
+    )
+    guest = models.ForeignKey(
+        Guest,
+        on_delete=models.CASCADE,
+        related_name="id_recognition_samples",
+    )
+    image = models.ImageField(upload_to=id_recognition_sample_upload_to)
+    source = models.CharField(
+        max_length=32,
+        choices=IdRecognitionSampleSource.choices,
+        default=IdRecognitionSampleSource.MRZ_PLUS,
+    )
+    document_type = models.CharField(max_length=32, blank=True, default="")
+    raw_mrz = models.TextField(blank=True, default="")
+    ocr_text = models.TextField(blank=True, default="")
+    device_id = models.CharField(max_length=128, blank=True, default="")
+    parsed_snapshot = models.JSONField(default=dict, blank=True)
+    content_sha256 = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+
+    def __str__(self) -> str:
+        return f"IdRecognitionSample #{self.pk} guest={self.guest_id} source={self.source}"
+
+
 class DocumentScanLog(TenantScopedModel):
     reservation = models.ForeignKey(
         Reservation,

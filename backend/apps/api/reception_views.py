@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import mimetypes
 import time
@@ -37,6 +38,7 @@ from apps.reservations.document_photo_storage import (
     DOCUMENT_TYPE_NATIONAL_ID,
     DOCUMENT_TYPE_PASSPORT,
     document_photo_filename,
+    id_recognition_sample_filename,
 )
 from apps.reservations.face_photo import guest_face_photo_document
 from apps.reservations.models import (
@@ -45,6 +47,8 @@ from apps.reservations.models import (
     EvisitorGuestStatus,
     Guest,
     IdDocument,
+    IdRecognitionSample,
+    IdRecognitionSampleSource,
     Reservation,
     ReservationUnit,
 )
@@ -602,6 +606,82 @@ class DocumentPhotosUploadView(ReceptionWriteView, APIView):
                 "back_saved": back_saved,
             },
             status=status.HTTP_200_OK,
+        )
+
+
+_ID_SCAN_SAMPLE_SOURCES = {
+    IdRecognitionSampleSource.MRZ_PLUS,
+    IdRecognitionSampleSource.MRZ_LEGACY,
+}
+
+
+class IdScanSampleUploadSerializer(serializers.Serializer):
+    image = serializers.FileField()
+    document_type = serializers.ChoiceField(
+        choices=[DOCUMENT_TYPE_PASSPORT, DOCUMENT_TYPE_NATIONAL_ID],
+    )
+    source = serializers.ChoiceField(choices=sorted(_ID_SCAN_SAMPLE_SOURCES))
+    raw_mrz = serializers.CharField(required=False, allow_blank=True, default="")
+    ocr_text = serializers.CharField(required=False, allow_blank=True, default="")
+    device_id = serializers.CharField(required=False, allow_blank=True, default="")
+    parsed_snapshot = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate_image(self, value):
+        return _validate_photo_file(value)
+
+    def validate_parsed_snapshot(self, value):
+        if value is None or value == "":
+            return {}
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise serializers.ValidationError("parsed_snapshot nije valjani JSON.") from exc
+            if not isinstance(parsed, dict):
+                raise serializers.ValidationError("parsed_snapshot mora biti JSON objekt.")
+            return parsed
+        raise serializers.ValidationError("parsed_snapshot mora biti JSON objekt.")
+
+
+class IdScanSampleUploadView(ReceptionWriteView, APIView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, reservation_id: int, guest_id: int):
+        _get_reservation(request.tenant, reservation_id)
+        guest = _get_guest(request.tenant, reservation_id, guest_id)
+
+        serializer = IdScanSampleUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        image = data["image"]
+        content_sha256 = hashlib.sha256(image.read()).hexdigest()
+        image.seek(0)
+
+        sample = IdRecognitionSample(
+            tenant=request.tenant,
+            reservation_id=reservation_id,
+            guest=guest,
+            source=data["source"],
+            document_type=data["document_type"],
+            raw_mrz=str(data.get("raw_mrz", "")).strip(),
+            ocr_text=str(data.get("ocr_text", "")).strip(),
+            device_id=str(data.get("device_id", "")).strip(),
+            parsed_snapshot=data.get("parsed_snapshot") or {},
+            content_sha256=content_sha256,
+        )
+        filename = id_recognition_sample_filename(
+            guest_id=guest.id,
+            source=data["source"],
+        )
+        sample.image.save(filename, image, save=False)
+        sample.save()
+
+        return Response(
+            {"sample_id": sample.id, "content_sha256": content_sha256},
+            status=status.HTTP_201_CREATED,
         )
 
 
