@@ -8,7 +8,10 @@ Omogućuje unos **povijesnih** prihoda, provizija i noćenja po mjesecu kada u b
    - **`current.revenue` / `nights`** — **realizirano**: `checked_in` + `checked_out` (check-in u tekućoj godini).
    - **`current.reserved_*`** — **rezervirano**: sve osim `canceled` (`expected` + `checked_in` + `checked_out`) za check-in u tekućoj godini.
    - **`current.canceled_*`** — **otkazano**: `canceled` po check-in u tekućoj godini.
-   - **`previous.*`** — realizirano za prošlu godinu (ili override).
+   - **`previous.revenue` / `nights`** — realizirano za prošlu godinu (ili override).
+   - **`previous.prior_*`** — realizirano za godinu **−2** (npr. 2024 kad je `year=2026`; YoY na stupcu 2025).
+   - **`previous.canceled_*`** — otkazano u prošloj godini (YoY otkazano: tekuća vs prošla).
+   - Override za godinu **−2** zamjenjuje samo `prior_revenue` / `prior_nights`.
 2. Ako postoji zapis **`MonthlyStatisticsOverride`** za `(tenant, godina, mjesec)`, te vrijednosti **potpuno zamjenjuju** realizirani zbroj (`revenue`, `commission`, `nights`) za taj mjesec — **ne** diraju `reserved_*`.
 
 Isto kao Uzorita `MonthlyStatisticsOverride`, ali s **`tenant_id`** — demo i uzorita imaju odvojene override zapise.
