@@ -25,7 +25,9 @@ class RateUpdateItemSerializer(serializers.Serializer):
     date = serializers.DateField(required=False)
     date_from = serializers.DateField(required=False)
     date_to = serializers.DateField(required=False)
-    rate = serializers.DecimalField(max_digits=10, decimal_places=2)
+    rate = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False, allow_null=True
+    )
     min_stay_arrival = serializers.IntegerField(required=False, min_value=1)
     min_stay_through = serializers.IntegerField(required=False, min_value=1)
     max_stay = serializers.IntegerField(required=False, min_value=0)
@@ -38,6 +40,21 @@ class RateUpdateItemSerializer(serializers.Serializer):
         has_range = bool(attrs.get("date_from")) and bool(attrs.get("date_to"))
         if has_single == has_range:
             raise serializers.ValidationError("Provide either date or date_from + date_to.")
+        has_value = attrs.get("rate") is not None or any(
+            attrs.get(f) is not None
+            for f in (
+                "min_stay_arrival",
+                "min_stay_through",
+                "max_stay",
+                "stop_sell",
+                "closed_to_arrival",
+                "closed_to_departure",
+            )
+        )
+        if not has_value:
+            raise serializers.ValidationError(
+                "Provide at least one of rate or restriction fields."
+            )
         return attrs
 
 

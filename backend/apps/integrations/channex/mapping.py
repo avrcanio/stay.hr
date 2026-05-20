@@ -27,7 +27,7 @@ UZORITA_STAGING_ROOM_TYPES: tuple[ChannexRoomTypeMapping, ...] = (
         "channex_title": "Luxury Room Uzorita - R2",
     },
     {
-        "unit_code": "D1",
+        "unit_code": "R6",
         "channex_room_type_id": "ecc2d4ab-7894-4fc9-8e20-c08d2317e4be",
         "channex_title": "Deluxe Double",
     },

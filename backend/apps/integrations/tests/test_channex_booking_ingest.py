@@ -7,6 +7,7 @@ from django.test import TestCase
 from apps.integrations.channex.booking_service import (
     channex_external_id,
     process_channex_booking_revision,
+    process_channex_booking_revisions_feed,
 )
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.models import ChannexBookingRevision, IntegrationConfig
@@ -29,6 +30,7 @@ class ChannexBookingIngestTests(TestCase):
             property=self.property,
             code="BCOM-STUDIO",
             name="Studio",
+            capacity_max_guests=2,
             capacity_adults=2,
         )
         self.integration = IntegrationConfig.objects.create(
@@ -120,6 +122,10 @@ class ChannexBookingIngestTests(TestCase):
         self.assertEqual(reservation.amount, Decimal("316.00"))
         self.assertEqual(reservation.currency, "GBP")
         self.assertEqual(reservation.source, "Offline")
+        self.assertEqual(reservation.adults_count, 1)
+        self.assertEqual(reservation.children_count, 0)
+        self.assertEqual(reservation.infants_count, 0)
+        self.assertEqual(reservation.persons_count, 1)
 
         units = list(ReservationUnit.objects.filter(reservation=reservation))
         self.assertEqual(len(units), 1)
@@ -164,3 +170,68 @@ class ChannexBookingIngestTests(TestCase):
         )
         self.assertEqual(reservation.status, Reservation.Status.CANCELED)
         self.assertIsNotNone(reservation.canceled_at)
+
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_ingest_stores_infants_separately_from_persons_count(self, mock_client_cls):
+        payload = dict(self.revision_payload)
+        payload["attributes"] = dict(self.revision_payload["attributes"])
+        payload["attributes"]["occupancy"] = {"adults": 2, "children": 1, "infants": 2}
+
+        mock_client = MagicMock()
+        mock_client.get_booking_revision.return_value = payload
+        mock_client_cls.return_value = mock_client
+
+        reservation = process_channex_booking_revision(
+            self.integration,
+            "infants-revision-id",
+        )
+
+        self.assertEqual(reservation.adults_count, 2)
+        self.assertEqual(reservation.children_count, 1)
+        self.assertEqual(reservation.infants_count, 2)
+        self.assertEqual(reservation.persons_count, 3)
+
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_feed_processes_only_unseen_revisions(self, mock_client_cls):
+        other_revision_id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        other_booking_id = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        other_payload = {
+            "id": other_revision_id,
+            "attributes": {
+                **self.revision_payload["attributes"],
+                "booking_id": other_booking_id,
+            },
+        }
+
+        mock_client = MagicMock()
+        mock_client.get_booking_revision.return_value = self.revision_payload
+        mock_client_cls.return_value = mock_client
+
+        process_channex_booking_revision(
+            self.integration,
+            self.revision_id,
+            client=mock_client,
+        )
+
+        mock_client.reset_mock()
+        mock_client.list_booking_revisions_feed.return_value = [
+            self.revision_id,
+            other_revision_id,
+        ]
+
+        def get_revision(revision_id: str):
+            if revision_id == self.revision_id:
+                return self.revision_payload
+            return other_payload
+
+        mock_client.get_booking_revision.side_effect = get_revision
+
+        processed = process_channex_booking_revisions_feed(
+            self.integration,
+            client=mock_client,
+        )
+
+        self.assertEqual(len(processed), 1)
+        self.assertEqual(processed[0].external_id, channex_external_id(other_booking_id))
+        mock_client.get_booking_revision.assert_called_once_with(other_revision_id)
+        mock_client.acknowledge_booking_revision.assert_called_once_with(other_revision_id)

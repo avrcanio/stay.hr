@@ -45,6 +45,7 @@ class Reservation(TenantScopedModel):
     persons_count = models.PositiveSmallIntegerField(null=True, blank=True)
     adults_count = models.PositiveSmallIntegerField(null=True, blank=True)
     children_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    infants_count = models.PositiveSmallIntegerField(null=True, blank=True)
     children_ages = models.CharField(max_length=128, blank=True)
     commission_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     commission_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)

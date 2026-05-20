@@ -63,6 +63,15 @@ class ChannexClient:
     def acknowledge_booking_revision(self, revision_id: str) -> None:
         self._request("POST", f"/booking_revisions/{revision_id}/ack")
 
+    def list_booking_revisions_feed(self) -> list[str]:
+        """Return non-acknowledged booking revision IDs (fallback for missed webhooks)."""
+        payload = self._request("GET", "/booking_revisions/feed")
+        revision_ids: list[str] = []
+        for item in payload.get("data") or []:
+            if isinstance(item, dict) and item.get("id"):
+                revision_ids.append(str(item["id"]))
+        return revision_ids
+
     def update_availability(self, values: list[dict[str, Any]]) -> dict[str, Any]:
         return self._request("POST", "/availability", json={"values": values})
 

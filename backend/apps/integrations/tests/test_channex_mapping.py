@@ -8,7 +8,7 @@ class ChannexMappingTests(TestCase):
     def test_uzorita_has_four_physical_rooms(self):
         self.assertEqual(len(UZORITA_STAGING_ROOM_TYPES), 4)
         codes = {row["unit_code"] for row in UZORITA_STAGING_ROOM_TYPES}
-        self.assertEqual(codes, {"R1", "R2", "D1", "R3"})
+        self.assertEqual(codes, {"R1", "R2", "R6", "R3"})
 
     def test_runtime_config_lookup_by_unit_code(self):
         config = ChannexRuntimeConfig.from_integration_dict(

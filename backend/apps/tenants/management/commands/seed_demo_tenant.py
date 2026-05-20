@@ -52,19 +52,21 @@ class Command(BaseCommand):
         )
 
         units = [
-            ("STD-01", "Standard Double", 2, 0),
-            ("STD-02", "Standard Twin", 2, 1),
-            ("APT-01", "Apartment", 4, 2),
+            ("STD-01", "Standard Double", 2, 2, 0, 0),
+            ("STD-02", "Standard Twin", 2, 2, 1, 0),
+            ("APT-01", "Apartment", 4, 4, 2, 0),
         ]
-        for code, name, adults, children in units:
+        for code, name, max_guests, adults, children, infants in units:
             Unit.objects.update_or_create(
                 tenant=tenant,
                 property=prop,
                 code=code,
                 defaults={
                     "name": name,
+                    "capacity_max_guests": max_guests,
                     "capacity_adults": adults,
                     "capacity_children": children,
+                    "capacity_infants": infants,
                     "is_active": True,
                 },
             )

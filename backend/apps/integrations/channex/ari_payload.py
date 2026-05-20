@@ -3,6 +3,15 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+RESTRICTION_DELTA_FIELDS = (
+    "min_stay_arrival",
+    "min_stay_through",
+    "max_stay",
+    "stop_sell",
+    "closed_to_arrival",
+    "closed_to_departure",
+)
+
 
 def rate_to_channex_value(rate: Decimal) -> str:
     return format(rate.quantize(Decimal("0.01")), "f")
@@ -72,3 +81,30 @@ def build_restriction_value(
     if closed_to_departure is not None:
         row["closed_to_departure"] = bool(closed_to_departure)
     return row
+
+
+def restriction_delta_from_update(
+    item: dict[str, Any],
+    sample: Any,
+    *,
+    property_id: str,
+    rate_plan_id: str,
+    day: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """Build Channex restrictions payload with only fields present in the update item."""
+    kwargs: dict[str, Any] = {}
+    if "rate" in item:
+        kwargs["rate"] = sample.rate
+    for field in RESTRICTION_DELTA_FIELDS:
+        if field in item:
+            kwargs[field] = getattr(sample, field)
+    return build_restriction_value(
+        property_id=property_id,
+        rate_plan_id=rate_plan_id,
+        day=day,
+        date_from=date_from,
+        date_to=date_to,
+        **kwargs,
+    )

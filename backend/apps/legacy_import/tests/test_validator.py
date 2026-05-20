@@ -1,6 +1,6 @@
 from datetime import date
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.integrations.models import IntegrationConfig
 from apps.legacy_import.validator import UzoritaMigrationValidator
@@ -8,7 +8,16 @@ from apps.properties.models import Property
 from apps.reservations.models import Guest, Reservation
 from apps.tenants.models import Tenant
 
+# Validator unit tests assume legacy DB is unavailable (no UZORITA_DB_* in CI/test).
+TEST_DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": ":memory:",
+    }
+}
 
+
+@override_settings(DATABASES=TEST_DATABASES)
 class ValidatorTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(

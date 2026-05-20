@@ -12,6 +12,7 @@ from django.utils import timezone
 from apps.integrations.channex.ari_payload import (
     build_availability_value,
     build_restriction_value,
+    restriction_delta_from_update,
 )
 from apps.integrations.channex.booking_test import certification_property_slug
 from apps.integrations.channex.client import ChannexClient
@@ -215,7 +216,9 @@ def apply_rate_updates(
             is_active=True,
         )
         day, day_to = _resolve_date_range(item)
-        defaults: dict[str, Any] = {"rate": Decimal(str(item["rate"]))}
+        defaults: dict[str, Any] = {}
+        if "rate" in item and item["rate"] is not None:
+            defaults["rate"] = Decimal(str(item["rate"]))
         for field in (
             "min_stay_arrival",
             "min_stay_through",
@@ -241,33 +244,23 @@ def apply_rate_updates(
         sample = saved[-1]
         if day == day_to:
             outbox_values.append(
-                build_restriction_value(
+                restriction_delta_from_update(
+                    item,
+                    sample,
                     property_id=property_id,
                     rate_plan_id=rate_plan.channex_rate_plan_id,
                     day=day.isoformat(),
-                    rate=sample.rate,
-                    min_stay_arrival=sample.min_stay_arrival,
-                    min_stay_through=sample.min_stay_through,
-                    max_stay=sample.max_stay,
-                    stop_sell=sample.stop_sell,
-                    closed_to_arrival=sample.closed_to_arrival,
-                    closed_to_departure=sample.closed_to_departure,
                 )
             )
         else:
             outbox_values.append(
-                build_restriction_value(
+                restriction_delta_from_update(
+                    item,
+                    sample,
                     property_id=property_id,
                     rate_plan_id=rate_plan.channex_rate_plan_id,
                     date_from=day.isoformat(),
                     date_to=day_to.isoformat(),
-                    rate=sample.rate,
-                    min_stay_arrival=sample.min_stay_arrival,
-                    min_stay_through=sample.min_stay_through,
-                    max_stay=sample.max_stay,
-                    stop_sell=sample.stop_sell,
-                    closed_to_arrival=sample.closed_to_arrival,
-                    closed_to_departure=sample.closed_to_departure,
                 )
             )
 
@@ -423,6 +416,8 @@ def build_full_sync(
                 defaults={
                     "rate": rate,
                     "min_stay_arrival": 1,
+                    "min_stay_through": 1,
+                    "max_stay": 30,
                     "stop_sell": False,
                     "closed_to_arrival": False,
                     "closed_to_departure": False,
@@ -472,6 +467,11 @@ def build_full_sync(
                         date_to=range_to.isoformat(),
                         rate=_generated_rate(plan.default_rate, sample_day, plan.code),
                         min_stay_arrival=1 + (sample_day.month % 3),
+                        min_stay_through=1,
+                        max_stay=30,
+                        stop_sell=False,
+                        closed_to_arrival=False,
+                        closed_to_departure=False,
                     )
                 )
         if month_cursor.month == 12:

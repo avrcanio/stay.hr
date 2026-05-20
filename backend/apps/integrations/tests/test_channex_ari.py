@@ -4,8 +4,17 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
-from apps.integrations.channex.ari_payload import build_restriction_value, rate_to_channex_value
-from apps.integrations.channex.ari_service import apply_rate_updates, enqueue_outbox_values
+from apps.integrations.channex.ari_payload import (
+    build_restriction_value,
+    rate_to_channex_value,
+    restriction_delta_from_update,
+)
+from apps.integrations.channex.ari_service import (
+    apply_rate_updates,
+    build_full_sync,
+    enqueue_outbox_values,
+)
+from apps.integrations.channex.demo_property import CHANNEX_DEMO_PROPERTY_SLUG
 from apps.integrations.models import (
     ChannelRatePlan,
     ChannexAriOutbox,
@@ -14,6 +23,16 @@ from apps.integrations.models import (
 )
 from apps.properties.models import Property, Unit
 from apps.tenants.models import Tenant
+
+FULL_SYNC_RESTRICTION_KEYS = frozenset(
+    {
+        "min_stay_through",
+        "max_stay",
+        "stop_sell",
+        "closed_to_arrival",
+        "closed_to_departure",
+    }
+)
 
 
 class ChannexAriPayloadTests(TestCase):
@@ -31,14 +50,36 @@ class ChannexAriPayloadTests(TestCase):
         self.assertEqual(row["date"], "2026-11-22")
         self.assertEqual(row["rate"], "333.00")
 
+    def test_restriction_delta_from_update_rate_only(self):
+        class Sample:
+            rate = Decimal("333.00")
+            min_stay_arrival = 1
+            min_stay_through = 1
+            max_stay = 30
+            stop_sell = False
+            closed_to_arrival = False
+            closed_to_departure = False
+
+        row = restriction_delta_from_update(
+            {"rate": "333.00"},
+            Sample(),
+            property_id="prop",
+            rate_plan_id="rp",
+            day="2026-11-22",
+        )
+        self.assertEqual(
+            set(row.keys()),
+            {"property_id", "rate_plan_id", "date", "rate"},
+        )
+
 
 class ChannexAriServiceTests(TestCase):
     def setUp(self):
-        self.tenant = Tenant.objects.create(slug="uzorita", name="Uzorita")
+        self.tenant = Tenant.objects.create(slug="demo", name="Demo")
         self.property = Property.objects.create(
             tenant=self.tenant,
-            slug="channex-bcom-test",
-            name="Test",
+            slug=CHANNEX_DEMO_PROPERTY_SLUG,
+            name="Test Property - Stay.hr",
             timezone="Europe/Zagreb",
         )
         self.unit = Unit.objects.create(
@@ -57,8 +98,7 @@ class ChannexAriServiceTests(TestCase):
                 "environment": "staging",
                 "base_url": "https://staging.channex.io/api/v1",
                 "property_id": "e00e6034-c154-4754-b5d9-9fff73ad12f6",
-                "api_key": "test-key",
-                "certification_property_slug": "channex-bcom-test",
+                "certification_property_slug": CHANNEX_DEMO_PROPERTY_SLUG,
                 "booking_test_rooms": [
                     {
                         "unit_code": "BCOM-STUDIO",
@@ -106,8 +146,58 @@ class ChannexAriServiceTests(TestCase):
             status=ChannexAriOutbox.Status.PENDING,
         )
         self.assertEqual(len(outbox.values), 1)
-        self.assertEqual(outbox.values[0]["date_from"], "2026-11-01")
-        self.assertEqual(outbox.values[0]["date_to"], "2026-11-10")
+        value = outbox.values[0]
+        self.assertEqual(value["date_from"], "2026-11-01")
+        self.assertEqual(value["date_to"], "2026-11-10")
+        self.assertEqual(set(value.keys()), {"property_id", "rate_plan_id", "date_from", "date_to", "rate"})
+
+    def test_apply_rate_updates_rate_only_delta(self):
+        RatePlanDay.objects.create(
+            tenant=self.tenant,
+            rate_plan=self.rate_plan,
+            date=date(2026, 11, 22),
+            rate=Decimal("100.00"),
+            min_stay_arrival=1,
+            min_stay_through=1,
+            max_stay=30,
+            stop_sell=False,
+            closed_to_arrival=False,
+            closed_to_departure=False,
+        )
+        apply_rate_updates(
+            self.integration,
+            [
+                {
+                    "unit_code": "BCOM-STUDIO",
+                    "rate_plan_code": "standard",
+                    "date": "2026-11-22",
+                    "rate": "333.00",
+                }
+            ],
+            queue_push=True,
+        )
+        outbox = ChannexAriOutbox.objects.get(
+            kind=ChannexAriOutbox.Kind.RESTRICTIONS,
+            status=ChannexAriOutbox.Status.PENDING,
+        )
+        value = outbox.values[0]
+        self.assertEqual(
+            set(value.keys()),
+            {"property_id", "rate_plan_id", "date", "rate"},
+        )
+        self.assertEqual(value["rate"], "333.00")
+        self.assertNotIn("min_stay_arrival", value)
+        self.assertNotIn("stop_sell", value)
+
+    def test_build_full_sync_restriction_payload_complete(self):
+        _, restriction_values = build_full_sync(
+            self.integration,
+            days=31,
+            start=date(2026, 6, 1),
+        )
+        self.assertGreater(len(restriction_values), 0)
+        for batch in restriction_values:
+            self.assertTrue(FULL_SYNC_RESTRICTION_KEYS.issubset(batch.keys()))
 
     def test_enqueue_merges_pending_restrictions(self):
         enqueue_outbox_values(

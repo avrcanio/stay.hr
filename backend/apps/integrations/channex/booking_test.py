@@ -82,8 +82,10 @@ class BookingTestRoomSpec(TypedDict):
     name: str
     booking_room_id: str
     booking_title: str
+    capacity_max_guests: int
     capacity_adults: int
     capacity_children: int
+    capacity_infants: int
     channex_room_type_id: str
     channex_title: str
     rate_plans: list[BookingTestRatePlanSpec]
@@ -95,8 +97,10 @@ BOOKING_COM_TEST_ROOMS: tuple[BookingTestRoomSpec, ...] = (
         "name": "Holiday Home (Booking test)",
         "booking_room_id": "1074503007",
         "booking_title": "Holiday Home",
+        "capacity_max_guests": 11,
         "capacity_adults": 11,
         "capacity_children": 0,
+        "capacity_infants": 0,
         "channex_room_type_id": "430b1381-dace-44d6-8d5d-a0a1025819fc",
         "channex_title": "Holiday Home",
         "rate_plans": [
@@ -121,8 +125,10 @@ BOOKING_COM_TEST_ROOMS: tuple[BookingTestRoomSpec, ...] = (
         "name": "Studio (Booking test)",
         "booking_room_id": "1074503008",
         "booking_title": "Studio",
+        "capacity_max_guests": 2,
         "capacity_adults": 2,
         "capacity_children": 0,
+        "capacity_infants": 0,
         "channex_room_type_id": "18c437d7-13e3-4dbc-9565-48fad4832bf5",
         "channex_title": "Studio",
         "rate_plans": [

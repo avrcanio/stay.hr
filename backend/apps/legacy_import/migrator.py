@@ -145,8 +145,10 @@ class UzoritaLegacyMigrator:
                 code=room.code,
                 defaults={
                     "name": room.code,
+                    "capacity_max_guests": 2,
                     "capacity_adults": 2,
                     "capacity_children": 0,
+                    "capacity_infants": 0,
                     "is_active": True,
                 },
             )

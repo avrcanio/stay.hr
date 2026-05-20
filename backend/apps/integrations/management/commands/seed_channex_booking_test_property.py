@@ -76,15 +76,18 @@ class Command(BaseCommand):
                 code=spec["unit_code"],
                 defaults={
                     "name": spec["name"],
+                    "capacity_max_guests": spec["capacity_max_guests"],
                     "capacity_adults": spec["capacity_adults"],
                     "capacity_children": spec["capacity_children"],
+                    "capacity_infants": spec["capacity_infants"],
                     "is_active": True,
                 },
             )
             u_verb = "Created" if u_created else "Updated"
             self.stdout.write(
                 f"    {u_verb} unit {unit.code} id={unit.id} "
-                f"(booking_room_id={spec['booking_room_id']}, adults={spec['capacity_adults']})"
+                f"(booking_room_id={spec['booking_room_id']}, "
+                f"guests={spec['capacity_max_guests']}, adults={spec['capacity_adults']})"
             )
         return prop
 
@@ -100,7 +103,10 @@ class Command(BaseCommand):
                 "unit_code": spec["unit_code"],
                 "booking_room_id": spec["booking_room_id"],
                 "booking_title": spec["booking_title"],
+                "capacity_max_guests": spec["capacity_max_guests"],
                 "capacity_adults": spec["capacity_adults"],
+                "capacity_children": spec["capacity_children"],
+                "capacity_infants": spec["capacity_infants"],
                 "channex_room_type_id": spec["channex_room_type_id"],
                 "channex_title": spec["channex_title"],
                 "rate_plans": list(spec.get("rate_plans") or []),
