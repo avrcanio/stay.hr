@@ -69,6 +69,46 @@ class MonthlyStatisticsTests(TestCase):
 
         april = next(m for m in payload["months"] if m["month"] == 4)
         self.assertEqual(april["current"]["revenue"], "0.00")
+        self.assertEqual(april["current"]["nights"], 0)
+        self.assertEqual(april["current"]["reserved_revenue"], "999.00")
+        self.assertEqual(april["current"]["reserved_nights"], 4)
+        self.assertEqual(march["current"]["reserved_revenue"], "200.00")
+        self.assertEqual(march["current"]["reserved_nights"], 3)
+
+    def test_expected_increases_reserved_not_realized(self):
+        self._create_reservation(
+            check_in=date(2026, 6, 1),
+            amount=Decimal("500.00"),
+            status=Reservation.Status.EXPECTED,
+            nights=5,
+        )
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        june = next(m for m in payload["months"] if m["month"] == 6)
+        self.assertEqual(june["current"]["revenue"], "0.00")
+        self.assertEqual(june["current"]["nights"], 0)
+        self.assertEqual(june["current"]["reserved_revenue"], "500.00")
+        self.assertEqual(june["current"]["reserved_nights"], 5)
+
+    def test_override_does_not_touch_reserved(self):
+        self._create_reservation(
+            check_in=date(2026, 7, 10),
+            amount=Decimal("300.00"),
+            status=Reservation.Status.EXPECTED,
+            nights=2,
+        )
+        MonthlyStatisticsOverride.objects.create(
+            tenant=self.tenant,
+            year=2026,
+            month=7,
+            revenue=Decimal("9999.00"),
+            nights=99,
+        )
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        july = next(m for m in payload["months"] if m["month"] == 7)
+        self.assertEqual(july["current"]["revenue"], "9999.00")
+        self.assertEqual(july["current"]["nights"], 99)
+        self.assertEqual(july["current"]["reserved_revenue"], "300.00")
+        self.assertEqual(july["current"]["reserved_nights"], 2)
 
     def test_override_for_comparison_year_without_reservations(self):
         MonthlyStatisticsOverride.objects.create(

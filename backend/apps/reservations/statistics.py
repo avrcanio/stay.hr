@@ -10,6 +10,16 @@ from apps.reservations.models import MonthlyStatisticsOverride, Reservation
 
 DEFAULT_CURRENCY = "EUR"
 
+_REALIZED_STATUSES = [
+    Reservation.Status.CHECKED_IN,
+    Reservation.Status.CHECKED_OUT,
+]
+_RESERVED_STATUSES = [
+    Reservation.Status.EXPECTED,
+    Reservation.Status.CHECKED_IN,
+    Reservation.Status.CHECKED_OUT,
+]
+
 
 def _property_label(tenant) -> str:
     properties = Property.objects.for_tenant(tenant).order_by("name")
@@ -19,16 +29,33 @@ def _property_label(tenant) -> str:
     return tenant.name
 
 
-def _statistics_queryset(tenant, year: int):
+def _realized_queryset(tenant, year: int):
     comparison_year = year - 1
     return (
         Reservation.objects.for_tenant(tenant)
         .filter(
-            status__in=[
-                Reservation.Status.CHECKED_IN,
-                Reservation.Status.CHECKED_OUT,
-            ],
+            status__in=_REALIZED_STATUSES,
             check_in__gte=date(comparison_year, 1, 1),
+            check_in__lte=date(year, 12, 31),
+        )
+        .only(
+            "check_in",
+            "check_out",
+            "amount",
+            "commission_amount",
+            "nights_count",
+            "currency",
+        )
+    )
+
+
+def _reserved_queryset(tenant, year: int):
+    """Sve aktivne rezervacije (bez canceled) za tekuću godinu — bookirano po check-in mjesecu."""
+    return (
+        Reservation.objects.for_tenant(tenant)
+        .filter(
+            status__in=_RESERVED_STATUSES,
+            check_in__gte=date(year, 1, 1),
             check_in__lte=date(year, 12, 31),
         )
         .only(
@@ -54,15 +81,22 @@ def _decimal_str(value: Decimal) -> str:
     return format(value.quantize(Decimal("0.01")), "f")
 
 
+def _empty_current_bucket() -> dict:
+    return {
+        "revenue": Decimal("0"),
+        "commission": Decimal("0"),
+        "nights": 0,
+        "reserved_revenue": Decimal("0"),
+        "reserved_commission": Decimal("0"),
+        "reserved_nights": 0,
+    }
+
+
 def aggregate_monthly_statistics(tenant, year: int) -> dict:
     comparison_year = year - 1
     buckets: dict[int, dict[str, dict]] = {
         month: {
-            "current": {
-                "revenue": Decimal("0"),
-                "commission": Decimal("0"),
-                "nights": 0,
-            },
+            "current": _empty_current_bucket(),
             "previous": {
                 "revenue": Decimal("0"),
                 "commission": Decimal("0"),
@@ -73,7 +107,7 @@ def aggregate_monthly_statistics(tenant, year: int) -> dict:
     }
 
     currency = DEFAULT_CURRENCY
-    for reservation in _statistics_queryset(tenant, year).iterator():
+    for reservation in _realized_queryset(tenant, year).iterator():
         check_in = reservation.check_in
         if check_in is None:
             continue
@@ -90,6 +124,18 @@ def aggregate_monthly_statistics(tenant, year: int) -> dict:
         slot["revenue"] += reservation.amount or Decimal("0")
         slot["commission"] += reservation.commission_amount or Decimal("0")
         slot["nights"] += _effective_nights(reservation)
+        if reservation.currency:
+            currency = reservation.currency
+
+    for reservation in _reserved_queryset(tenant, year).iterator():
+        check_in = reservation.check_in
+        if check_in is None:
+            continue
+        month = check_in.month
+        slot = buckets[month]["current"]
+        slot["reserved_revenue"] += reservation.amount or Decimal("0")
+        slot["reserved_commission"] += reservation.commission_amount or Decimal("0")
+        slot["reserved_nights"] += _effective_nights(reservation)
         if reservation.currency:
             currency = reservation.currency
 
@@ -122,6 +168,9 @@ def aggregate_monthly_statistics(tenant, year: int) -> dict:
                     "revenue": _decimal_str(current["revenue"]),
                     "commission": _decimal_str(current["commission"]),
                     "nights": current["nights"],
+                    "reserved_revenue": _decimal_str(current["reserved_revenue"]),
+                    "reserved_commission": _decimal_str(current["reserved_commission"]),
+                    "reserved_nights": current["reserved_nights"],
                 },
                 "previous": {
                     "revenue": _decimal_str(previous["revenue"]),

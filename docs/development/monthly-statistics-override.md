@@ -4,8 +4,11 @@ Omogućuje unos **povijesnih** prihoda, provizija i noćenja po mjesecu kada u b
 
 ## Ponašanje
 
-1. API `GET /api/v1/reception/statistics/monthly/?year=YYYY` zbraja rezervacije tenant-a sa statusom **`checked_in`** ili **`checked_out`** (po datumu **check-in**).
-2. Ako postoji zapis **`MonthlyStatisticsOverride`** za `(tenant, godina, mjesec)`, te vrijednosti **potpuno zamjenjuju** zbroj iz rezervacija za taj mjesec (current ili previous godina u YoY usporedbi).
+1. API `GET /api/v1/reception/statistics/monthly/?year=YYYY`:
+   - **`current.revenue` / `nights`** — **realizirano**: `checked_in` + `checked_out` (check-in u tekućoj godini).
+   - **`current.reserved_*`** — **rezervirano**: sve osim `canceled` (`expected` + `checked_in` + `checked_out`) za check-in u tekućoj godini.
+   - **`previous.*`** — realizirano za prošlu godinu (ili override).
+2. Ako postoji zapis **`MonthlyStatisticsOverride`** za `(tenant, godina, mjesec)`, te vrijednosti **potpuno zamjenjuju** realizirani zbroj (`revenue`, `commission`, `nights`) za taj mjesec — **ne** diraju `reserved_*`.
 
 Isto kao Uzorita `MonthlyStatisticsOverride`, ali s **`tenant_id`** — demo i uzorita imaju odvojene override zapise.
 
