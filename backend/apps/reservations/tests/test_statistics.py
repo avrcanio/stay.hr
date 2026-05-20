@@ -89,7 +89,7 @@ class MonthlyStatisticsTests(TestCase):
         self.assertEqual(june["current"]["reserved_revenue"], "500.00")
         self.assertEqual(june["current"]["reserved_nights"], 5)
 
-    def test_canceled_aggregated_for_current_year_only(self):
+    def test_canceled_aggregated_for_current_and_comparison_year(self):
         self._create_reservation(
             check_in=date(2026, 5, 12),
             amount=Decimal("400.00"),
@@ -103,10 +103,45 @@ class MonthlyStatisticsTests(TestCase):
             nights=2,
         )
         payload = aggregate_monthly_statistics(self.tenant, 2026)
+        self.assertEqual(payload["prior_year"], 2024)
         may = next(m for m in payload["months"] if m["month"] == 5)
         self.assertEqual(may["current"]["canceled_revenue"], "400.00")
         self.assertEqual(may["current"]["canceled_nights"], 4)
-        self.assertNotIn("canceled_revenue", may["previous"])
+        self.assertEqual(may["previous"]["canceled_revenue"], "200.00")
+        self.assertEqual(may["previous"]["canceled_nights"], 2)
+
+    def test_prior_year_realized_on_previous_bucket(self):
+        self._create_reservation(
+            check_in=date(2024, 5, 8),
+            amount=Decimal("80.00"),
+            status=Reservation.Status.CHECKED_OUT,
+            nights=2,
+        )
+        self._create_reservation(
+            check_in=date(2025, 5, 10),
+            amount=Decimal("100.00"),
+            status=Reservation.Status.CHECKED_OUT,
+            nights=3,
+        )
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        may = next(m for m in payload["months"] if m["month"] == 5)
+        self.assertEqual(may["previous"]["revenue"], "100.00")
+        self.assertEqual(may["previous"]["nights"], 3)
+        self.assertEqual(may["previous"]["prior_revenue"], "80.00")
+        self.assertEqual(may["previous"]["prior_nights"], 2)
+
+    def test_prior_year_override(self):
+        MonthlyStatisticsOverride.objects.create(
+            tenant=self.tenant,
+            year=2024,
+            month=6,
+            revenue=Decimal("1500.00"),
+            nights=20,
+        )
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        june = next(m for m in payload["months"] if m["month"] == 6)["previous"]
+        self.assertEqual(june["prior_revenue"], "1500.00")
+        self.assertEqual(june["prior_nights"], 20)
 
     def test_override_does_not_touch_reserved(self):
         self._create_reservation(
