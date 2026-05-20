@@ -8,6 +8,7 @@ from apps.api.reception_views import (
     IdScanSampleUploadView,
     ReceptionHealthView,
     ReceptionMonthlyStatisticsView,
+    ReceptionSyncVersionsView,
     ReservationDetailView,
     ReservationGuestDetailView,
     ReservationGuestListCreateView,
@@ -16,6 +17,11 @@ from apps.api.reception_views import (
 
 urlpatterns = [
     path("health/", ReceptionHealthView.as_view(), name="reception-health"),
+    path(
+        "sync-versions/",
+        ReceptionSyncVersionsView.as_view(),
+        name="reception-sync-versions",
+    ),
     path(
         "statistics/monthly/",
         ReceptionMonthlyStatisticsView.as_view(),

@@ -191,6 +191,18 @@ class ReceptionAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         mock_submit.assert_called_once()
 
+    def test_sync_versions(self):
+        response = self.client.get(
+            "/api/v1/reception/sync-versions/?year=2026",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("reservations", data)
+        self.assertIn("rooms", data)
+        self.assertIn("2026", data["statistics"])
+        self.assertEqual(len(data["reservations"]), 16)
+
     def test_monthly_statistics(self):
         self.reservation.status = Reservation.Status.CHECKED_IN
         self.reservation.save(update_fields=["status", "updated_at"])
