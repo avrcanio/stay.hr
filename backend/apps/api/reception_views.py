@@ -782,19 +782,29 @@ class EvisitorSubmitView(ReceptionWriteView, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except EvisitorApiError as exc:
+            from apps.integrations.evisitor.messages import format_evisitor_user_message
+
             return Response(
                 {
                     "status": EvisitorGuestStatus.FAILED,
-                    "user_message": exc.user_message or str(exc),
+                    "user_message": format_evisitor_user_message(
+                        exc.user_message or ""
+                    )
+                    or exc.user_message
+                    or str(exc),
                     "system_message": exc.system_message,
                 },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        return Response(
-            {
-                "status": submission.status,
-                "registration_id": str(submission.registration_id),
-                "submitted_at": submission.submitted_at,
-            }
-        )
+        payload = {
+            "status": submission.status,
+            "registration_id": str(submission.registration_id),
+            "submitted_at": submission.submitted_at,
+        }
+        if submission.response_payload.get("recovered"):
+            payload["recovered"] = True
+            payload["message"] = submission.response_payload.get("message") or (
+                "Gost je već prijavljen u eVisitoru; status usklađen."
+            )
+        return Response(payload)

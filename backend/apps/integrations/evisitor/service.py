@@ -16,6 +16,10 @@ from apps.integrations.evisitor.mapper import (
     build_check_out_payload,
     mask_payload_for_log,
 )
+from apps.integrations.evisitor.messages import (
+    format_evisitor_user_message,
+    parse_existing_registration_id,
+)
 from apps.integrations.evisitor.resolver import resolve_evisitor_config
 from apps.reservations.models import EvisitorGuestStatus, EvisitorSubmission, Guest
 
@@ -75,8 +79,40 @@ def submit_guest_checkin(guest: Guest, *, force_retry: bool = False) -> Evisitor
         if field_errors:
             user_msg = "; ".join(f"{k}: {v}" for k, v in field_errors.items())
 
+        existing_id = parse_existing_registration_id(user_msg)
+        if existing_id:
+            readable = format_evisitor_user_message(user_msg) or user_msg
+            now = timezone.now()
+            submission.status = EvisitorGuestStatus.SENT
+            submission.submitted_at = now
+            submission.registration_id = uuid.UUID(existing_id)
+            submission.error_user_message = readable[:2000]
+            submission.error_system_message = system_msg[:2000]
+            submission.response_payload = {
+                "ok": True,
+                "recovered": True,
+                "existing_registration_id": existing_id,
+                "message": readable,
+            }
+            submission.save(
+                update_fields=[
+                    "status",
+                    "submitted_at",
+                    "registration_id",
+                    "error_user_message",
+                    "error_system_message",
+                    "response_payload",
+                ]
+            )
+            Guest.objects.filter(pk=guest.pk).update(
+                evisitor_status=EvisitorGuestStatus.SENT,
+                evisitor_registration_id=existing_id,
+            )
+            return submission
+
         submission.status = EvisitorGuestStatus.FAILED
-        submission.error_user_message = user_msg[:2000]
+        submission.error_user_message = format_evisitor_user_message(user_msg) or user_msg
+        submission.error_user_message = submission.error_user_message[:2000]
         submission.error_system_message = system_msg[:2000]
         submission.response_payload = {
             "error": user_msg,
