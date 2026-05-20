@@ -1,5 +1,6 @@
 from django.urls import path
 
+from apps.integrations.calendar_views import CalendarRatesView
 from apps.integrations.channex.ari_views import (
     ChannexAriAvailabilityView,
     ChannexAriFlushView,
@@ -9,6 +10,11 @@ from apps.integrations.channex.ari_views import (
 from apps.integrations.channex.webhook_views import ChannexWebhookView
 
 urlpatterns = [
+    path(
+        "calendar/rates/",
+        CalendarRatesView.as_view(),
+        name="calendar-rates",
+    ),
     path(
         "channex/webhook/",
         ChannexWebhookView.as_view(),

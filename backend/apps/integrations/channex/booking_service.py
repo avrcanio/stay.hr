@@ -134,6 +134,18 @@ def _upsert_reservation_from_revision(
         attrs.get("ota_reservation_code") or attrs.get("unique_id") or attrs.get("system_id") or ""
     ).strip()
 
+    adults = int(occupancy.get("adults") or 0)
+    child_count = int(occupancy.get("children") or 0)
+    infant_count = int(occupancy.get("infants") or 0)
+    occupancy_counts: dict[str, int | None] = {}
+    if occupancy:
+        occupancy_counts = {
+            "adults_count": adults,
+            "children_count": child_count,
+            "infants_count": infant_count,
+            "persons_count": adults + child_count,
+        }
+
     defaults: dict[str, Any] = {
         "property": property,
         "check_in": check_in,
@@ -150,8 +162,7 @@ def _upsert_reservation_from_revision(
         "source": str(attrs.get("ota_name") or "Channex").strip(),
         "import_source": "channex",
         "booked_at": _parse_datetime(attrs.get("inserted_at")),
-        "adults_count": int(occupancy.get("adults") or 0) or None,
-        "children_count": int(occupancy.get("children") or 0) or None,
+        **occupancy_counts,
         "nights_count": nights or None,
         "notes": str(attrs.get("notes") or "").strip(),
         "canceled_at": timezone.now()
@@ -306,3 +317,42 @@ def process_channex_booking_webhook(
         )
         return None
     return process_channex_booking_revision(integration_row, revision_id)
+
+
+def process_channex_booking_revisions_feed(
+    integration_row: IntegrationConfig,
+    *,
+    client: ChannexClient | None = None,
+) -> list[Reservation]:
+    """
+    Process non-acknowledged revisions from Channex feed (missed webhook fallback).
+    """
+    config = ChannexRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+    owns_client = client is None
+    if owns_client:
+        client = ChannexClient(config)
+
+    processed: list[Reservation] = []
+    try:
+        revision_ids = client.list_booking_revisions_feed()
+        logger.info(
+            "channex booking revisions feed",
+            extra={"count": len(revision_ids)},
+        )
+        for revision_id in revision_ids:
+            if ChannexBookingRevision.objects.filter(revision_id=revision_id).exists():
+                logger.debug(
+                    "channex feed revision already processed",
+                    extra={"revision_id": revision_id},
+                )
+                continue
+            reservation = process_channex_booking_revision(
+                integration_row,
+                revision_id,
+                client=client,
+            )
+            processed.append(reservation)
+    finally:
+        if owns_client and client is not None:
+            client.close()
+    return processed

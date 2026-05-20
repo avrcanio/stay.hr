@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.test import TestCase
 
 from apps.properties.models import Property
-from apps.reservations.models import Reservation
+from apps.reservations.models import MonthlyStatisticsOverride, Reservation
 from apps.reservations.statistics import aggregate_monthly_statistics
 from apps.tenants.models import Tenant
 
@@ -69,3 +69,53 @@ class MonthlyStatisticsTests(TestCase):
 
         april = next(m for m in payload["months"] if m["month"] == 4)
         self.assertEqual(april["current"]["revenue"], "0.00")
+
+    def test_override_for_comparison_year_without_reservations(self):
+        MonthlyStatisticsOverride.objects.create(
+            tenant=self.tenant,
+            year=2025,
+            month=5,
+            revenue=Decimal("3580.25"),
+            nights=45,
+            commission=Decimal("120.00"),
+        )
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        may_previous = next(m for m in payload["months"] if m["month"] == 5)["previous"]
+        self.assertEqual(may_previous["revenue"], "3580.25")
+        self.assertEqual(may_previous["commission"], "120.00")
+        self.assertEqual(may_previous["nights"], 45)
+
+    def test_override_replaces_reservation_sum_for_same_month(self):
+        self._create_reservation(
+            check_in=date(2025, 5, 10),
+            amount=Decimal("999.00"),
+            status=Reservation.Status.CHECKED_OUT,
+            nights=2,
+        )
+        MonthlyStatisticsOverride.objects.create(
+            tenant=self.tenant,
+            year=2025,
+            month=5,
+            revenue=Decimal("3580.25"),
+            nights=45,
+        )
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        may_previous = next(m for m in payload["months"] if m["month"] == 5)["previous"]
+        self.assertEqual(may_previous["revenue"], "3580.25")
+        self.assertEqual(may_previous["commission"], "0.00")
+        self.assertEqual(may_previous["nights"], 45)
+
+    def test_override_isolated_per_tenant(self):
+        other = Tenant.objects.create(name="Demo", slug="demo")
+        Property.objects.create(tenant=other, name="Demo", slug="demo")
+        MonthlyStatisticsOverride.objects.create(
+            tenant=other,
+            year=2025,
+            month=6,
+            revenue=Decimal("5000.00"),
+            nights=99,
+        )
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        june_previous = next(m for m in payload["months"] if m["month"] == 6)["previous"]
+        self.assertEqual(june_previous["revenue"], "0.00")
+        self.assertEqual(june_previous["nights"], 0)

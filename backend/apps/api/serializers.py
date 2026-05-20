@@ -2,7 +2,7 @@ import secrets
 
 from rest_framework import serializers
 
-from apps.properties.models import Property, Unit
+from apps.properties.models import Property, Unit, UnitBed, UnitBathroom
 from apps.reservations.models import Guest, Reservation
 from apps.tenants.models import Tenant
 
@@ -35,8 +35,33 @@ class PropertySummarySerializer(serializers.ModelSerializer):
         )
 
 
+class UnitBathroomSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UnitBathroom
+        fields = (
+            "is_private",
+            "is_inside_room",
+            "sort_order",
+        )
+
+
+class UnitBedSerializer(serializers.ModelSerializer):
+    bed_type_label = serializers.CharField(source="get_bed_type_display", read_only=True)
+
+    class Meta:
+        model = UnitBed
+        fields = (
+            "bed_type",
+            "bed_type_label",
+            "count",
+            "sort_order",
+        )
+
+
 class UnitSummarySerializer(serializers.ModelSerializer):
     property_slug = serializers.CharField(source="property.slug", read_only=True)
+    beds = UnitBedSerializer(many=True, read_only=True)
+    bathrooms = UnitBathroomSerializer(many=True, read_only=True)
 
     class Meta:
         model = Unit
@@ -45,8 +70,12 @@ class UnitSummarySerializer(serializers.ModelSerializer):
             "property_slug",
             "code",
             "name",
+            "capacity_max_guests",
             "capacity_adults",
             "capacity_children",
+            "capacity_infants",
+            "beds",
+            "bathrooms",
             "is_active",
         )
 
@@ -75,6 +104,8 @@ class PublicPropertySerializer(serializers.ModelSerializer):
 
 class PublicUnitSerializer(serializers.ModelSerializer):
     property_slug = serializers.CharField(source="property.slug", read_only=True)
+    beds = UnitBedSerializer(many=True, read_only=True)
+    bathrooms = UnitBathroomSerializer(many=True, read_only=True)
 
     class Meta:
         model = Unit
@@ -83,8 +114,12 @@ class PublicUnitSerializer(serializers.ModelSerializer):
             "property_slug",
             "code",
             "name",
+            "capacity_max_guests",
             "capacity_adults",
             "capacity_children",
+            "capacity_infants",
+            "beds",
+            "bathrooms",
         )
 
 

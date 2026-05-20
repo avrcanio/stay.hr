@@ -16,10 +16,12 @@ docker compose run --rm django python manage.py seed_channex_demo_property
 
 Creates property **Test Property - Stay.hr** (`slug=channex-demo`) with units:
 
-| Unit | Booking test room | Capacity |
-|------|-------------------|----------|
-| `BCOM-HOLIDAY` | Holiday Home (1074503007) | 11 |
-| `BCOM-STUDIO` | Studio (1074503008) | 2 |
+| Unit | Booking test room | Max guests | Adults | Children | Infants |
+|------|-------------------|------------|--------|----------|---------|
+| `BCOM-HOLIDAY` | Holiday Home (1074503007) | 11 | 11 | 0 | 0 |
+| `BCOM-STUDIO` | Studio (1074503008) | 2 | 2 | 0 | 0 |
+
+Kapacitet se drži na **`Unit`** (Booking.com room type), ne na `Property`.
 
 Admin: [tenant 1](https://admin.stay.hr/admin/tenants/tenant/1/change/) → property `channex-demo`
 
@@ -107,8 +109,8 @@ Legacy uzorita cert data lived on tenant `uzorita` / property `channex-bcom-test
 
 On `booking_*` webhooks, stay.hr:
 
-1. `GET /booking_revisions/{revision_id}`
-2. Upserts `Reservation` on property `channex-bcom-test` (from `certification_property_slug`)
+1. `GET /booking_revisions/{revision_id}` (single revision — do **not** use `GET /bookings` or list `GET /booking_revisions`)
+2. Upserts `Reservation` on property **`channex-demo`** (from `certification_property_slug`)
 3. `POST /booking_revisions/{revision_id}/ack`
 
 Manual reprocess:
@@ -117,6 +119,14 @@ Manual reprocess:
 docker exec stay_django python manage.py process_channex_booking_revision <revision_uuid>
 ```
 
+Fallback for missed webhooks (non-acked revisions):
+
+```bash
+docker exec stay_django python manage.py channex_booking_revisions_feed --tenant-slug demo
+```
+
+Uses `GET /booking_revisions/feed` only; each revision is then fetched by ID and acknowledged.
+
 ## ARI push (cert tests 1–10)
 
 stay.hr stores daily availability + rates in DB, queues changes in `ChannexAriOutbox`, then pushes to Channex.
@@ -124,16 +134,21 @@ stay.hr stores daily availability + rates in DB, queues changes in `ChannexAriOu
 ### Setup
 
 ```bash
-docker exec stay_django python manage.py seed_channex_rate_plans
+docker exec stay_django python manage.py seed_channex_rate_plans --tenant-slug demo
 ```
 
 ### Cert test 1 — full sync (500 days, 2 API calls)
 
 ```bash
-docker exec stay_django python manage.py channex_ari_full_sync
+docker exec stay_django python manage.py channex_ari_full_sync --tenant-slug demo
 ```
 
 Returns Channex **task IDs** in output — use for certification form.
+
+Full sync `POST /restrictions` batches include all declared restriction fields per month range:
+
+- `rate`, `min_stay_arrival`, `min_stay_through`, `max_stay`
+- `stop_sell`, `closed_to_arrival`, `closed_to_departure`
 
 ### Cert tests 2–8 — change rates/restrictions (PMS API)
 
@@ -173,11 +188,26 @@ Date range (test 4):
 }
 ```
 
-Restrictions fields: `min_stay_arrival`, `stop_sell`, `closed_to_arrival`, `closed_to_departure`, `max_stay`.
+**Delta push:** Channex receives only fields you send in the PATCH body. Example: test #2 with only `"rate": "333.00"` produces a restrictions payload with `date`, `property_id`, `rate_plan_id`, and `rate` — not a full snapshot of other restrictions.
+
+Optional restriction fields: `min_stay_arrival`, `min_stay_through`, `max_stay`, `stop_sell`, `closed_to_arrival`, `closed_to_departure`.
 
 Availability: `PATCH .../channex/ari/availability/` with `unit_code`, `date` or range, `availability`.
 
-Admin: edit `Rate plan day` / `Unit availability day` then run `channex_ari_flush` (or API auto-pushes on PATCH).
+Admin: edit `Rate plan day` / `Unit availability day` then run `channex_ari_flush --tenant-slug demo` (or API auto-pushes on PATCH).
+
+### Re-cert checklist (after code deploy)
+
+1. `seed_channex_rate_plans --tenant-slug demo` (if needed)
+2. `channex_ari_full_sync --tenant-slug demo` — verify restrictions payloads in Channex logs include all fields above
+3. Test #2: PATCH rates with **only** `rate` for `BCOM-STUDIO` / `standard` / `2026-11-22`
+4. Test #11: trigger booking via Channex webhook; API log should show only `GET .../booking_revisions/{uuid}` and `POST .../ack`
+5. Optional: `channex_booking_revisions_feed --tenant-slug demo`
+6. Submit new certification form
+
+Google cert obrazac (podaci za popunjavanje): [channex-certification-form.md](./channex-certification-form.md)
+
+Automatski testovi: [test-suite.md](../development/test-suite.md)
 
 ### Rate plan codes (test property)
 

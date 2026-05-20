@@ -7,6 +7,7 @@ from apps.reservations.models import (
     Guest,
     IdDocument,
     IdRecognitionSample,
+    MonthlyStatisticsOverride,
     Reservation,
     ReservationUnit,
 )
@@ -90,6 +91,47 @@ class DocumentScanLogAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("id", "guest", "status", "method", "created_at", "tenant")
     list_filter = ("status", "tenant")
     raw_id_fields = ("tenant", "reservation", "guest")
+
+
+@admin.register(MonthlyStatisticsOverride)
+class MonthlyStatisticsOverrideAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    """Jedan zapis = cijeli mjesec; API ne zbraja rezervacije za taj tenant/godina/mjesec."""
+
+    list_display = (
+        "tenant",
+        "year",
+        "month",
+        "revenue",
+        "nights",
+        "commission",
+        "currency",
+        "updated_at",
+    )
+    list_filter = ("tenant", "year")
+    ordering = ("-year", "-month")
+    search_fields = ("notes",)
+    raw_id_fields = ("tenant",)
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "tenant",
+                    "year",
+                    "month",
+                    "revenue",
+                    "commission",
+                    "nights",
+                    "currency",
+                    "notes",
+                ),
+                "description": (
+                    "Ako postoji zapis za tenant, godinu i mjesec, mjesečna statistika "
+                    "koristi ove vrijednosti umjesto zbroja iz rezervacija."
+                ),
+            },
+        ),
+    )
 
 
 @admin.register(EvisitorSubmission)

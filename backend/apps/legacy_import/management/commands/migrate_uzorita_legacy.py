@@ -49,6 +49,9 @@ class Command(BaseCommand):
         self.stdout.write(f"  Guests created: {stats.guests}")
         self.stdout.write(f"  eVisitor submissions created: {stats.evisitor_submissions}")
         self.stdout.write(f"  eVisitor configs created: {stats.integration_configs}")
+        self.stdout.write(
+            f"  Monthly statistics overrides created: {stats.monthly_statistics_overrides}"
+        )
 
         if stats.errors:
             self.stdout.write(self.style.WARNING(f"  Warnings/errors: {len(stats.errors)}"))

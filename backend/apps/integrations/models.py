@@ -13,6 +13,7 @@ class IntegrationConfig(TenantScopedModel):
         ICAL = "ical", "iCal"
         EVISITOR = "evisitor", "eVisitor"
         CHANNEX = "channex", "Channex"
+        SMOOBU = "smoobu", "Smoobu"
         OTHER = "other", "Other"
 
     property = models.ForeignKey(
@@ -217,3 +218,34 @@ class ChannexAriOutbox(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"{self.kind} {self.status} ({len(self.values)} values)"
+
+
+class UnitRateDay(TenantScopedModel):
+    """Canonical per-unit daily rate for Smoobu (one price per apartment per day)."""
+
+    unit = models.ForeignKey(
+        "properties.Unit",
+        on_delete=models.CASCADE,
+        related_name="rate_days",
+    )
+    date = models.DateField()
+    rate = models.DecimalField(max_digits=10, decimal_places=2)
+    min_stay = models.PositiveSmallIntegerField(null=True, blank=True)
+    smoobu_synced_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["date", "unit_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "unit", "date"],
+                name="integrations_unitrateday_unique_tenant_unit_date",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "unit", "smoobu_synced_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.unit.code} {self.date}: {self.rate}"

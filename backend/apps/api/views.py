@@ -4,6 +4,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django.db.models import Prefetch
+
 from apps.api.authentication import AppKeyAuthentication
 from apps.api.permissions import DenyAdminScopes, HasApiApplication, HasScope
 from apps.api.serializers import (
@@ -12,13 +14,30 @@ from apps.api.serializers import (
     PublicReservationCreateSerializer,
     PublicUnitSerializer,
 )
-from apps.properties.models import Property, Unit
+from apps.properties.models import Property, Unit, UnitBed, UnitBathroom
 from apps.reservations.models import Reservation
 
 
 class TenantAPIView(APIView):
     authentication_classes = [AppKeyAuthentication]
     permission_classes = [HasApiApplication, DenyAdminScopes]
+
+
+def _units_with_details_queryset(tenant):
+    return (
+        Unit.objects.for_tenant(tenant)
+        .select_related("property")
+        .prefetch_related(
+            Prefetch(
+                "beds",
+                queryset=UnitBed.objects.order_by("sort_order", "id"),
+            ),
+            Prefetch(
+                "bathrooms",
+                queryset=UnitBathroom.objects.order_by("sort_order", "id"),
+            ),
+        )
+    )
 
 
 class AppConfigView(TenantAPIView):
@@ -29,9 +48,8 @@ class AppConfigView(TenantAPIView):
         tenant = request.tenant
         properties = Property.objects.for_tenant(tenant).order_by("name")
         units = (
-            Unit.objects.for_tenant(tenant)
+            _units_with_details_queryset(tenant)
             .filter(is_active=True)
-            .select_related("property")
             .order_by("property__name", "code")
         )
         primary = properties.filter(slug=tenant.slug).first() or properties.first()
@@ -68,9 +86,9 @@ class PublicUnitsView(TenantAPIView):
     permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
 
     def get(self, request):
-        units = Unit.objects.for_tenant(request.tenant).filter(
+        units = _units_with_details_queryset(request.tenant).filter(
             is_active=True,
-        ).select_related("property")
+        )
         property_slug = request.query_params.get("property")
         if property_slug:
             units = units.filter(property__slug=property_slug)

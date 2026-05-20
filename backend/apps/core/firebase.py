@@ -81,6 +81,19 @@ def send_fcm_message(
         notification=notification,
         data=data or {},
         token=token,
+        android=messaging.AndroidConfig(
+            priority="high",
+            notification=messaging.AndroidNotification(
+                title=title,
+                body=body,
+                channel_id="reservations",
+            ),
+        ),
+        apns=messaging.APNSConfig(
+            payload=messaging.APNSPayload(
+                aps=messaging.Aps(alert=messaging.ApsAlert(title=title, body=body), sound="default"),
+            ),
+        ),
     )
     message_id = messaging.send(message, app=app)
     logger.info("FCM message sent id=%s", message_id)

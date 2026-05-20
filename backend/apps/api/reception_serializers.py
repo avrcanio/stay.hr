@@ -155,6 +155,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
             "persons_count",
             "adults_count",
             "children_count",
+            "infants_count",
             "children_ages",
             "notes",
             "payment_status",

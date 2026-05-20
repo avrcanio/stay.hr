@@ -65,15 +65,18 @@ class Command(BaseCommand):
                 code=spec["unit_code"],
                 defaults={
                     "name": spec["booking_title"],
+                    "capacity_max_guests": spec["capacity_max_guests"],
                     "capacity_adults": spec["capacity_adults"],
                     "capacity_children": spec["capacity_children"],
+                    "capacity_infants": spec["capacity_infants"],
                     "is_active": True,
                 },
             )
             u_verb = "Created" if u_created else "Updated"
             self.stdout.write(
                 f"  {u_verb} {unit.code} id={unit.id} — {spec['booking_title']} "
-                f"(Booking {spec['booking_room_id']}, {spec['capacity_adults']} adults)"
+                f"(Booking {spec['booking_room_id']}, "
+                f"guests={spec['capacity_max_guests']}, adults={spec['capacity_adults']})"
             )
 
         self.stdout.write("")

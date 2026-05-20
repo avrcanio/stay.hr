@@ -1,3 +1,4 @@
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.core.models import TenantScopedModel
@@ -45,6 +46,7 @@ class Reservation(TenantScopedModel):
     persons_count = models.PositiveSmallIntegerField(null=True, blank=True)
     adults_count = models.PositiveSmallIntegerField(null=True, blank=True)
     children_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    infants_count = models.PositiveSmallIntegerField(null=True, blank=True)
     children_ages = models.CharField(max_length=128, blank=True)
     commission_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     commission_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
@@ -355,3 +357,41 @@ class DocumentScanLog(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"DocumentScanLog #{self.pk} guest={self.guest_id}"
+
+
+class MonthlyStatisticsOverride(TenantScopedModel):
+    """Ručni mjesečni prihod/noći/provizija; nadjačava automatski zbroj iz rezervacija."""
+
+    year = models.PositiveSmallIntegerField()
+    month = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(12)],
+    )
+    revenue = models.DecimalField(max_digits=12, decimal_places=2)
+    commission = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    nights = models.PositiveIntegerField()
+    currency = models.CharField(max_length=3, default="EUR")
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-year", "-month"]
+        verbose_name = "Ručna statistika (mjesec)"
+        verbose_name_plural = "Ručna statistika (mjesec)"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "year", "month"],
+                name="reservations_monthly_stats_override_tenant_year_month_uniq",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.year}-{self.month:02d} — "
+            f"{self.revenue} {self.currency}, {self.nights} noći"
+        )
