@@ -6,7 +6,7 @@ from datetime import date
 from decimal import Decimal
 
 from apps.properties.models import Property
-from apps.reservations.models import Reservation
+from apps.reservations.models import MonthlyStatisticsOverride, Reservation
 
 DEFAULT_CURRENCY = "EUR"
 
@@ -92,6 +92,24 @@ def aggregate_monthly_statistics(tenant, year: int) -> dict:
         slot["nights"] += _effective_nights(reservation)
         if reservation.currency:
             currency = reservation.currency
+
+    overrides = {
+        (row.year, row.month): row
+        for row in MonthlyStatisticsOverride.objects.for_tenant(tenant).filter(
+            year__in=[year, comparison_year],
+        )
+    }
+    for month in range(1, 13):
+        for key, target_year in (("current", year), ("previous", comparison_year)):
+            override = overrides.get((target_year, month))
+            if override is None:
+                continue
+            slot = buckets[month][key]
+            slot["revenue"] = override.revenue
+            slot["commission"] = override.commission or Decimal("0")
+            slot["nights"] = override.nights
+            if override.currency:
+                currency = override.currency
 
     months_payload = []
     for month in range(1, 13):

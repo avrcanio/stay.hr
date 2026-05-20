@@ -5,11 +5,13 @@ from dataclasses import dataclass, field
 
 from django.conf import settings
 from django.db import connections, transaction
+from django.db.utils import OperationalError, ProgrammingError
 
 from apps.integrations.models import IntegrationConfig
 from apps.legacy_import.legacy_models import (
     LegacyEvisitorSubmission,
     LegacyGuest,
+    LegacyMonthlyStatisticsOverride,
     LegacyPropertyInfo,
     LegacyReservation,
     LegacyReservationUnit,
@@ -17,7 +19,13 @@ from apps.legacy_import.legacy_models import (
 )
 from apps.legacy_import.mapping import LEGACY_DB_ALIAS, i18n_pick, map_legacy_status
 from apps.properties.models import Property, Unit
-from apps.reservations.models import EvisitorSubmission, Guest, Reservation, ReservationUnit
+from apps.reservations.models import (
+    EvisitorSubmission,
+    Guest,
+    MonthlyStatisticsOverride,
+    Reservation,
+    ReservationUnit,
+)
 from apps.tenants.models import Tenant, TenantDomain
 
 
@@ -30,6 +38,7 @@ class MigrationStats:
     guests: int = 0
     evisitor_submissions: int = 0
     integration_configs: int = 0
+    monthly_statistics_overrides: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -76,6 +85,7 @@ class UzoritaLegacyMigrator:
             self._migrate_evisitor_submissions(tenant)
             if not self.skip_evisitor:
                 self._import_evisitor_config(tenant, prop)
+            self._import_monthly_statistics_overrides(tenant)
             if self.dry_run:
                 transaction.set_rollback(True)
         return self.stats
@@ -352,3 +362,26 @@ class UzoritaLegacyMigrator:
         row.save(update_fields=["config", "config_encrypted", "is_active", "updated_at"])
         if created:
             self.stats.integration_configs += 1
+
+    def _import_monthly_statistics_overrides(self, tenant: Tenant) -> None:
+        try:
+            legacy_rows = LegacyMonthlyStatisticsOverride.objects.using(LEGACY_DB_ALIAS).all()
+        except (ProgrammingError, OperationalError) as exc:
+            self.stats.errors.append(f"monthly_statistics_overrides skipped: {exc}")
+            return
+
+        for legacy in legacy_rows.iterator():
+            _, created = MonthlyStatisticsOverride.objects.update_or_create(
+                tenant=tenant,
+                year=legacy.year,
+                month=legacy.month,
+                defaults={
+                    "revenue": legacy.revenue,
+                    "commission": legacy.commission,
+                    "nights": legacy.nights,
+                    "currency": legacy.currency or "EUR",
+                    "notes": legacy.notes or "",
+                },
+            )
+            if created:
+                self.stats.monthly_statistics_overrides += 1

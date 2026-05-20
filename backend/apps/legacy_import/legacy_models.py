@@ -146,3 +146,20 @@ class LegacyEvisitorSubmission(models.Model):
     class Meta:
         managed = False
         db_table = "reception_evisitorsubmission"
+
+
+class LegacyMonthlyStatisticsOverride(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    year = models.PositiveSmallIntegerField()
+    month = models.PositiveSmallIntegerField()
+    revenue = models.DecimalField(max_digits=12, decimal_places=2)
+    commission = models.DecimalField(max_digits=12, decimal_places=2, null=True)
+    nights = models.PositiveIntegerField()
+    currency = models.CharField(max_length=3)
+    notes = models.TextField()
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "reception_monthlystatisticsoverride"
