@@ -50,6 +50,11 @@ class Command(BaseCommand):
             default="",
             help="Only import rows with check-in on/before YYYY-MM-DD.",
         )
+        parser.add_argument(
+            "--allow-update",
+            action="store_true",
+            help="Update reservations that already exist (default: skip existing).",
+        )
 
     def handle(self, *args, **options):
         path = Path(options["xls_path"]).expanduser()
@@ -98,6 +103,12 @@ class Command(BaseCommand):
                 f"{row.check_in_date} → {row.check_out_date} | {row.room_name}"
             )
 
+        skip_existing = not options["allow_update"]
+        if skip_existing:
+            self.stdout.write(
+                "Mode: skip existing reservations (only new Booking numbers are imported)."
+            )
+
         stats = import_booking_xls_file(
             str(path),
             tenant=tenant,
@@ -105,6 +116,7 @@ class Command(BaseCommand):
             dry_run=options["dry_run"],
             check_in_from=check_in_from,
             check_in_to=check_in_to,
+            skip_existing=skip_existing,
         )
 
         if options["dry_run"]:
@@ -116,8 +128,8 @@ class Command(BaseCommand):
                 self.stderr.write(f"{err['external_id']}: {err['error']}")
         self.stdout.write(
             self.style.SUCCESS(
-                f"Import done: created={stats['created']} updated={stats['updated']} "
-                f"errors={len(stats['errors'])} total={stats['total']}"
+                f"Import done: created={stats['created']} skipped={stats['skipped']} "
+                f"updated={stats['updated']} errors={len(stats['errors'])} total={stats['total']}"
             )
         )
 

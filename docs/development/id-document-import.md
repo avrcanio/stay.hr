@@ -226,6 +226,17 @@ for g in r.guests.order_by('-is_primary', 'id'):
 Export: Excel 97–2003 (`.xls`), ne `.xlsx`.
 
 ```bash
+# Preporučeno (skripta u repou):
+/opt/stacks/stay.hr/scripts/import_booking_xls.sh \
+  "/opt/stacks/stay.hr/Reservation 2026-05-20 to 2026-05-21.xls"
+
+# Ili dry-run prije importa:
+/opt/stacks/stay.hr/scripts/import_booking_xls.sh --dry-run "/path/to/export.xls"
+```
+
+Ručno (isto ponašanje):
+
+```bash
 docker compose -f /opt/stacks/stay.hr/docker-compose.yml run --rm \
   -v /opt/stacks/stay.hr:/host/stay:ro \
   django python manage.py import_booking_xls \
@@ -236,6 +247,8 @@ docker compose -f /opt/stacks/stay.hr/docker-compose.yml run --rm \
 
 - `--tenant-id 2` = uzorita
 - Ime datoteke `... 2026-05-20 to 2026-05-21.xls` automatski filtrira check-in u tom rasponu
+- **Postojeće rezervacije (isti `external_id`) se preskaču** — ne mijenjaju se gosti, status ni sobe
+- Samo `--allow-update` (ili `--allow-update` u skripti) staro ponašanje ažuriranja
 - `import_source` = `booking_xls`, `external_id` = broj rezervacije Booking
 - Nova rezervacija → push notifikacija (FCM) ako je uređaj registrirao token
 

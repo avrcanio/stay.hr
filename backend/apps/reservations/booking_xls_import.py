@@ -403,7 +403,22 @@ def upsert_reservation_from_xls_row(
     tenant: Tenant,
     property: Property,
     row: BookingXlsRow,
+    skip_existing: bool = True,
 ) -> XlsImportResult:
+    existing = Reservation.objects.filter(
+        tenant=tenant,
+        external_id=row.external_id,
+    ).first()
+
+    if existing is not None and skip_existing:
+        return XlsImportResult(
+            external_id=row.external_id,
+            created=False,
+            skipped=True,
+            updated=False,
+            reservation_id=existing.id,
+        )
+
     new_status = _operational_status_from_booking(row.booking_status)
     now = timezone.now()
     booker_email = ""
@@ -411,11 +426,6 @@ def upsert_reservation_from_xls_row(
         slug = re.sub(r"[^a-z0-9]+", ".", row.booker_name.lower()).strip(".")
         if slug:
             booker_email = f"{slug}@booking-import.local"
-
-    existing = Reservation.objects.filter(
-        tenant=tenant,
-        external_id=row.external_id,
-    ).first()
 
     defaults = {
         "property": property,
@@ -505,6 +515,7 @@ def import_booking_xls_rows(
     property: Property,
     rows: list[BookingXlsRow],
     dry_run: bool = False,
+    skip_existing: bool = True,
 ) -> dict[str, Any]:
     stats: dict[str, Any] = {"created": 0, "updated": 0, "skipped": 0, "errors": [], "rows": []}
 
@@ -515,8 +526,15 @@ def import_booking_xls_rows(
                     tenant=tenant,
                     external_id=row.external_id,
                 ).exists()
-                action = "created" if not exists else "updated"
-                stats[action] += 1
+                if exists and skip_existing:
+                    action = "skipped"
+                    stats["skipped"] += 1
+                elif exists:
+                    action = "updated"
+                    stats["updated"] += 1
+                else:
+                    action = "created"
+                    stats["created"] += 1
                 stats["rows"].append(
                     {
                         "external_id": row.external_id,
@@ -531,8 +549,11 @@ def import_booking_xls_rows(
                 tenant=tenant,
                 property=property,
                 row=row,
+                skip_existing=skip_existing,
             )
-            if result.created:
+            if result.skipped:
+                stats["skipped"] += 1
+            elif result.created:
                 stats["created"] += 1
             else:
                 stats["updated"] += 1
@@ -541,6 +562,7 @@ def import_booking_xls_rows(
                     "external_id": row.external_id,
                     "reservation_id": result.reservation_id,
                     "created": result.created,
+                    "skipped": result.skipped,
                 }
             )
         except Exception as exc:
@@ -558,6 +580,7 @@ def import_booking_xls_file(
     dry_run: bool = False,
     check_in_from: date | None = None,
     check_in_to: date | None = None,
+    skip_existing: bool = True,
 ) -> dict[str, Any]:
     rows = parse_booking_xls(path)
     if check_in_from or check_in_to:
@@ -574,4 +597,5 @@ def import_booking_xls_file(
         property=property,
         rows=rows,
         dry_run=dry_run,
+        skip_existing=skip_existing,
     )
