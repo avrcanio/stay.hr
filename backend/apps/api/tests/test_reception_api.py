@@ -210,6 +210,28 @@ class ReceptionAPITests(TestCase):
         self.assertIn("rooms", data)
         self.assertIn("2026", data["statistics"])
         self.assertEqual(len(data["reservations"]), 16)
+        etag = response["ETag"]
+        self.assertTrue(etag.startswith('W/"'))
+        self.assertTrue(etag.endswith('"'))
+
+        cached = self.client.get(
+            "/api/v1/reception/sync-versions/?year=2026",
+            HTTP_IF_NONE_MATCH=etag,
+            **self.auth,
+        )
+        self.assertEqual(cached.status_code, 304)
+        self.assertEqual(cached.content, b"")
+
+        self.reservation.status = Reservation.Status.CHECKED_IN
+        self.reservation.save(update_fields=["status", "updated_at"])
+
+        after_change = self.client.get(
+            "/api/v1/reception/sync-versions/?year=2026",
+            HTTP_IF_NONE_MATCH=etag,
+            **self.auth,
+        )
+        self.assertEqual(after_change.status_code, 200)
+        self.assertNotEqual(after_change["ETag"], etag)
 
     def test_monthly_statistics(self):
         self.reservation.status = Reservation.Status.CHECKED_IN

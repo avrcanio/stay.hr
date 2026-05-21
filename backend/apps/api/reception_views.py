@@ -54,7 +54,10 @@ from apps.reservations.models import (
     ReservationUnit,
 )
 from apps.reservations.statistics import aggregate_monthly_statistics
-from apps.reservations.sync_versions import build_sync_versions_payload
+from apps.reservations.sync_versions import (
+    build_sync_versions_payload,
+    sync_versions_etag,
+)
 
 
 class ReceptionReadView(TenantAPIView):
@@ -149,7 +152,14 @@ class ReceptionSyncVersionsView(ReceptionReadView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        return Response(build_sync_versions_payload(request.tenant, year))
+        payload = build_sync_versions_payload(request.tenant, year)
+        etag = sync_versions_etag(payload)
+        if request.META.get("HTTP_IF_NONE_MATCH") == etag:
+            return Response(status=status.HTTP_304_NOT_MODIFIED)
+
+        response = Response(payload)
+        response["ETag"] = etag
+        return response
 
 
 class ReceptionMonthlyStatisticsView(ReceptionReadView):
