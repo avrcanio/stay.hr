@@ -53,7 +53,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--allow-update",
             action="store_true",
-            help="Update reservations that already exist (default: skip existing).",
+            help="Overwrite existing reservations from XLS (default: skip existing).",
+        )
+        parser.add_argument(
+            "--fill-empty",
+            action="store_true",
+            help="For existing reservations: fill only empty fields on reservation and guests.",
         )
 
     def handle(self, *args, **options):
@@ -103,8 +108,19 @@ class Command(BaseCommand):
                 f"{row.check_in_date} → {row.check_out_date} | {row.room_name}"
             )
 
-        skip_existing = not options["allow_update"]
-        if skip_existing:
+        if options["fill_empty"] and options["allow_update"]:
+            raise CommandError("Use only one of --fill-empty or --allow-update.")
+
+        if options["fill_empty"]:
+            existing_mode = "fill_empty"
+            self.stdout.write(
+                "Mode: fill empty fields on existing reservations and guests."
+            )
+        elif options["allow_update"]:
+            existing_mode = "overwrite"
+            self.stdout.write("Mode: overwrite existing reservations from XLS.")
+        else:
+            existing_mode = "skip"
             self.stdout.write(
                 "Mode: skip existing reservations (only new Booking numbers are imported)."
             )
@@ -116,7 +132,7 @@ class Command(BaseCommand):
             dry_run=options["dry_run"],
             check_in_from=check_in_from,
             check_in_to=check_in_to,
-            skip_existing=skip_existing,
+            existing_mode=existing_mode,
         )
 
         if options["dry_run"]:
@@ -128,8 +144,9 @@ class Command(BaseCommand):
                 self.stderr.write(f"{err['external_id']}: {err['error']}")
         self.stdout.write(
             self.style.SUCCESS(
-                f"Import done: created={stats['created']} skipped={stats['skipped']} "
-                f"updated={stats['updated']} errors={len(stats['errors'])} total={stats['total']}"
+                f"Import done: created={stats['created']} merged={stats['merged']} "
+                f"skipped={stats['skipped']} updated={stats['updated']} "
+                f"errors={len(stats['errors'])} total={stats['total']}"
             )
         )
 

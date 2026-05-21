@@ -5,7 +5,9 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Literal
+
+ExistingReservationMode = Literal["skip", "fill_empty", "overwrite"]
 
 import xlrd
 from django.db import transaction
@@ -125,7 +127,35 @@ class XlsImportResult:
     created: bool
     skipped: bool = False
     updated: bool = False
+    merged: bool = False
     reservation_id: int | None = None
+
+
+def _is_blank(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    return False
+
+
+def _merge_empty_fields(
+    instance: Any,
+    updates: dict[str, Any],
+    *,
+    exclude: frozenset[str] | None = None,
+) -> list[str]:
+    """Apply only updates where the instance field is currently empty."""
+    exclude = exclude or frozenset()
+    changed: list[str] = []
+    for field, new_value in updates.items():
+        if field in exclude or _is_blank(new_value):
+            continue
+        if not _is_blank(getattr(instance, field)):
+            continue
+        setattr(instance, field, new_value)
+        changed.append(field)
+    return changed
 
 
 def is_legacy_xls_content(content: bytes) -> bool:
@@ -343,6 +373,26 @@ def parse_booking_xls_bytes(content: bytes) -> list[BookingXlsRow]:
     return parse_booking_xls_workbook(xlrd.open_workbook(file_contents=content))
 
 
+def _guest_updates_from_row(
+    *,
+    is_primary: bool,
+    first_name: str,
+    last_name: str,
+    booker_country: str,
+    booker_email: str,
+) -> dict[str, Any]:
+    full_name = f"{first_name} {last_name}".strip()
+    updates: dict[str, Any] = {}
+    if full_name:
+        updates["name"] = full_name
+    if is_primary and booker_email:
+        updates["email"] = booker_email
+    if is_primary and booker_country:
+        updates["nationality"] = booker_country
+        updates["document_country_iso2"] = booker_country
+    return updates
+
+
 def _sync_guests(
     *,
     tenant: Tenant,
@@ -350,11 +400,14 @@ def _sync_guests(
     guest_names: list[str],
     booker_country: str,
     booker_email: str,
+    fill_empty_only: bool = False,
 ) -> None:
     if not guest_names:
         return
 
-    Guest.objects.filter(reservation=reservation).update(is_primary=False)
+    if not fill_empty_only:
+        Guest.objects.filter(reservation=reservation).update(is_primary=False)
+
     for idx, full_name in enumerate(guest_names):
         first_name, last_name = _parse_guest_name(full_name)
         if not first_name and not last_name:
@@ -365,74 +418,83 @@ def _sync_guests(
             first_name=first_name or "-",
             last_name=last_name or "-",
         ).first()
+        guest_updates = _guest_updates_from_row(
+            is_primary=is_primary,
+            first_name=first_name,
+            last_name=last_name,
+            booker_country=booker_country,
+            booker_email=booker_email,
+        )
+
         if guest is None:
+            if fill_empty_only and Guest.objects.filter(reservation=reservation).exists():
+                continue
             Guest.objects.create(
                 tenant=tenant,
                 reservation=reservation,
                 first_name=first_name or "-",
                 last_name=last_name or "-",
-                name=f"{first_name} {last_name}".strip(),
-                email=booker_email if is_primary else "",
-                nationality=booker_country if is_primary else "",
-                document_country_iso2=booker_country if is_primary else "",
+                name=guest_updates.get("name") or f"{first_name} {last_name}".strip(),
+                email=guest_updates.get("email", ""),
+                nationality=guest_updates.get("nationality", ""),
+                document_country_iso2=guest_updates.get("document_country_iso2", ""),
                 is_primary=is_primary,
             )
-        else:
-            guest.is_primary = is_primary
-            guest.name = f"{first_name} {last_name}".strip()
-            if is_primary and booker_email:
-                guest.email = booker_email
-            if is_primary and booker_country and not guest.nationality:
-                guest.nationality = booker_country
-                guest.document_country_iso2 = booker_country
-            guest.save(
-                update_fields=[
-                    "is_primary",
-                    "name",
-                    "email",
-                    "nationality",
-                    "document_country_iso2",
-                    "updated_at",
-                ]
-            )
+            continue
 
+        if fill_empty_only:
+            changed = _merge_empty_fields(guest, guest_updates)
+            if changed:
+                guest.save(update_fields=[*changed, "updated_at"])
+            continue
 
-@transaction.atomic
-def upsert_reservation_from_xls_row(
-    *,
-    tenant: Tenant,
-    property: Property,
-    row: BookingXlsRow,
-    skip_existing: bool = True,
-) -> XlsImportResult:
-    existing = Reservation.objects.filter(
-        tenant=tenant,
-        external_id=row.external_id,
-    ).first()
-
-    if existing is not None and skip_existing:
-        return XlsImportResult(
-            external_id=row.external_id,
-            created=False,
-            skipped=True,
-            updated=False,
-            reservation_id=existing.id,
+        guest.is_primary = is_primary
+        guest.name = guest_updates.get("name") or guest.name
+        if is_primary and booker_email:
+            guest.email = booker_email
+        if is_primary and booker_country and not guest.nationality:
+            guest.nationality = booker_country
+            guest.document_country_iso2 = booker_country
+        guest.save(
+            update_fields=[
+                "is_primary",
+                "name",
+                "email",
+                "nationality",
+                "document_country_iso2",
+                "updated_at",
+            ]
         )
 
-    new_status = _operational_status_from_booking(row.booking_status)
-    now = timezone.now()
-    booker_email = ""
-    if row.booker_name and "@" not in row.booker_name:
-        slug = re.sub(r"[^a-z0-9]+", ".", row.booker_name.lower()).strip(".")
-        if slug:
-            booker_email = f"{slug}@booking-import.local"
 
-    defaults = {
+def _find_existing_reservation(*, tenant: Tenant, external_id: str) -> Reservation | None:
+    if not external_id:
+        return None
+    existing = Reservation.objects.filter(
+        tenant=tenant,
+        external_id=external_id,
+    ).first()
+    if existing is not None:
+        return existing
+    return Reservation.objects.filter(
+        tenant=tenant,
+        booking_code=external_id,
+    ).first()
+
+
+def _reservation_field_updates_from_row(
+    *,
+    property: Property,
+    row: BookingXlsRow,
+    booker_email: str,
+    now: datetime,
+) -> dict[str, Any]:
+    return {
         "property": property,
         "booking_code": row.external_id,
         "check_in": row.check_in_date,
         "check_out": row.check_out_date,
-        "status": new_status,
+        "status": _operational_status_from_booking(row.booking_status),
         "booker_name": row.booker_name or "Booking guest",
         "booker_email": booker_email,
         "booker_phone": row.booker_phone,
@@ -462,11 +524,78 @@ def upsert_reservation_from_xls_row(
         "details_pending": False,
     }
 
+
+@transaction.atomic
+def upsert_reservation_from_xls_row(
+    *,
+    tenant: Tenant,
+    property: Property,
+    row: BookingXlsRow,
+    skip_existing: bool = True,
+    existing_mode: ExistingReservationMode | None = None,
+) -> XlsImportResult:
+    if existing_mode is None:
+        existing_mode = "skip" if skip_existing else "overwrite"
+
+    existing = _find_existing_reservation(tenant=tenant, external_id=row.external_id)
+
+    if existing is not None and existing_mode == "skip":
+        return XlsImportResult(
+            external_id=row.external_id,
+            created=False,
+            skipped=True,
+            updated=False,
+            reservation_id=existing.id,
+        )
+
+    now = timezone.now()
+    booker_email = ""
+    if row.booker_name and "@" not in row.booker_name:
+        slug = re.sub(r"[^a-z0-9]+", ".", row.booker_name.lower()).strip(".")
+        if slug:
+            booker_email = f"{slug}@booking-import.local"
+
+    field_updates = _reservation_field_updates_from_row(
+        property=property,
+        row=row,
+        booker_email=booker_email,
+        now=now,
+    )
+
+    if existing is not None and existing_mode == "fill_empty":
+        exclude = frozenset({"property"})
+        if existing.status in Reservation.OPERATIONAL_STATUSES - {
+            Reservation.Status.EXPECTED,
+            Reservation.Status.CANCELED,
+        }:
+            exclude = exclude | frozenset({"status"})
+        if not (existing.external_id or "").strip():
+            field_updates["external_id"] = row.external_id
+        changed = _merge_empty_fields(existing, field_updates, exclude=exclude)
+        if changed:
+            existing.save(update_fields=[*changed, "updated_at"])
+        _sync_guests(
+            tenant=tenant,
+            reservation=existing,
+            guest_names=row.guest_names or ([row.booker_name] if row.booker_name else []),
+            booker_country=row.booker_country,
+            booker_email=booker_email,
+            fill_empty_only=True,
+        )
+        return XlsImportResult(
+            external_id=row.external_id,
+            created=False,
+            skipped=False,
+            updated=False,
+            merged=True,
+            reservation_id=existing.id,
+        )
+
     if existing is None:
         reservation = Reservation.objects.create(
             tenant=tenant,
             external_id=row.external_id,
-            **defaults,
+            **field_updates,
         )
         created = True
     else:
@@ -476,8 +605,8 @@ def upsert_reservation_from_xls_row(
             Reservation.Status.CHECKED_IN,
             Reservation.Status.CHECKED_OUT,
         ):
-            defaults["status"] = reservation.status
-        for field, value in defaults.items():
+            field_updates["status"] = reservation.status
+        for field, value in field_updates.items():
             setattr(reservation, field, value)
         reservation.save()
 
@@ -487,6 +616,7 @@ def upsert_reservation_from_xls_row(
         guest_names=row.guest_names or ([row.booker_name] if row.booker_name else []),
         booker_country=row.booker_country,
         booker_email=booker_email,
+        fill_empty_only=False,
     )
     units = sync_reservation_units(
         tenant=tenant,
@@ -516,19 +646,33 @@ def import_booking_xls_rows(
     rows: list[BookingXlsRow],
     dry_run: bool = False,
     skip_existing: bool = True,
+    existing_mode: ExistingReservationMode | None = None,
 ) -> dict[str, Any]:
-    stats: dict[str, Any] = {"created": 0, "updated": 0, "skipped": 0, "errors": [], "rows": []}
+    if existing_mode is None:
+        existing_mode = "skip" if skip_existing else "overwrite"
+
+    stats: dict[str, Any] = {
+        "created": 0,
+        "updated": 0,
+        "merged": 0,
+        "skipped": 0,
+        "errors": [],
+        "rows": [],
+    }
 
     for row in rows:
         try:
             if dry_run:
-                exists = Reservation.objects.filter(
+                exists = _find_existing_reservation(
                     tenant=tenant,
                     external_id=row.external_id,
-                ).exists()
-                if exists and skip_existing:
+                ) is not None
+                if exists and existing_mode == "skip":
                     action = "skipped"
                     stats["skipped"] += 1
+                elif exists and existing_mode == "fill_empty":
+                    action = "merged"
+                    stats["merged"] += 1
                 elif exists:
                     action = "updated"
                     stats["updated"] += 1
@@ -549,10 +693,12 @@ def import_booking_xls_rows(
                 tenant=tenant,
                 property=property,
                 row=row,
-                skip_existing=skip_existing,
+                existing_mode=existing_mode,
             )
             if result.skipped:
                 stats["skipped"] += 1
+            elif result.merged:
+                stats["merged"] += 1
             elif result.created:
                 stats["created"] += 1
             else:
@@ -563,6 +709,7 @@ def import_booking_xls_rows(
                     "reservation_id": result.reservation_id,
                     "created": result.created,
                     "skipped": result.skipped,
+                    "merged": result.merged,
                 }
             )
         except Exception as exc:
@@ -581,6 +728,7 @@ def import_booking_xls_file(
     check_in_from: date | None = None,
     check_in_to: date | None = None,
     skip_existing: bool = True,
+    existing_mode: ExistingReservationMode | None = None,
 ) -> dict[str, Any]:
     rows = parse_booking_xls(path)
     if check_in_from or check_in_to:
@@ -598,4 +746,5 @@ def import_booking_xls_file(
         rows=rows,
         dry_run=dry_run,
         skip_existing=skip_existing,
+        existing_mode=existing_mode,
     )

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Import Booking.com .xls export into stay.hr (create-only: existing reservations are skipped).
+# Import Booking.com .xls export into stay.hr.
+# See docs/development/booking-xls-import.md for modes: skip (default), --fill-empty, --allow-update.
 #
 # Usage:
 #   ./scripts/import_booking_xls.sh "/path/to/Reservation 2026-05-20 to 2026-05-21.xls"
@@ -17,6 +18,7 @@ TENANT_ID=2
 PROPERTY_SLUG=uzorita
 DRY_RUN=""
 ALLOW_UPDATE=""
+FILL_EMPTY=""
 XLS_PATH=""
 
 usage() {
@@ -29,6 +31,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help) usage 0 ;;
     --dry-run) DRY_RUN="--dry-run" ;;
     --allow-update) ALLOW_UPDATE="--allow-update" ;;
+    --fill-empty) FILL_EMPTY="--fill-empty" ;;
     --tenant-id) TENANT_ID="$2"; shift ;;
     --property-slug) PROPERTY_SLUG="$2"; shift ;;
     -*) echo "Unknown option: $1" >&2; usage 1 ;;
@@ -67,8 +70,9 @@ echo "Tenant:     $TENANT_ID"
 echo "Property:   $PROPERTY_SLUG"
 echo "Container:  $CONTAINER_PATH"
 [[ -n "$DRY_RUN" ]] && echo "Mode:       dry-run"
-[[ -n "$ALLOW_UPDATE" ]] && echo "Mode:       allow-update (will touch existing)"
-[[ -z "$ALLOW_UPDATE" ]] && echo "Mode:       skip existing (default)"
+[[ -n "$ALLOW_UPDATE" ]] && echo "Mode:       allow-update (overwrite existing)"
+[[ -n "$FILL_EMPTY" ]] && echo "Mode:       fill-empty (only blank fields on existing)"
+[[ -z "$ALLOW_UPDATE" && -z "$FILL_EMPTY" ]] && echo "Mode:       skip existing (default)"
 
 docker compose run --rm \
   -v "$REPO_ROOT:/host/stay:ro" \
@@ -77,4 +81,5 @@ docker compose run --rm \
   --tenant-id "$TENANT_ID" \
   --property-slug "$PROPERTY_SLUG" \
   $DRY_RUN \
-  $ALLOW_UPDATE
+  $ALLOW_UPDATE \
+  $FILL_EMPTY

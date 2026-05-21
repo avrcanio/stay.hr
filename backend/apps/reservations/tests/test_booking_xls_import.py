@@ -134,3 +134,47 @@ class BookingXlsImportSkipExistingTests(TestCase):
         self.assertEqual(stats["skipped"], 1)
         self.assertEqual(stats["created"], 1)
         self.assertEqual(stats["updated"], 0)
+
+    def test_fill_empty_merges_blank_fields_only(self):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="5550005",
+            booking_code="5550005",
+            check_in=date(2026, 5, 20),
+            check_out=date(2026, 5, 21),
+            booker_name="Original Booker",
+            booker_phone="",
+            status=Reservation.Status.CHECKED_IN,
+        )
+        guest = Guest.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            first_name="Original",
+            last_name="Booker",
+            name="Original Booker",
+            is_primary=True,
+        )
+
+        row = _sample_row(
+            external_id="5550005",
+            booker_name="XLS, Name",
+            guest_names=["XLS, Name"],
+            booker_phone="+385991234567",
+        )
+        result = upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+            existing_mode="fill_empty",
+        )
+
+        self.assertTrue(result.merged)
+        self.assertFalse(result.created)
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.booker_name, "Original Booker")
+        self.assertEqual(reservation.booker_phone, "+385991234567")
+        self.assertEqual(reservation.status, Reservation.Status.CHECKED_IN)
+        self.assertEqual(Guest.objects.filter(reservation=reservation).count(), 1)
+        guest.refresh_from_db()
+        self.assertEqual(guest.name, "Original Booker")
