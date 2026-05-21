@@ -5,11 +5,11 @@ from apps.integrations.evisitor.exceptions import (
     EvisitorConfigError,
     EvisitorValidationError,
 )
-from apps.integrations.evisitor.service import checkout_reservation_guests_in_evisitor
 from apps.integrations.evisitor.summary import (
     evisitor_status_for_guest,
     evisitor_summary_for_reservation,
 )
+from apps.reservations.checkout import CheckoutBlockedError, perform_reservation_checkout
 from apps.reservations.face_photo import guest_face_photo_url
 from apps.reservations.models import (
     EvisitorGuestStatus,
@@ -228,7 +228,27 @@ class ReservationUpdateSerializer(serializers.ModelSerializer):
             and new_status == Reservation.Status.CHECKED_OUT
         ):
             try:
-                checkout_reservation_guests_in_evisitor(instance)
+                perform_reservation_checkout(instance, source="manual")
+            except CheckoutBlockedError as exc:
+                if exc.code == "evisitor_incomplete":
+                    raise serializers.ValidationError(
+                        {
+                            "status": (
+                                "Odjava nije moguća dok svi gosti nisu prijavljeni u eVisitor."
+                            )
+                        }
+                    ) from exc
+                if exc.code == "evisitor_none":
+                    raise serializers.ValidationError(
+                        {
+                            "status": (
+                                "Odjava nije moguća dok svi gosti nisu prijavljeni u eVisitor."
+                            )
+                        }
+                    ) from exc
+                raise serializers.ValidationError(
+                    {"status": "Nedozvoljen prijelaz statusa rezervacije."}
+                ) from exc
             except EvisitorValidationError as exc:
                 field_errors = getattr(exc, "field_errors", None) or {}
                 if field_errors:
@@ -241,6 +261,8 @@ class ReservationUpdateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"status": f"eVisitor odjava nije uspjela: {user_msg}"}
                 ) from exc
+            instance.refresh_from_db()
+            validated_data["status"] = instance.status
         return super().update(instance, validated_data)
 
     def validate_status(self, value):

@@ -12,6 +12,7 @@ from apps.tenants.models import (
     Tenant,
     TenantDomain,
     TenantMembership,
+    TenantReceptionSettings,
 )
 
 User = get_user_model()
@@ -20,6 +21,18 @@ User = get_user_model()
 class TenantDomainInline(admin.TabularInline):
     model = TenantDomain
     extra = 0
+
+
+class TenantReceptionSettingsInline(admin.StackedInline):
+    model = TenantReceptionSettings
+    extra = 0
+    readonly_fields = ("auto_checkout_last_run_date", "updated_at")
+    fields = (
+        "auto_checkout_enabled",
+        "auto_checkout_time",
+        "auto_checkout_last_run_date",
+        "updated_at",
+    )
 
 
 class TenantMembershipInline(admin.TabularInline):
@@ -43,7 +56,7 @@ class TenantAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     list_filter = ("status",)
     search_fields = ("name", "slug")
     prepopulated_fields = {"slug": ("name",)}
-    inlines = [TenantDomainInline]
+    inlines = [TenantDomainInline, TenantReceptionSettingsInline]
 
 
 @admin.register(TenantDomain)

@@ -1,3 +1,5 @@
+from datetime import time
+
 from django.conf import settings
 from django.db import models
 
@@ -54,6 +56,24 @@ class Tenant(models.Model):
     @property
     def is_active(self) -> bool:
         return self.status == self.Status.ACTIVE
+
+
+class TenantReceptionSettings(models.Model):
+    tenant = models.OneToOneField(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="reception_settings",
+    )
+    auto_checkout_enabled = models.BooleanField(default=False)
+    auto_checkout_time = models.TimeField(default=time(10, 0))
+    auto_checkout_last_run_date = models.DateField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "Tenant reception settings"
+
+    def __str__(self) -> str:
+        return f"Reception settings — {self.tenant}"
 
 
 class TenantDomain(models.Model):

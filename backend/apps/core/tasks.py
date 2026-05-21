@@ -112,3 +112,62 @@ def notify_reservation_status_changed(
         "reservation_id": reservation_id,
         "message_ids": message_ids,
     }
+
+
+def _auto_checkout_skipped_body(count: int, booking_codes: list[str]) -> str:
+    if count == 1:
+        base = "1 rezervacija nije odjavljena (eVisitor)"
+    elif 2 <= count <= 4:
+        base = f"{count} rezervacije nisu odjavljene (eVisitor)"
+    else:
+        base = f"{count} rezervacija nije odjavljena (eVisitor)"
+
+    if not booking_codes:
+        return base
+
+    shown = booking_codes[:5]
+    suffix = ", ".join(shown)
+    if count > len(shown):
+        suffix = f"{suffix} (+{count - len(shown)})"
+    return f"{base}: {suffix}"
+
+
+@shared_task
+def notify_auto_checkout_summary(tenant_id: int, skipped: list[dict]) -> dict:
+    import json
+
+    from apps.core.notifications import send_tenant_reception_push
+    from apps.core.push_payload import reception_push_data
+
+    count = len(skipped)
+    if count == 0:
+        return {"sent": 0, "tenant_id": tenant_id, "reason": "empty"}
+
+    booking_codes = [
+        str(item.get("booking_code") or "")
+        for item in skipped
+        if item.get("booking_code")
+    ]
+    title = "Auto odjava — preskočeno"
+    body = _auto_checkout_skipped_body(count, booking_codes)
+    data = reception_push_data(
+        event_type="auto_checkout.skipped",
+        reservation_id=0,
+        summary=f"{count} preskočeno",
+        tenant_id=str(tenant_id),
+        skipped_count=str(count),
+        skipped=json.dumps(skipped),
+    )
+
+    message_ids = send_tenant_reception_push(
+        tenant_id=tenant_id,
+        title=title,
+        body=body,
+        data=data,
+    )
+    return {
+        "sent": len(message_ids),
+        "tenant_id": tenant_id,
+        "skipped_count": count,
+        "message_ids": message_ids,
+    }

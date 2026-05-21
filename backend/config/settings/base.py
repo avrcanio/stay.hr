@@ -160,6 +160,10 @@ CELERY_BEAT_SCHEDULE = {
         "kwargs": {"tenant_id": 2},
         "schedule": 600.0,
     },
+    "auto-checkout": {
+        "task": "apps.reservations.tasks.run_auto_checkouts",
+        "schedule": 900.0,
+    },
 }
 
 LOGGING = {
