@@ -49,6 +49,8 @@ class RoomsAPITests(TestCase):
             status=Reservation.Status.CHECKED_IN,
             booker_name="Ana Anić",
             amount=Decimal("300.00"),
+            nights_count=4,
+            persons_count=2,
         )
         ReservationUnit.objects.create(
             tenant=self.tenant,
@@ -113,6 +115,8 @@ class RoomsAPITests(TestCase):
         self.assertEqual(row["primary_guest_name"], "Marko Marković")
         self.assertEqual(row["primary_guest_nationality_iso2"], "DE")
         self.assertEqual(row["room_name"], "Soba 101")
+        self.assertEqual(row["nights_count"], 4)
+        self.assertEqual(row["persons_count"], 2)
 
     def test_calendar_unknown_unit_404(self):
         response = self.client.get(

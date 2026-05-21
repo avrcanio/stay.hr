@@ -54,6 +54,8 @@ class UnitCalendarReservationSerializer(serializers.ModelSerializer):
             "room_name",
             "primary_guest_name",
             "primary_guest_nationality_iso2",
+            "nights_count",
+            "persons_count",
         )
 
     def get_room_name(self, obj) -> str:
