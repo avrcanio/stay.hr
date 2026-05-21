@@ -37,7 +37,7 @@ class SendFcmMessageTests(SimpleTestCase):
 class SendFcmMessageConfiguredTests(SimpleTestCase):
     @patch("apps.core.firebase.get_firebase_app")
     @patch("firebase_admin.messaging.send")
-    def test_sends_data_only_message(self, mock_send, mock_get_app):
+    def test_sends_notification_and_data(self, mock_send, mock_get_app):
         mock_get_app.return_value = MagicMock()
         mock_send.return_value = "projects/hospira-fc0dc/messages/msg-1"
 
@@ -52,7 +52,8 @@ class SendFcmMessageConfiguredTests(SimpleTestCase):
         mock_send.assert_called_once()
         sent_message = mock_send.call_args[0][0]
         self.assertEqual(sent_message.token, "device-token-123")
-        self.assertIsNone(sent_message.notification)
+        self.assertEqual(sent_message.notification.title, "Check-in")
+        self.assertEqual(sent_message.notification.body, "Guest arrived")
         self.assertEqual(
             sent_message.data,
             {
@@ -63,6 +64,6 @@ class SendFcmMessageConfiguredTests(SimpleTestCase):
             },
         )
         self.assertEqual(sent_message.android.notification.title, "Check-in")
-        self.assertEqual(sent_message.android.notification.body, "Guest arrived")
-        self.assertTrue(sent_message.apns.payload.aps.content_available)
-        self.assertIsNone(sent_message.apns.payload.aps.alert)
+        self.assertEqual(sent_message.apns.headers["apns-push-type"], "alert")
+        self.assertEqual(sent_message.apns.payload.aps.alert.title, "Check-in")
+        self.assertFalse(sent_message.apns.payload.aps.content_available)

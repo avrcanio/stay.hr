@@ -62,12 +62,12 @@ def send_fcm_message(
     """
     Send a push notification to a single FCM device token.
 
-    Data-only at the FCM root (no ``notification`` block) so iOS delivers
-    ``FirebaseMessaging.onMessage`` in foreground. Title/body are duplicated in
-    ``data`` for SnackBar/local notifications. Android still gets a system
-    notification via ``AndroidConfig``.
+    Uses FCM ``notification`` + ``data`` so iOS delivers ``onMessage`` in foreground
+    when the app sets ``setForegroundNotificationPresentationOptions`` to false.
+    Silent/data-only APNS (``content_available`` without ``alert``) does **not**
+    reliably reach ``onMessage`` on iOS while the app is open.
 
-    Returns the FCM message ID on success.
+    ``title``/``body`` are also copied into ``data`` for SnackBar/local notifications.
     """
     if not token:
         raise ValueError("FCM device token is required")
@@ -84,7 +84,9 @@ def send_fcm_message(
     payload_data["title"] = title
     payload_data["body"] = body
 
+    notification = messaging.Notification(title=title, body=body)
     message = messaging.Message(
+        notification=notification,
         data=payload_data,
         token=token,
         android=messaging.AndroidConfig(
@@ -96,9 +98,15 @@ def send_fcm_message(
             ),
         ),
         apns=messaging.APNSConfig(
-            headers={"apns-priority": "10"},
+            headers={
+                "apns-priority": "10",
+                "apns-push-type": "alert",
+            },
             payload=messaging.APNSPayload(
-                aps=messaging.Aps(content_available=True),
+                aps=messaging.Aps(
+                    alert=messaging.ApsAlert(title=title, body=body),
+                    sound="default",
+                ),
             ),
         ),
     )
