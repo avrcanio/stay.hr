@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch
 from django.utils.dateparse import parse_date
 from rest_framework import generics, serializers
 from rest_framework.exceptions import NotFound
 
+from apps.api.reception_serializers import payment_status_key
 from apps.api.reception_views import ReceptionReadView
 from apps.properties.models import Unit
 from apps.reservations.models import Reservation, ReservationUnit
@@ -39,6 +40,15 @@ class UnitListSerializer(serializers.ModelSerializer):
 class UnitCalendarReservationSerializer(serializers.ModelSerializer):
     check_in_date = serializers.DateField(source="check_in", read_only=True)
     check_out_date = serializers.DateField(source="check_out", read_only=True)
+    total_amount = serializers.DecimalField(
+        source="amount",
+        max_digits=12,
+        decimal_places=2,
+        read_only=True,
+        allow_null=True,
+    )
+    guests_count = serializers.IntegerField(read_only=True)
+    payment_status_key = serializers.SerializerMethodField()
     primary_guest_name = serializers.SerializerMethodField()
     primary_guest_nationality_iso2 = serializers.SerializerMethodField()
     room_name = serializers.SerializerMethodField()
@@ -58,7 +68,15 @@ class UnitCalendarReservationSerializer(serializers.ModelSerializer):
             "persons_count",
             "adults_count",
             "children_count",
+            "guests_count",
+            "payment_status",
+            "payment_status_key",
+            "total_amount",
+            "currency",
         )
+
+    def get_payment_status_key(self, obj) -> str:
+        return payment_status_key(obj.payment_status)
 
     def get_room_name(self, obj) -> str:
         return joined_room_names(obj)
@@ -101,6 +119,7 @@ class UnitCalendarView(ReceptionReadView, generics.ListAPIView):
         qs = (
             Reservation.objects.for_tenant(tenant)
             .filter(units__unit_id=room_id)
+            .annotate(guests_count=Count("guests", distinct=True))
             .distinct()
             .prefetch_related(
                 "guests",
