@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from django.conf import settings
 
@@ -63,6 +62,11 @@ def send_fcm_message(
     """
     Send a push notification to a single FCM device token.
 
+    Data-only at the FCM root (no ``notification`` block) so iOS delivers
+    ``FirebaseMessaging.onMessage`` in foreground. Title/body are duplicated in
+    ``data`` for SnackBar/local notifications. Android still gets a system
+    notification via ``AndroidConfig``.
+
     Returns the FCM message ID on success.
     """
     if not token:
@@ -76,10 +80,12 @@ def send_fcm_message(
 
     from firebase_admin import messaging
 
-    notification = messaging.Notification(title=title, body=body)
+    payload_data: dict[str, str] = {**(data or {})}
+    payload_data["title"] = title
+    payload_data["body"] = body
+
     message = messaging.Message(
-        notification=notification,
-        data=data or {},
+        data=payload_data,
         token=token,
         android=messaging.AndroidConfig(
             priority="high",
@@ -90,8 +96,9 @@ def send_fcm_message(
             ),
         ),
         apns=messaging.APNSConfig(
+            headers={"apns-priority": "10"},
             payload=messaging.APNSPayload(
-                aps=messaging.Aps(alert=messaging.ApsAlert(title=title, body=body), sound="default"),
+                aps=messaging.Aps(content_available=True),
             ),
         ),
     )
