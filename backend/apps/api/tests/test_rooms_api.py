@@ -51,6 +51,8 @@ class RoomsAPITests(TestCase):
             amount=Decimal("300.00"),
             nights_count=4,
             persons_count=2,
+            adults_count=2,
+            children_count=0,
         )
         ReservationUnit.objects.create(
             tenant=self.tenant,
@@ -117,6 +119,8 @@ class RoomsAPITests(TestCase):
         self.assertEqual(row["room_name"], "Soba 101")
         self.assertEqual(row["nights_count"], 4)
         self.assertEqual(row["persons_count"], 2)
+        self.assertEqual(row["adults_count"], 2)
+        self.assertEqual(row["children_count"], 0)
 
     def test_calendar_unknown_unit_404(self):
         response = self.client.get(
