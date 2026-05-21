@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import date
 
 from django.db.models import Count, Max
@@ -63,3 +64,10 @@ def build_sync_versions_payload(tenant, year: int) -> dict:
         "rooms": rooms_version(tenant),
         "statistics": {year_key: statistics_version(tenant, year)},
     }
+
+
+def sync_versions_etag(payload: dict) -> str:
+    """Stabilan weak ETag za cijeli sync-versions payload."""
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
+    return f'W/"{digest}"'
