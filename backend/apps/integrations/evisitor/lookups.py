@@ -50,6 +50,7 @@ _ISO2_FALLBACKS = {
     "IE": "IRL",
     "LU": "LUX",
     "IN": "IND",
+    "CO": "COL",
 }
 
 _country_cache: dict[tuple[str, int | None], dict[str, str]] = {}
