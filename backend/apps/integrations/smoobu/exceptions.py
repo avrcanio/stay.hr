@@ -8,3 +8,7 @@ class SmoobuApiError(Exception):
 
 class SmoobuRatesError(Exception):
     pass
+
+
+class SmoobuBookingIngestError(Exception):
+    pass

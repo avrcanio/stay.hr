@@ -15,9 +15,13 @@ _BOOKING_TITLE_TO_UNIT_CODE: tuple[tuple[str, str], ...] = (
     ("deluxe dvokrevetna", "R2"),
     ("deluxe kingsize", "R1"),
     ("standard kingsize", "R6"),
+    # D1 = ista fizička soba kao R6 (D1 ukinjen u bazi)
+    ("luxury room uzorita - d1", "R6"),
+    ("deluxe d1", "R6"),
 )
 
 _ROOM_CODE_RE = re.compile(r"\bR\s*-?\s*([1-6])\b", re.IGNORECASE)
+_D1_ALIAS_RE = re.compile(r"\bD\s*-?\s*1\b", re.IGNORECASE)
 
 
 def unit_code_from_room_name(room_name: str) -> str | None:
@@ -27,6 +31,8 @@ def unit_code_from_room_name(room_name: str) -> str | None:
     match = _ROOM_CODE_RE.search(text)
     if match:
         return f"R{match.group(1)}"
+    if _D1_ALIAS_RE.search(text):
+        return "R6"
     lowered = text.lower()
     for needle, code in _BOOKING_TITLE_TO_UNIT_CODE:
         if needle in lowered:

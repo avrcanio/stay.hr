@@ -8,6 +8,7 @@ from apps.integrations.channex.ari_views import (
     ChannexAriRatesView,
 )
 from apps.integrations.channex.webhook_views import ChannexWebhookView
+from apps.integrations.smoobu.webhook_views import SmoobuWebhookView
 
 urlpatterns = [
     path(
@@ -19,6 +20,11 @@ urlpatterns = [
         "channex/webhook/",
         ChannexWebhookView.as_view(),
         name="channex-webhook",
+    ),
+    path(
+        "smoobu/webhook/",
+        SmoobuWebhookView.as_view(),
+        name="smoobu-webhook",
     ),
     path(
         "channex/ari/rates/",

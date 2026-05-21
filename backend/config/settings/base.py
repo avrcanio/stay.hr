@@ -155,6 +155,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.core.tasks.ping",
         "schedule": 3600.0,
     },
+    "sync-smoobu-uzorita": {
+        "task": "apps.integrations.smoobu.tasks.sync_smoobu_reservations_task",
+        "kwargs": {"tenant_id": 2},
+        "schedule": 600.0,
+    },
 }
 
 LOGGING = {

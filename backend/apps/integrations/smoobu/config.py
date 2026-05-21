@@ -55,3 +55,9 @@ class SmoobuRuntimeConfig:
             if link.unit_code == unit_code:
                 return link.smoobu_apartment_id
         return None
+
+    def link_for_apartment_id(self, apartment_id: int) -> SmoobuApartmentLink | None:
+        for link in self.apartments:
+            if link.smoobu_apartment_id == apartment_id:
+                return link
+        return None

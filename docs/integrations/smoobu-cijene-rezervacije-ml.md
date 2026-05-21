@@ -13,7 +13,7 @@ Dokument za kasnije strojno učenje i automatizaciju. Sažima kontekst, arhitekt
 | Područje | Danas (prije / paralelno) | Cilj |
 |----------|---------------------------|------|
 | **Cijene** | Ručni unos (mail, CSV), eventualno Smoobu UI | Jedan kalendar u stay.hr → push na Booking preko Smoobu `POST /api/rates` |
-| **Rezervacije** | Mail parser, Booking CSV import | Smoobu webhooks + `GET /api/reservations` backfill → model `Reservation` |
+| **Rezervacije** | Booking XLS import (ručno) | Smoobu webhook + `sync_smoobu_reservations` → model `Reservation` |
 
 **Pravilo kanala:** Isti Booking listing **ne smije** imati aktivno i Smoobu i Channex push. Live sobe R1–R6 = **samo Smoobu**. Demo/cert = **samo Channex**.
 
@@ -290,9 +290,9 @@ Greške: `400` (config), `502` (Smoobu API).
 
 ---
 
-## 8. Rezervacije — cilj (planirano, nije u produkcijskom ingestu)
+## 8. Rezervacije — ingest (tenant `uzorita`, id=2)
 
-Zamjena: parsiranje **mailova** i **Booking CSV** → Smoobu API.
+Produkcijski izvor: Smoobu API + webhook. Booking XLS (`import_source=booking_xls`) se **ne mijenja** pri Smoobu syncu (preskače se ako postoji isti `booking_code`).
 
 ### Smoobu GET `/api/reservations`
 
@@ -327,13 +327,14 @@ Primjer jedne rezervacije (relevantna polja za ML):
 
 Klijent: `SmoobuClient.get_reservations()`, `SmoobuClient.iter_reservations()`.
 
-### Planirani webhook
+### Webhook (implementirano)
 
 - URL: `POST https://api.stay.hr/api/v1/integrations/smoobu/webhook/`
-- Akcije: `newReservation`, `updateReservation`, `cancelReservation`, `deleteReservation`
-- Potpis: nije dokumentiran u Smoobu docs — provjera s podrškom; mitigacija: tajni path / IP allowlist
+- Auth: header `X-Stay-Smoobu-Webhook` ili query `?secret=` (= `SMOOBU_WEBHOOK_SECRET` / `config.webhook_secret`)
+- Akcije: `newReservation`, `updateReservation`, `cancelReservation`, `deleteReservation` (`updateRates` se ignorira)
+- Kod: `backend/apps/integrations/smoobu/webhook_views.py`, `webhook_service.py`
 
-### Mapiranje → `Reservation` (plan)
+### Mapiranje → `Reservation`
 
 | Smoobu | stay.hr `Reservation` |
 |--------|-------------------------|
@@ -348,16 +349,26 @@ Klijent: `SmoobuClient.get_reservations()`, `SmoobuClient.iter_reservations()`.
 | `price` | `amount` |
 | `apartment.id` | `ReservationUnit` → `Unit` preko mapiranja apartment_id |
 
-**Referenca za implementaciju:** `backend/apps/integrations/channex/booking_service.py` (`_upsert_reservation_from_revision`, idempotencija preko `ChannexBookingRevision`).
+**Kod:** `backend/apps/integrations/smoobu/booking_service.py` (uzorak: Channex `booking_service.py`).
 
-### Planirani management command
+### Management command + Celery beat
 
 ```bash
-python manage.py sync_smoobu_reservations \
-  --tenant-slug uzorita \
-  --modified-from 2025-01-01 \
-  --apartment-id 3327457
+# prvi / ručni sync (tenant #2)
+docker compose exec django python manage.py sync_smoobu_reservations \
+  --tenant-id 2 \
+  --modified-from 2026-01-01
+
+# dry-run
+docker compose exec django python manage.py sync_smoobu_reservations --tenant-id 2 --dry-run
+
+# provjera u Django shellu
+# Reservation.objects.filter(tenant_id=2, import_source='smoobu').count()
 ```
+
+Celery beat (`config/settings/base.py`): `sync-smoobu-uzorita` svakih **10 min** za `tenant_id=2`.
+
+Config cursor: `IntegrationConfig.config.last_sync_modified_from` (max `modified-at` iz uspješnog synca).
 
 ### Webhook `updateRates` (opcionalno)
 
@@ -458,8 +469,10 @@ docker compose run --rm django python manage.py test \
 | `smoobu/client.py` (rates + reservations read) | ✅ |
 | `smoobu/rates_service.py` | ✅ |
 | `GET/PATCH calendar/rates/` | ✅ |
-| Smoobu webhook ingest | ❌ planirano |
-| `sync_smoobu_reservations` | ❌ planirano |
+| `smoobu/booking_service.py` | ✅ |
+| Smoobu webhook ingest | ✅ |
+| `sync_smoobu_reservations` + Celery beat (10 min, tenant 2) | ✅ |
+| FCM: nova rezervacija (signal) + promjena statusa | ✅ |
 | UI grid kalendar | ❌ planirano |
 | `POST calendar/push/` flush | ❌ planirano |
 
@@ -476,10 +489,12 @@ docker compose run --rm django python manage.py test \
 | Channex booking ingest | `backend/apps/integrations/channex/booking_service.py` |
 | Integracije modeli | `backend/apps/integrations/models.py` |
 | Smoobu paket | `backend/apps/integrations/smoobu/` |
+| Smoobu booking ingest | `backend/apps/integrations/smoobu/booking_service.py` |
+| Smoobu sync command | `backend/apps/integrations/management/commands/sync_smoobu_reservations.py` |
 | Calendar API | `backend/apps/integrations/calendar_views.py` |
 | API routes | `backend/apps/api/integrations_urls.py` |
 | Smoobu docs | https://docs.smoobu.com/ |
 
 ---
 
-*Generirano za internu upotrebu stay.hr (uzorita / Smoobu integracija). Ažurirati kada se implementira webhook i sync rezervacija.*
+*Generirano za internu upotrebu stay.hr (uzorita / Smoobu integracija).*
