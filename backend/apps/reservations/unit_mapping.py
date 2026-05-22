@@ -14,6 +14,8 @@ _BOOKING_TITLE_TO_UNIT_CODE: tuple[tuple[str, str], ...] = (
     ("deluxe trokrevetna", "R3"),
     ("deluxe dvokrevetna", "R2"),
     ("deluxe kingsize", "R1"),
+    ("deluxe king room", "R1"),
+    ("deluxe triple room", "R3"),
     ("standard kingsize", "R6"),
     # D1 = ista fizička soba kao R6 (D1 ukinjen u bazi)
     ("luxury room uzorita - d1", "R6"),

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 from apps.properties.models import Property, Unit
@@ -87,3 +89,50 @@ def sync_reservation_units(
 
     reservation.units.exclude(id__in=kept_ids).delete()
     return list(reservation.units.order_by("sort_order", "id"))
+
+
+@dataclass(frozen=True)
+class UnitAssignmentChange:
+    reservation_unit: ReservationUnit
+    old_unit_id: int | None
+    new_unit_id: int | None
+
+
+def resync_unit_assignments(
+    *,
+    tenant: Tenant,
+    from_date: date | None = None,
+    dry_run: bool = False,
+) -> list[UnitAssignmentChange]:
+    rows = (
+        ReservationUnit.objects.filter(tenant=tenant)
+        .select_related("reservation", "reservation__property", "unit")
+        .order_by("reservation__check_in", "reservation_id", "sort_order", "id")
+    )
+    if from_date is not None:
+        rows = rows.filter(reservation__check_in__gte=from_date)
+
+    changes: list[UnitAssignmentChange] = []
+    for row in rows:
+        resolved = resolve_unit(
+            tenant=tenant,
+            property=row.reservation.property,
+            room_name=row.room_name,
+        )
+        resolved_id = resolved.id if resolved else None
+        if resolved_id == row.unit_id:
+            continue
+
+        change = UnitAssignmentChange(
+            reservation_unit=row,
+            old_unit_id=row.unit_id,
+            new_unit_id=resolved_id,
+        )
+        changes.append(change)
+        if dry_run:
+            continue
+
+        row.unit = resolved
+        row.save(update_fields=["unit", "updated_at"])
+
+    return changes

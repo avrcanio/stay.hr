@@ -18,3 +18,4 @@ hospira-*.json
 *-firebase-adminsdk-*.json
 .wp_photos/
 google-services (hospira).json
+.imports/
