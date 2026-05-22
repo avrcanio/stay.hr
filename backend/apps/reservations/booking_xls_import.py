@@ -15,6 +15,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.properties.models import Property
+from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.reservations.reservation_units import (
     apply_unit_amounts_from_total,
@@ -393,6 +394,33 @@ def _guest_updates_from_row(
     return updates
 
 
+def _find_guest_for_fill_empty(
+    reservation: Reservation,
+    *,
+    first_name: str,
+    last_name: str,
+    is_primary: bool,
+    guest_names_count: int,
+) -> Guest | None:
+    """Match by name first; fall back to sole/primary guest when XLS name parsing differs."""
+    guest = Guest.objects.filter(
+        reservation=reservation,
+        first_name=first_name or "-",
+        last_name=last_name or "-",
+    ).first()
+    if guest is not None:
+        return guest
+
+    existing = Guest.objects.filter(reservation=reservation)
+    if not existing.exists():
+        return None
+    if guest_names_count == 1 and existing.count() == 1:
+        return existing.first()
+    if is_primary:
+        return existing.filter(is_primary=True).first()
+    return None
+
+
 def _sync_guests(
     *,
     tenant: Tenant,
@@ -418,6 +446,14 @@ def _sync_guests(
             first_name=first_name or "-",
             last_name=last_name or "-",
         ).first()
+        if guest is None and fill_empty_only:
+            guest = _find_guest_for_fill_empty(
+                reservation,
+                first_name=first_name,
+                last_name=last_name,
+                is_primary=is_primary,
+                guest_names_count=len(guest_names),
+            )
         guest_updates = _guest_updates_from_row(
             is_primary=is_primary,
             first_name=first_name,
@@ -582,6 +618,11 @@ def upsert_reservation_from_xls_row(
             booker_email=booker_email,
             fill_empty_only=True,
         )
+        ensure_adult_guest_slots(
+            tenant=tenant,
+            reservation=existing,
+            adults_count=row.adults_count or existing.adults_count,
+        )
         return XlsImportResult(
             external_id=row.external_id,
             created=False,
@@ -617,6 +658,11 @@ def upsert_reservation_from_xls_row(
         booker_country=row.booker_country,
         booker_email=booker_email,
         fill_empty_only=False,
+    )
+    ensure_adult_guest_slots(
+        tenant=tenant,
+        reservation=reservation,
+        adults_count=row.adults_count,
     )
     units = sync_reservation_units(
         tenant=tenant,

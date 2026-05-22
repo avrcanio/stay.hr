@@ -57,8 +57,9 @@ docker compose run --rm -v /opt/stacks/stay.hr:/host/stay:ro django \
 
 - Traži gosta po imenu/prezimenu (parsirano iz XLS-a).
 - Ako postoji: dopunjava samo prazna polja (npr. `email`, `nationality`).
-- Ako **već ima** barem jednog gosta na rezervaciji, a ime iz XLS-a ne odgovara nikome — **ne dodaje** novog gosta (izbjegava duplikate tipa „Andre“ / „André“).
+- Ako **već ima** barem jednog gosta na rezervaciji, a ime iz XLS-a ne odgovara nikome — **ne dodaje** novog imenovanog gosta (izbjegava duplikate tipa „Andre“ / „André“).
 - Ako rezervacija **nema** goste, kreira gosta iz XLS-a.
+- Nakon sync-a imenovanih gostiju: ako je `adults_count` veći od broja postojećih gostiju, dodaju se placeholderi **`Novi gost`** (samo nedostajući odrasli slotovi; djeca se ne dodaju automatski).
 
 **Sobe / jedinice**
 
@@ -66,7 +67,7 @@ docker compose run --rm -v /opt/stacks/stay.hr:/host/stay:ro django \
 
 **Nova rezervacija**
 
-- Puna kreacija: rezervacija, gosti, sobe, iznosi — kao i prije.
+- Puna kreacija: rezervacija, gosti (imenovani + placeholderi prema `adults_count`), sobe, iznosi — kao i prije.
 
 ---
 

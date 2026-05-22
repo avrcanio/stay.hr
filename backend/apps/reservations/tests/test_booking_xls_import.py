@@ -10,6 +10,7 @@ from apps.reservations.booking_xls_import import (
     import_booking_xls_rows,
     upsert_reservation_from_xls_row,
 )
+from apps.reservations.guest_slots import PLACEHOLDER_NAME
 from apps.reservations.models import Guest, Reservation
 from apps.tenants.models import Tenant
 
@@ -110,6 +111,98 @@ class BookingXlsImportSkipExistingTests(TestCase):
         self.assertTrue(guest.is_primary)
         self.assertEqual(guest.name, "Original Guest")
 
+    def test_creates_placeholder_guests_for_missing_adults(self):
+        row = _sample_row(external_id="6660006", adults_count=2, guest_names=["Test, Guest"])
+        result = upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+        )
+        self.assertTrue(result.created)
+        reservation = Reservation.objects.get(external_id="6660006")
+        guests = list(reservation.guests.order_by("-is_primary", "id"))
+        self.assertEqual(len(guests), 2)
+        self.assertTrue(guests[0].is_primary)
+        self.assertEqual(guests[0].name, "Guest Test")
+        self.assertFalse(guests[1].is_primary)
+        self.assertEqual(guests[1].name, PLACEHOLDER_NAME)
+
+    def test_fill_empty_adds_placeholder_guests_for_missing_adults(self):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="7770007",
+            booking_code="7770007",
+            check_in=date(2026, 5, 20),
+            check_out=date(2026, 5, 21),
+            booker_name="Original Booker",
+            adults_count=2,
+            status=Reservation.Status.EXPECTED,
+        )
+        guest = Guest.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            first_name="Original",
+            last_name="Booker",
+            name="Original Booker",
+            is_primary=True,
+        )
+
+        row = _sample_row(
+            external_id="7770007",
+            adults_count=2,
+            guest_names=["Original Booker"],
+        )
+        result = upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+            existing_mode="fill_empty",
+        )
+
+        self.assertTrue(result.merged)
+        self.assertEqual(Guest.objects.filter(reservation=reservation).count(), 2)
+        guest.refresh_from_db()
+        self.assertEqual(guest.name, "Original Booker")
+        self.assertTrue(
+            Guest.objects.filter(
+                reservation=reservation,
+                is_primary=False,
+                name=PLACEHOLDER_NAME,
+            ).exists()
+        )
+
+    def test_does_not_add_placeholders_for_children_only(self):
+        row = _sample_row(
+            external_id="8880008",
+            adults_count=2,
+            children_count=1,
+            persons_count=3,
+            guest_names=["Test, Guest"],
+        )
+        upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+        )
+        reservation = Reservation.objects.get(external_id="8880008")
+        self.assertEqual(Guest.objects.filter(reservation=reservation).count(), 2)
+
+    def test_single_adult_has_no_placeholder(self):
+        row = _sample_row(
+            external_id="8890009",
+            adults_count=1,
+            persons_count=1,
+            guest_names=["Test, Guest"],
+        )
+        upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+        )
+        reservation = Reservation.objects.get(external_id="8890009")
+        self.assertEqual(Guest.objects.filter(reservation=reservation).count(), 1)
+
     @patch("apps.reservations.booking_xls_import.parse_booking_xls")
     def test_import_stats_skip_existing(self, mock_parse):
         Reservation.objects.create(
@@ -161,6 +254,7 @@ class BookingXlsImportSkipExistingTests(TestCase):
             booker_name="XLS, Name",
             guest_names=["XLS, Name"],
             booker_phone="+385991234567",
+            adults_count=1,
         )
         result = upsert_reservation_from_xls_row(
             tenant=self.tenant,
@@ -178,3 +272,42 @@ class BookingXlsImportSkipExistingTests(TestCase):
         self.assertEqual(Guest.objects.filter(reservation=reservation).count(), 1)
         guest.refresh_from_db()
         self.assertEqual(guest.name, "Original Booker")
+
+    def test_fill_empty_merges_guest_when_xls_name_parsing_differs(self):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="6262102168",
+            booking_code="6262102168",
+            check_in=date(2026, 9, 18),
+            check_out=date(2026, 9, 19),
+            booker_name="Maria Hernando Sanz",
+            booker_country="ES",
+            status=Reservation.Status.EXPECTED,
+        )
+        guest = Guest.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            first_name="Maria",
+            last_name="Hernando Sanz",
+            name="Maria Hernando Sanz",
+            is_primary=True,
+        )
+
+        row = _sample_row(
+            external_id="6262102168",
+            booker_name="Hernando Sanz, Maria",
+            guest_names=["Maria Hernando Sanz"],
+            booker_country="ES",
+        )
+        result = upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+            existing_mode="fill_empty",
+        )
+
+        self.assertTrue(result.merged)
+        guest.refresh_from_db()
+        self.assertEqual(guest.nationality, "ES")
+        self.assertEqual(guest.document_country_iso2, "ES")

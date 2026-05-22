@@ -204,9 +204,10 @@ Primjer (gost #1128, belgijska putovnica): `200526_1128_pass.jpg`
 
 ## 5. Više gostiju na jednoj rezervaciji
 
-1. Rezervacija iz Booking XLS-a → obično jedan `Guest` (booker).
-2. Suputnik → **novi** `Guest` na istoj `reservation_id`, `is_primary=False`.
-3. Svaki gost ima vlastiti `guest_id` u imenu datoteka i vlastiti `IdDocument`.
+1. Rezervacija iz Booking XLS-a, Smoobu ili Channexa → **primarni** `Guest` (booker), `is_primary=True`.
+2. Ako je `adults_count` veći od broja imenovanih gostiju, import automatski dodaje placeholder goste **`Novi gost`** (`is_primary=False`) — spremni za check-in i eVisitor.
+3. **Djeca** se ne dodaju automatski; placeholderi se računaju samo prema `adults_count`.
+4. Svaki gost ima vlastiti `guest_id` u imenu datoteka i vlastiti `IdDocument`.
 
 Provjera:
 

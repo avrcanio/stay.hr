@@ -15,6 +15,7 @@ from apps.integrations.smoobu.client import SmoobuClient
 from apps.integrations.smoobu.config import SmoobuApartmentLink, SmoobuRuntimeConfig
 from apps.integrations.smoobu.exceptions import SmoobuApiError, SmoobuBookingIngestError
 from apps.properties.models import Property, Unit
+from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.tenants.models import Tenant
 
@@ -296,6 +297,11 @@ def _upsert_reservation_from_smoobu_booking(
                 "phone": defaults["booker_phone"][:32],
                 "is_primary": True,
             },
+        )
+        ensure_adult_guest_slots(
+            tenant=tenant,
+            reservation=reservation,
+            adults_count=reservation.adults_count,
         )
 
     return SmoobuBookingResult(

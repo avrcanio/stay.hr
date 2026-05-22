@@ -12,6 +12,7 @@ from apps.integrations.smoobu.booking_service import (
     sync_smoobu_reservations,
 )
 from apps.properties.models import Property, Unit
+from apps.reservations.guest_slots import PLACEHOLDER_NAME
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.tenants.models import Tenant
 
@@ -94,6 +95,24 @@ class SmoobuBookingIngestTests(TestCase):
         self.assertEqual(ReservationUnit.objects.filter(reservation=reservation).count(), 1)
         self.assertEqual(Guest.objects.filter(reservation=reservation, is_primary=True).count(), 1)
         mock_notify.assert_called_once_with(reservation.pk)
+
+    @patch("apps.core.tasks.notify_new_reservation.delay")
+    def test_creates_placeholder_guest_for_second_adult(self, mock_notify):
+        result = process_smoobu_booking(
+            self.integration,
+            _sample_booking(adults=2, children=0),
+        )
+
+        self.assertTrue(result.created)
+        reservation = result.reservation
+        self.assertEqual(Guest.objects.filter(reservation=reservation).count(), 2)
+        self.assertTrue(
+            Guest.objects.filter(
+                reservation=reservation,
+                is_primary=False,
+                name=PLACEHOLDER_NAME,
+            ).exists()
+        )
 
     def test_updates_existing_reservation(self):
         booking = _sample_booking()

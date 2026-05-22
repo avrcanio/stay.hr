@@ -15,6 +15,7 @@ from apps.integrations.channex.config import ChannexBookingTestRoomLink, Channex
 from apps.integrations.channex.exceptions import ChannexBookingIngestError
 from apps.integrations.models import ChannexBookingRevision, IntegrationConfig
 from apps.properties.models import Property, Unit
+from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.tenants.models import Tenant
 
@@ -230,6 +231,11 @@ def _upsert_reservation_from_revision(
             reservation=reservation,
             is_primary=True,
             defaults=guest_defaults,
+        )
+        ensure_adult_guest_slots(
+            tenant=tenant,
+            reservation=reservation,
+            adults_count=reservation.adults_count,
         )
 
     return reservation, created
