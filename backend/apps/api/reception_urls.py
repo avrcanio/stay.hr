@@ -1,5 +1,10 @@
 from django.urls import path
 
+from apps.api.reception_calendar_block_views import (
+    ReceptionCalendarBlocksView,
+    ReceptionUnitBlockCreateView,
+    ReceptionUnitBlockDeleteView,
+)
 from apps.api.reception_views import (
     DocumentPhotosUploadView,
     DocumentScanIngestView,
@@ -71,5 +76,20 @@ urlpatterns = [
         "reservations/<int:reservation_id>/guests/<int:guest_id>/evisitor-submit/",
         EvisitorSubmitView.as_view(),
         name="reception-evisitor-submit",
+    ),
+    path(
+        "calendar/blocks/",
+        ReceptionCalendarBlocksView.as_view(),
+        name="reception-calendar-blocks",
+    ),
+    path(
+        "units/<int:unit_id>/block/",
+        ReceptionUnitBlockCreateView.as_view(),
+        name="reception-unit-block-create",
+    ),
+    path(
+        "blocks/<int:block_id>/",
+        ReceptionUnitBlockDeleteView.as_view(),
+        name="reception-unit-block-delete",
     ),
 ]

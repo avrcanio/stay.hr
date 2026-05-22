@@ -249,3 +249,40 @@ class UnitRateDay(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"{self.unit.code} {self.date}: {self.rate}"
+
+
+class UnitAvailabilityBlock(TenantScopedModel):
+    """Smoobu blocked-booking (channel 11) created via Hospira reception."""
+
+    class CreatedVia(models.TextChoices):
+        HOSPIRA = "hospira", "Hospira"
+
+    unit = models.ForeignKey(
+        "properties.Unit",
+        on_delete=models.CASCADE,
+        related_name="availability_blocks",
+    )
+    check_in = models.DateField()
+    check_out = models.DateField()
+    smoobu_booking_id = models.CharField(max_length=64)
+    created_via = models.CharField(
+        max_length=16,
+        choices=CreatedVia.choices,
+        default=CreatedVia.HOSPIRA,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["check_in", "unit_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "smoobu_booking_id"],
+                name="integrations_unitblock_unique_tenant_smoobu_id",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "unit", "check_in"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.unit.code} block {self.check_in}..{self.check_out}"

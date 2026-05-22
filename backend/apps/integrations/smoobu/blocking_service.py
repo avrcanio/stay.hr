@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from datetime import date
 
-from apps.integrations.models import IntegrationConfig
+from django.db import transaction
+
+from apps.integrations.models import IntegrationConfig, UnitAvailabilityBlock
 from apps.integrations.smoobu.client import SmoobuClient
 from apps.integrations.smoobu.config import SmoobuRuntimeConfig
-from apps.integrations.smoobu.exceptions import SmoobuRatesError
+from apps.integrations.smoobu.exceptions import SmoobuApiError, SmoobuRatesError
 from apps.properties.models import Unit
 
 SMOOBU_BLOCKED_CHANNEL_ID = 11
+HOSPIRA_BLOCK_EMAIL = "block@stay.hr.local"
 
 
 def block_apartment_dates(
@@ -56,10 +59,56 @@ def block_apartment_dates(
     if not booking_id:
         raise SmoobuRatesError(f"Smoobu blocked booking failed: {response}")
 
+    smoobu_id = str(booking_id)
+    with transaction.atomic():
+        block_row = UnitAvailabilityBlock.objects.create(
+            tenant=integration_row.tenant,
+            unit=unit,
+            check_in=check_in,
+            check_out=check_out,
+            smoobu_booking_id=smoobu_id,
+            created_via=UnitAvailabilityBlock.CreatedVia.HOSPIRA,
+        )
+
     return {
-        "smoobu_booking_id": booking_id,
+        "id": block_row.id,
+        "smoobu_booking_id": smoobu_id,
         "unit_code": unit_code,
+        "unit_id": unit.id,
         "apartment_id": apartment_id,
         "check_in": check_in.isoformat(),
         "check_out": check_out.isoformat(),
     }
+
+
+def unblock_apartment_dates(
+    block_row: UnitAvailabilityBlock,
+    *,
+    client: SmoobuClient | None = None,
+) -> None:
+    """Cancel Smoobu blocked booking and remove local block row."""
+    if block_row.created_via != UnitAvailabilityBlock.CreatedVia.HOSPIRA:
+        raise SmoobuRatesError("Only Hospira-created blocks can be unblocked via API.")
+
+    integration_row = IntegrationConfig.objects.filter(
+        tenant=block_row.tenant,
+        provider=IntegrationConfig.Provider.SMOOBU,
+        is_active=True,
+    ).order_by("-property_id").first()
+    if integration_row is None:
+        raise SmoobuRatesError("No active Smoobu integration.")
+
+    config = SmoobuRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+    owns_client = client is None
+    if owns_client:
+        client = SmoobuClient(config)
+
+    try:
+        client.cancel_reservation(block_row.smoobu_booking_id)
+    except SmoobuApiError as exc:
+        raise SmoobuRatesError(str(exc)) from exc
+    finally:
+        if owns_client and client is not None:
+            client.close()
+
+    block_row.delete()

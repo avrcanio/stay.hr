@@ -121,22 +121,37 @@ class SmoobuClient:
         self,
         *,
         modified_from: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
         apartment_id: int | None = None,
+        exclude_blocked: bool | None = None,
         page: int = 1,
         page_size: int = 100,
     ) -> dict[str, Any]:
         params: dict[str, str | int] = {"page": page, "pageSize": page_size}
         if modified_from:
             params["modifiedFrom"] = modified_from
+        if date_from is not None:
+            params["from"] = date_from.isoformat()
+        if date_to is not None:
+            params["to"] = date_to.isoformat()
         if apartment_id is not None:
             params["apartmentId"] = apartment_id
+        if exclude_blocked is not None:
+            params["excludeBlocked"] = "true" if exclude_blocked else "false"
         return self._request("GET", "/api/reservations", params=params)
+
+    def cancel_reservation(self, reservation_id: int | str) -> dict[str, Any]:
+        return self._request("DELETE", f"/api/reservations/{reservation_id}")
 
     def iter_reservations(
         self,
         *,
         modified_from: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
         apartment_id: int | None = None,
+        exclude_blocked: bool | None = None,
         page_size: int = 100,
     ) -> list[dict[str, Any]]:
         page = 1
@@ -144,7 +159,10 @@ class SmoobuClient:
         while True:
             payload = self.get_reservations(
                 modified_from=modified_from,
+                date_from=date_from,
+                date_to=date_to,
                 apartment_id=apartment_id,
+                exclude_blocked=exclude_blocked,
                 page=page,
                 page_size=page_size,
             )
