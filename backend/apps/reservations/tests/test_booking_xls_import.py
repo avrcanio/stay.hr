@@ -1,8 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.properties.models import Property
 from apps.reservations.booking_xls_import import (
@@ -69,7 +70,8 @@ class BookingXlsImportSkipExistingTests(TestCase):
         self.assertFalse(result.skipped)
         self.assertEqual(Reservation.objects.filter(external_id="1110001").count(), 1)
 
-    def test_skips_existing_without_touching_guests(self):
+    def test_skips_stale_xls_when_smoobu_newer(self):
+        smoobu_at = timezone.now() + timedelta(hours=1)
         reservation = Reservation.objects.create(
             tenant=self.tenant,
             property=self.property,
@@ -79,6 +81,8 @@ class BookingXlsImportSkipExistingTests(TestCase):
             check_out=date(2026, 5, 19),
             booker_name="Original Booker",
             status=Reservation.Status.CHECKED_IN,
+            smoobu_modified_at=smoobu_at,
+            imported_at=smoobu_at,
         )
         guest = Guest.objects.create(
             tenant=self.tenant,
@@ -98,10 +102,10 @@ class BookingXlsImportSkipExistingTests(TestCase):
             tenant=self.tenant,
             property=self.property,
             row=row,
-            skip_existing=True,
         )
 
         self.assertTrue(result.skipped)
+        self.assertEqual(result.skip_reason, "stale_xls")
         self.assertFalse(result.created)
         reservation.refresh_from_db()
         self.assertEqual(reservation.booker_name, "Original Booker")
@@ -110,6 +114,40 @@ class BookingXlsImportSkipExistingTests(TestCase):
         guest.refresh_from_db()
         self.assertTrue(guest.is_primary)
         self.assertEqual(guest.name, "Original Guest")
+
+    def test_overwrites_existing_when_xls_newer_than_smoobu(self):
+        smoobu_at = timezone.now() - timedelta(days=1)
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="2220003",
+            booking_code="2220003",
+            check_in=date(2026, 5, 18),
+            check_out=date(2026, 5, 19),
+            booker_name="Smoobu Guest",
+            status=Reservation.Status.EXPECTED,
+            smoobu_modified_at=smoobu_at,
+            imported_at=smoobu_at,
+            import_source="smoobu",
+        )
+
+        row = _sample_row(
+            external_id="2220003",
+            booker_name="XLS, Winner",
+            guest_names=["XLS, Winner"],
+        )
+        result = upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+        )
+
+        self.assertFalse(result.skipped)
+        self.assertTrue(result.updated)
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.booker_name, "XLS, Winner")
+        self.assertEqual(reservation.import_source, "booking_xls")
+        self.assertIsNotNone(reservation.xls_imported_at)
 
     def test_creates_placeholder_guests_for_missing_adults(self):
         row = _sample_row(external_id="6660006", adults_count=2, guest_names=["Test, Guest"])
@@ -204,7 +242,8 @@ class BookingXlsImportSkipExistingTests(TestCase):
         self.assertEqual(Guest.objects.filter(reservation=reservation).count(), 1)
 
     @patch("apps.reservations.booking_xls_import.parse_booking_xls")
-    def test_import_stats_skip_existing(self, mock_parse):
+    def test_import_stats_sync_existing(self, mock_parse):
+        smoobu_at = timezone.now() + timedelta(hours=1)
         Reservation.objects.create(
             tenant=self.tenant,
             property=self.property,
@@ -213,6 +252,8 @@ class BookingXlsImportSkipExistingTests(TestCase):
             check_in=date(2026, 5, 20),
             check_out=date(2026, 5, 21),
             booker_name="Exists",
+            smoobu_modified_at=smoobu_at,
+            imported_at=smoobu_at,
         )
         mock_parse.return_value = [
             _sample_row(external_id="3330003"),
@@ -222,7 +263,6 @@ class BookingXlsImportSkipExistingTests(TestCase):
             tenant=self.tenant,
             property=self.property,
             rows=mock_parse.return_value,
-            skip_existing=True,
         )
         self.assertEqual(stats["skipped"], 1)
         self.assertEqual(stats["created"], 1)

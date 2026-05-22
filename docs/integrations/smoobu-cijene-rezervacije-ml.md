@@ -292,7 +292,9 @@ Greške: `400` (config), `502` (Smoobu API).
 
 ## 8. Rezervacije — ingest (tenant `uzorita`, id=2)
 
-Produkcijski izvor: Smoobu API + webhook. Booking XLS (`import_source=booking_xls`) se **ne mijenja** pri Smoobu syncu (preskače se ako postoji isti `booking_code`).
+Produkcijski izvor: Smoobu API + webhook. Booking XLS (`import_source=booking_xls`) dijeli isti `booking_code` s Smoobu `reference-id`.
+
+**Last-write-wins:** svaki kanal bilježi svoje vrijeme (`xls_imported_at` pri importu, `smoobu_modified_at` iz Smoobu `modified-at`). Pri syncu/webhooku usporedi se timestampi — noviji kanal pregazi stariji (otkazivanja iz Smoobua sada prolaze preko XLS redova ako su novija). Kod jednakog vremena pobjeđuje dolazni event.
 
 ### Smoobu GET `/api/reservations`
 

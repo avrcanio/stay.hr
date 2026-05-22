@@ -68,6 +68,16 @@ class SmoobuRatesServiceTests(TestCase):
         self.assertEqual(op["dates"], ["2026-06-01:2026-06-10"])
         self.assertNotIn("min_length_of_stay", op)
 
+    def test_build_rate_operation_unavailable(self):
+        op = build_rate_operation(
+            day=date(2026, 7, 30),
+            day_to=date(2026, 7, 31),
+            rate=Decimal("99.00"),
+            min_stay=None,
+            available=0,
+        )
+        self.assertEqual(op["available"], 0)
+
     @patch("apps.integrations.smoobu.rates_service.SmoobuClient")
     def test_apply_rate_updates_persists_and_pushes(self, mock_client_cls):
         mock_client = MagicMock()

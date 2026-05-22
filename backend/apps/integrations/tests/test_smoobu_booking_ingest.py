@@ -1,8 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.integrations.models import IntegrationConfig
 from apps.integrations.smoobu.booking_service import (
@@ -86,9 +87,10 @@ class SmoobuBookingIngestTests(TestCase):
         self.assertFalse(result.skipped)
         reservation = Reservation.objects.get(
             tenant=self.tenant,
-            external_id=smoobu_external_id(9001001),
+            booking_code="BCOM-REF-9001",
             import_source=IMPORT_SOURCE_SMOOBU,
         )
+        self.assertEqual(reservation.external_id, "BCOM-REF-9001")
         self.assertEqual(reservation.booking_code, "BCOM-REF-9001")
         self.assertEqual(reservation.booker_name, "Ana Anić")
         self.assertEqual(reservation.check_in, date(2026, 6, 10))
@@ -123,7 +125,7 @@ class SmoobuBookingIngestTests(TestCase):
 
         self.assertFalse(result.created)
         self.assertTrue(result.updated)
-        reservation = Reservation.objects.get(external_id=smoobu_external_id(9001001))
+        reservation = Reservation.objects.get(booking_code="BCOM-REF-9001")
         self.assertEqual(reservation.amount, Decimal("250"))
 
     @patch("apps.core.tasks.notify_reservation_status_changed.delay")
@@ -150,7 +152,7 @@ class SmoobuBookingIngestTests(TestCase):
     def test_preserves_checked_in_on_channel_update(self):
         booking = _sample_booking()
         process_smoobu_booking(self.integration, booking)
-        reservation = Reservation.objects.get(external_id=smoobu_external_id(9001001))
+        reservation = Reservation.objects.get(booking_code="BCOM-REF-9001")
         reservation.status = Reservation.Status.CHECKED_IN
         reservation.save(update_fields=["status", "updated_at"])
 
@@ -162,7 +164,45 @@ class SmoobuBookingIngestTests(TestCase):
         self.assertEqual(reservation.status, Reservation.Status.CHECKED_IN)
         self.assertEqual(reservation.amount, Decimal("999"))
 
-    def test_skips_when_booking_xls_exists_for_booking_code(self):
+    @patch("apps.core.tasks.notify_reservation_status_changed.delay")
+    def test_smoobu_cancels_xls_row_when_newer(self, mock_status_notify):
+        xls_at = timezone.now() - timedelta(days=1)
+        xls_reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="5555555",
+            booking_code="BCOM-REF-9001",
+            import_source="booking_xls",
+            check_in=date(2026, 6, 10),
+            check_out=date(2026, 6, 12),
+            status=Reservation.Status.EXPECTED,
+            booker_name="XLS Guest",
+            amount=Decimal("100"),
+            xls_imported_at=xls_at,
+            imported_at=xls_at,
+        )
+
+        result = process_smoobu_booking(
+            self.integration,
+            _sample_booking(
+                id=9001002,
+                type="cancellation",
+                **{"modified-at": "2026-06-03 09:00"},
+            ),
+        )
+
+        self.assertFalse(result.skipped)
+        self.assertTrue(result.updated)
+        xls_reservation.refresh_from_db()
+        self.assertEqual(xls_reservation.status, Reservation.Status.CANCELED)
+        self.assertEqual(xls_reservation.external_id, "5555555")
+        self.assertEqual(xls_reservation.smoobu_booking_id, "9001002")
+        self.assertEqual(xls_reservation.import_source, IMPORT_SOURCE_SMOOBU)
+        self.assertEqual(Reservation.objects.filter(tenant=self.tenant).count(), 1)
+        mock_status_notify.assert_called_once()
+
+    def test_skips_stale_smoobu_when_xls_newer(self):
+        xls_at = timezone.now()
         Reservation.objects.create(
             tenant=self.tenant,
             property=self.property,
@@ -174,18 +214,23 @@ class SmoobuBookingIngestTests(TestCase):
             status=Reservation.Status.EXPECTED,
             booker_name="XLS Guest",
             amount=Decimal("100"),
+            xls_imported_at=xls_at,
+            imported_at=xls_at,
         )
 
-        result = process_smoobu_booking(self.integration, _sample_booking(id=9001002))
+        result = process_smoobu_booking(
+            self.integration,
+            _sample_booking(
+                id=9001002,
+                **{"modified-at": "2026-05-01 10:00"},
+            ),
+        )
 
         self.assertTrue(result.skipped)
-        self.assertEqual(result.skip_reason, "booking_xls_exists")
-        self.assertFalse(
-            Reservation.objects.filter(
-                tenant=self.tenant,
-                import_source=IMPORT_SOURCE_SMOOBU,
-            ).exists()
-        )
+        self.assertEqual(result.skip_reason, "stale_smoobu")
+        reservation = Reservation.objects.get(booking_code="BCOM-REF-9001")
+        self.assertEqual(reservation.booker_name, "XLS Guest")
+        self.assertEqual(reservation.status, Reservation.Status.EXPECTED)
 
     def test_unknown_apartment_records_error_in_sync(self):
         with patch(

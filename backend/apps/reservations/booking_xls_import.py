@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
-ExistingReservationMode = Literal["skip", "fill_empty", "overwrite"]
+ExistingReservationMode = Literal["sync", "fill_empty", "overwrite"]
 
 import xlrd
 from django.db import transaction
@@ -15,6 +15,10 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.properties.models import Property
+from apps.reservations.channel_sync import (
+    IMPORT_SOURCE_BOOKING_XLS as CHANNEL_BOOKING_XLS,
+    incoming_wins,
+)
 from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.reservations.reservation_units import (
@@ -129,6 +133,7 @@ class XlsImportResult:
     skipped: bool = False
     updated: bool = False
     merged: bool = False
+    skip_reason: str = ""
     reservation_id: int | None = None
 
 
@@ -541,6 +546,7 @@ def _reservation_field_updates_from_row(
         "source": "Booking.com",
         "import_source": IMPORT_SOURCE_BOOKING_XLS,
         "imported_at": now,
+        "xls_imported_at": now,
         "booked_at": row.booked_at,
         "booking_status": row.booking_status,
         "units_count": row.units_count,
@@ -567,24 +573,36 @@ def upsert_reservation_from_xls_row(
     tenant: Tenant,
     property: Property,
     row: BookingXlsRow,
-    skip_existing: bool = True,
+    skip_existing: bool = False,
     existing_mode: ExistingReservationMode | None = None,
 ) -> XlsImportResult:
     if existing_mode is None:
-        existing_mode = "skip" if skip_existing else "overwrite"
+        existing_mode = "sync"
 
     existing = _find_existing_reservation(tenant=tenant, external_id=row.external_id)
+    now = timezone.now()
 
-    if existing is not None and existing_mode == "skip":
+    if (
+        existing is not None
+        and existing_mode in {"sync", "overwrite"}
+        and not incoming_wins(
+            existing,
+            source=CHANNEL_BOOKING_XLS,
+            incoming_at=now,
+        )
+    ):
         return XlsImportResult(
             external_id=row.external_id,
             created=False,
             skipped=True,
             updated=False,
+            skip_reason="stale_xls",
             reservation_id=existing.id,
         )
 
-    now = timezone.now()
+    if existing is not None and existing_mode == "sync":
+        existing_mode = "overwrite"
+
     booker_email = ""
     if row.booker_name and "@" not in row.booker_name:
         slug = re.sub(r"[^a-z0-9]+", ".", row.booker_name.lower()).strip(".")
@@ -691,11 +709,11 @@ def import_booking_xls_rows(
     property: Property,
     rows: list[BookingXlsRow],
     dry_run: bool = False,
-    skip_existing: bool = True,
+    skip_existing: bool = False,
     existing_mode: ExistingReservationMode | None = None,
 ) -> dict[str, Any]:
     if existing_mode is None:
-        existing_mode = "skip" if skip_existing else "overwrite"
+        existing_mode = "sync"
 
     stats: dict[str, Any] = {
         "created": 0,
@@ -713,9 +731,9 @@ def import_booking_xls_rows(
                     tenant=tenant,
                     external_id=row.external_id,
                 ) is not None
-                if exists and existing_mode == "skip":
-                    action = "skipped"
-                    stats["skipped"] += 1
+                if exists and existing_mode == "sync":
+                    action = "updated"
+                    stats["updated"] += 1
                 elif exists and existing_mode == "fill_empty":
                     action = "merged"
                     stats["merged"] += 1
@@ -773,7 +791,7 @@ def import_booking_xls_file(
     dry_run: bool = False,
     check_in_from: date | None = None,
     check_in_to: date | None = None,
-    skip_existing: bool = True,
+    skip_existing: bool = False,
     existing_mode: ExistingReservationMode | None = None,
 ) -> dict[str, Any]:
     rows = parse_booking_xls(path)

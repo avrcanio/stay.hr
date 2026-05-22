@@ -111,6 +111,12 @@ class SmoobuClient:
             json={"apartments": apartment_ids, "operations": operations},
         )
 
+    def create_reservation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/api/reservations", json=payload)
+
+    def get_reservation(self, reservation_id: int | str) -> dict[str, Any]:
+        return self._request("GET", f"/api/reservations/{reservation_id}")
+
     def get_reservations(
         self,
         *,

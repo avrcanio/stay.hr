@@ -56,6 +56,7 @@ def build_rate_operation(
     min_stay: int | None,
     available: int = 1,
 ) -> dict[str, Any]:
+    """Build Smoobu rate operation. Note: POST /api/rates ignores ``available``; use block_apartment_dates()."""
     operation: dict[str, Any] = {
         "dates": _format_operation_dates(day, day_to),
         "daily_price": float(rate),
@@ -91,6 +92,7 @@ def apply_rate_updates(
         day, day_to = _resolve_date_range(item)
         rate = Decimal(str(item["rate"]))
         min_stay = _resolve_min_stay(item)
+        available = int(item.get("available", 1))
         apartment_id = _apartment_id_for_unit(config, unit)
 
         current = day
@@ -109,7 +111,13 @@ def apply_rate_updates(
             current += timedelta(days=1)
 
         push_batches.setdefault(apartment_id, []).append(
-            build_rate_operation(day=day, day_to=day_to, rate=rate, min_stay=min_stay)
+            build_rate_operation(
+                day=day,
+                day_to=day_to,
+                rate=rate,
+                min_stay=min_stay,
+                available=available,
+            )
         )
 
     push_results: list[dict[str, Any]] = []

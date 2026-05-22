@@ -15,6 +15,11 @@ from apps.integrations.smoobu.client import SmoobuClient
 from apps.integrations.smoobu.config import SmoobuApartmentLink, SmoobuRuntimeConfig
 from apps.integrations.smoobu.exceptions import SmoobuApiError, SmoobuBookingIngestError
 from apps.properties.models import Property, Unit
+from apps.reservations.channel_sync import (
+    IMPORT_SOURCE_SMOOBU as CHANNEL_SMOOBU,
+    find_reservation_for_channel_merge,
+    incoming_wins,
+)
 from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.tenants.models import Tenant
@@ -141,18 +146,12 @@ def _parse_guest_name(full_name: str) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
-def _should_skip_for_xls_conflict(
+def _resolve_create_external_id(
     *,
-    tenant: Tenant,
+    smoobu_id: str,
     booking_code: str,
-) -> Reservation | None:
-    if not booking_code:
-        return None
-    return Reservation.objects.filter(
-        tenant=tenant,
-        booking_code=booking_code,
-        import_source="booking_xls",
-    ).first()
+) -> str:
+    return booking_code or smoobu_id
 
 
 @transaction.atomic
@@ -167,26 +166,36 @@ def _upsert_reservation_from_smoobu_booking(
     if raw_id is None or str(raw_id).strip() == "":
         raise SmoobuBookingIngestError("Smoobu booking missing id.")
 
-    external_id = smoobu_external_id(raw_id)
+    smoobu_id = smoobu_external_id(raw_id)
     booking_code = str(_booking_field(booking, "reference-id", "reference_id") or "").strip()
+    now = timezone.now()
+    smoobu_modified = (
+        _parse_datetime(_booking_field(booking, "modified-at", "modified_at")) or now
+    )
 
-    existing_smoobu = Reservation.objects.filter(
-        tenant=tenant,
-        external_id=external_id,
-        import_source=IMPORT_SOURCE_SMOOBU,
-    ).first()
-
-    if existing_smoobu is None and _should_skip_for_xls_conflict(
+    existing = find_reservation_for_channel_merge(
         tenant=tenant,
         booking_code=booking_code,
+        smoobu_booking_id=smoobu_id,
+        external_id=booking_code,
+    )
+
+    if existing is not None and not incoming_wins(
+        existing,
+        source=CHANNEL_SMOOBU,
+        incoming_at=smoobu_modified,
     ):
         logger.info(
-            "smoobu booking skipped: booking_xls row exists for booking_code",
-            extra={"external_id": external_id, "booking_code": booking_code},
+            "smoobu booking skipped: stale smoobu payload",
+            extra={
+                "smoobu_booking_id": smoobu_id,
+                "booking_code": booking_code,
+                "reservation_id": existing.id,
+            },
         )
         return SmoobuBookingResult(
             skipped=True,
-            skip_reason="booking_xls_exists",
+            skip_reason="stale_smoobu",
         )
 
     check_in = _parse_date(_booking_field(booking, "arrival"))
@@ -220,7 +229,6 @@ def _upsert_reservation_from_smoobu_booking(
     children = int(_booking_field(booking, "children") or 0)
     nights = (check_out - check_in).days
     new_status = _map_smoobu_status(booking)
-    now = timezone.now()
     guest_name = str(_booking_field(booking, "guest-name", "guest_name") or "").strip()
     booker_name = guest_name or "Smoobu guest"
 
@@ -237,28 +245,33 @@ def _upsert_reservation_from_smoobu_booking(
         "source": source,
         "import_source": IMPORT_SOURCE_SMOOBU,
         "booked_at": _parse_datetime(_booking_field(booking, "created-at", "created_at")),
-        "imported_at": now,
+        "imported_at": smoobu_modified,
+        "smoobu_modified_at": smoobu_modified,
+        "smoobu_booking_id": smoobu_id,
         "adults_count": adults,
         "children_count": children,
         "persons_count": adults + children,
         "nights_count": nights or None,
         "units_count": 1,
-        "canceled_at": now if new_status == Reservation.Status.CANCELED else None,
+        "canceled_at": smoobu_modified if new_status == Reservation.Status.CANCELED else None,
         "details_pending": False,
     }
     if booking_code:
         defaults["booking_code"] = booking_code
 
     old_status: str | None = None
-    if existing_smoobu is None:
+    if existing is None:
         reservation = Reservation.objects.create(
             tenant=tenant,
-            external_id=external_id,
+            external_id=_resolve_create_external_id(
+                smoobu_id=smoobu_id,
+                booking_code=booking_code,
+            ),
             **defaults,
         )
         created = True
     else:
-        reservation = existing_smoobu
+        reservation = existing
         created = False
         old_status = reservation.status
         if reservation.status in (

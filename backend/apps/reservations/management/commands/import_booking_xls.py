@@ -53,7 +53,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--allow-update",
             action="store_true",
-            help="Overwrite existing reservations from XLS (default: skip existing).",
+            help="Same as default sync mode (kept for compatibility).",
         )
         parser.add_argument(
             "--fill-empty",
@@ -118,11 +118,13 @@ class Command(BaseCommand):
             )
         elif options["allow_update"]:
             existing_mode = "overwrite"
-            self.stdout.write("Mode: overwrite existing reservations from XLS.")
-        else:
-            existing_mode = "skip"
             self.stdout.write(
-                "Mode: skip existing reservations (only new Booking numbers are imported)."
+                "Mode: overwrite existing reservations from XLS when import is newer than Smoobu."
+            )
+        else:
+            existing_mode = "sync"
+            self.stdout.write(
+                "Mode: sync existing reservations from XLS when import is newer than Smoobu."
             )
 
         stats = import_booking_xls_file(
