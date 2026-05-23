@@ -9,7 +9,12 @@ from datetime import date
 from django.db.models import Count, Max
 
 from apps.properties.models import Unit
-from apps.reservations.models import MonthlyStatisticsOverride, Reservation
+from apps.reservations.models import (
+    Guest,
+    MonthlyStatisticsOverride,
+    Reservation,
+    ReservationUnit,
+)
 
 _DIGEST_LENGTH = 16
 
@@ -57,13 +62,54 @@ def statistics_version(tenant, year: int) -> str:
     return _digest(payload)
 
 
-def build_sync_versions_payload(tenant, year: int) -> dict:
+def reservation_detail_version(tenant, reservation_id: int) -> str | None:
+    reservation = (
+        Reservation.objects.for_tenant(tenant).filter(pk=reservation_id).only("updated_at").first()
+    )
+    if reservation is None:
+        return None
+
+    guest_agg = Guest.objects.for_tenant(tenant).filter(reservation_id=reservation_id).aggregate(
+        count=Count("id"),
+        max_updated=Max("updated_at"),
+    )
+    unit_agg = (
+        ReservationUnit.objects.for_tenant(tenant)
+        .filter(reservation_id=reservation_id)
+        .aggregate(
+            count=Count("id"),
+            max_updated=Max("updated_at"),
+        )
+    )
+
+    guest_max = guest_agg["max_updated"]
+    unit_max = unit_agg["max_updated"]
+    payload = (
+        f"reservation_detail:{reservation_id}:"
+        f"r:{reservation.updated_at.isoformat()}:"
+        f"g:{guest_agg['count'] or 0}:{guest_max.isoformat() if guest_max is not None else ''}:"
+        f"u:{unit_agg['count'] or 0}:{unit_max.isoformat() if unit_max is not None else ''}"
+    )
+    return _digest(payload)
+
+
+def build_sync_versions_payload(
+    tenant,
+    year: int,
+    reservation_id: int | None = None,
+) -> dict | None:
     year_key = str(year)
-    return {
+    payload = {
         "reservations": reservations_version(tenant),
         "rooms": rooms_version(tenant),
         "statistics": {year_key: statistics_version(tenant, year)},
     }
+    if reservation_id is not None:
+        detail = reservation_detail_version(tenant, reservation_id)
+        if detail is None:
+            return None
+        payload["reservation_detail"] = detail
+    return payload
 
 
 def sync_versions_etag(payload: dict) -> str:

@@ -131,6 +131,8 @@ Upserts proxied A records for `api.stay.hr` and `admin.stay.hr` pointing at this
 
 **Web frontend domene** (booking, recepcija, wildcard `*.stay.hr`): vidi [docs/operations/domain-setup.md](docs/operations/domain-setup.md).
 
+**Hospira detail sync-versions** (deploy backend + provjera API-ja): vidi [docs/operations/reservation-detail-sync-versions.md](docs/operations/reservation-detail-sync-versions.md).
+
 Verify:
 
 ```bash

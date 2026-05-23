@@ -152,7 +152,30 @@ class ReceptionSyncVersionsView(ReceptionReadView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        payload = build_sync_versions_payload(request.tenant, year)
+        reservation_id_param = request.query_params.get("reservation_id")
+        reservation_id = None
+        if reservation_id_param is not None and str(reservation_id_param).strip() != "":
+            try:
+                reservation_id = int(reservation_id_param)
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "reservation_id mora biti cijeli broj."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if reservation_id < 1:
+                return Response(
+                    {"detail": "reservation_id mora biti pozitivan."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        payload = build_sync_versions_payload(
+            request.tenant,
+            year,
+            reservation_id=reservation_id,
+        )
+        if payload is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
         etag = sync_versions_etag(payload)
         if request.META.get("HTTP_IF_NONE_MATCH") == etag:
             return Response(status=status.HTTP_304_NOT_MODIFIED)

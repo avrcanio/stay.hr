@@ -268,6 +268,46 @@ class ReceptionAPITests(TestCase):
         self.assertEqual(after_change.status_code, 200)
         self.assertNotEqual(after_change["ETag"], etag)
 
+    def test_sync_versions_with_reservation_id(self):
+        response = self.client.get(
+            f"/api/v1/reception/sync-versions/?year=2026&reservation_id={self.reservation.id}",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("reservation_detail", data)
+        self.assertEqual(len(data["reservation_detail"]), 16)
+        etag = response["ETag"]
+
+        cached = self.client.get(
+            f"/api/v1/reception/sync-versions/?year=2026&reservation_id={self.reservation.id}",
+            HTTP_IF_NONE_MATCH=etag,
+            **self.auth,
+        )
+        self.assertEqual(cached.status_code, 304)
+
+        self.reservation.status = Reservation.Status.CHECKED_IN
+        self.reservation.save(update_fields=["status", "updated_at"])
+
+        after_change = self.client.get(
+            f"/api/v1/reception/sync-versions/?year=2026&reservation_id={self.reservation.id}",
+            HTTP_IF_NONE_MATCH=etag,
+            **self.auth,
+        )
+        self.assertEqual(after_change.status_code, 200)
+        self.assertNotEqual(after_change["ETag"], etag)
+        self.assertNotEqual(
+            after_change.json()["reservation_detail"],
+            data["reservation_detail"],
+        )
+
+    def test_sync_versions_reservation_id_not_found(self):
+        response = self.client.get(
+            "/api/v1/reception/sync-versions/?year=2026&reservation_id=999999",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 404)
+
     def test_monthly_statistics(self):
         self.reservation.status = Reservation.Status.CHECKED_IN
         self.reservation.save(update_fields=["status", "updated_at"])
