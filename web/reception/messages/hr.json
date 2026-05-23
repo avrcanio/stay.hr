@@ -60,7 +60,20 @@
     "clickDayHint": "Kliknite dan u kalendaru za detalje sobe.",
     "noItemsForDay": "Nema rezervacija ni blokova za odabrani dan.",
     "blockTitle": "Blok · {checkIn} → {checkOut} · {source}",
-    "roomDayAria": "{code}, {date}"
+    "roomDayAria": "{code}, {date}",
+    "blockUnitTitle": "Blokiraj sobu",
+    "blockCheckIn": "Dolazak",
+    "blockCheckOut": "Odlazak",
+    "blockSubmit": "Blokiraj",
+    "unblock": "Odblokiraj",
+    "unblockConfirm": "Odblokirati {unit}?",
+    "unblocking": "Odblokiranje {unit}…",
+    "blockConfirm": "Blokirati od {from} do {to}?",
+    "blockingProgress": "Blokiranje {unit} ({current}/{total})…",
+    "blockActionFailed": "Blokiranje nije uspjelo.",
+    "blockPartialFailed": "Djelomično neuspjelo: {units}",
+    "blockRangeUnavailable": "Odabrani raspon nije slobodan za sve sobe.",
+    "noFreeUnits": "Nema slobodnih soba za ovu noć."
   },
   "reservation": {
     "notFound": "Rezervacija nije pronađena",
@@ -78,7 +91,13 @@
     "statusCheckedIn": "Prijavljen",
     "statusCheckedOut": "Odjavljen",
     "statusCanceled": "Otkazan",
-    "statusPending": "Pending"
+    "statusPending": "Pending",
+    "statusRefused": "Odbijen",
+    "cancel": "Otkaži rezervaciju",
+    "cancelConfirm": "Otkazati rezervaciju?",
+    "cancelFailed": "Otkazivanje nije uspjelo.",
+    "cancelSuccess": "Rezervacija je otkazana.",
+    "actionsHint": "Otkazivanje web rezervacija dostupno je ovdje; ostale izmjene na tabletu (Hospira)."
   },
   "guest": {
     "primary": "primarni",

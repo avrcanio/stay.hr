@@ -37,7 +37,15 @@
     "failed": "Prenotazione non riuscita."
   },
   "confirmation": {
-    "title": "Prenotazione ricevuta",
+    "titlePending": "Richiesta ricevuta",
+    "titleConfirmed": "Prenotazione confermata",
+    "titleRefused": "Prenotazione non disponibile",
+    "subtitlePending": "Stiamo verificando la disponibilità. Di solito richiede pochi secondi.",
+    "subtitlePendingSlow": "L'elaborazione richiede più tempo del solito. Controlla la tua email.",
+    "subtitleConfirmed": "Una conferma è stata inviata al tuo indirizzo email.",
+    "subtitleRefused": "Le date non sono più disponibili. Ti abbiamo inviato un'email.",
+    "processing": "Elaborazione della prenotazione…",
+    "lookupFailed": "Lo stato della prenotazione non è disponibile.",
     "codeLabel": "Numero prenotazione:",
     "backHome": "Torna alla home"
   },

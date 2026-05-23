@@ -1,0 +1,11 @@
+Dear {{ booker_name }},
+
+Your reservation is confirmed.
+
+Booking code: {{ booking_code }}
+Property: {{ property_name }}
+{% if room_label %}Room: {{ room_label }}
+{% endif %}Check-in: {{ check_in }}
+Check-out: {{ check_out }}
+
+We look forward to welcoming you!

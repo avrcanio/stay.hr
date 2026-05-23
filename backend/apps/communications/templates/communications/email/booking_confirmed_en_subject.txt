@@ -1,0 +1,1 @@
+Booking confirmation — {{ property_name }}

@@ -2,42 +2,75 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { CountryFlag } from "@/app/_components/CountryFlag";
 import { GuestList } from "@/app/_components/GuestList";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
+import { useReservationStatusLabel } from "@/lib/i18n-ui";
 import type { ReservationDetail } from "@/lib/types";
+import { reservationStatusClass } from "@/lib/reservationUi";
 
 export default function ReservationDetailPage() {
   const params = useParams<{ id: string }>();
   const t = useTranslations("reservation");
   const tc = useTranslations("common");
+  const statusLabel = useReservationStatusLabel();
   const [tenantName, setTenantName] = useState("");
   const [reservation, setReservation] = useState<ReservationDetail | null>(null);
   const [error, setError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [canceling, setCanceling] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const session = await fetch("/api/auth/session");
+      if (session.ok) {
+        const s = await session.json();
+        setTenantName(s.tenant || "");
+      }
+      const res = await fetch(`/api/stay/reception/reservations/${params.id}/`);
+      if (!res.ok) throw new Error(t("notFound"));
+      setReservation((await res.json()) as ReservationDetail);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tc("error"));
+    } finally {
+      setLoading(false);
+    }
+  }, [params.id, t, tc]);
 
   useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const session = await fetch("/api/auth/session");
-        if (session.ok) {
-          const s = await session.json();
-          setTenantName(s.tenant || "");
-        }
-        const res = await fetch(`/api/stay/reception/reservations/${params.id}/`);
-        if (!res.ok) throw new Error(t("notFound"));
-        setReservation((await res.json()) as ReservationDetail);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : tc("error"));
-      } finally {
-        setLoading(false);
-      }
-    }
     void load();
-  }, [params.id, t, tc]);
+  }, [load]);
+
+  async function handleCancel() {
+    if (!reservation || reservation.status !== "expected") return;
+    if (!window.confirm(t("cancelConfirm"))) return;
+
+    setCanceling(true);
+    setActionMessage("");
+    setError("");
+    try {
+      const res = await fetch(`/api/stay/reception/reservations/${reservation.id}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "canceled" }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { status?: string[]; detail?: string } | null;
+        throw new Error(data?.status?.[0] || data?.detail || t("cancelFailed"));
+      }
+      setReservation((await res.json()) as ReservationDetail);
+      setActionMessage(t("cancelSuccess"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("cancelFailed"));
+    } finally {
+      setCanceling(false);
+    }
+  }
 
   return (
     <div>
@@ -49,6 +82,7 @@ export default function ReservationDetailPage() {
 
         {loading ? <p className="text-muted">{tc("loading")}</p> : null}
         {error ? <p className="text-red-600">{error}</p> : null}
+        {actionMessage ? <p className="text-sm text-emerald-700">{actionMessage}</p> : null}
 
         {reservation ? (
           <div className="card space-y-4 p-5">
@@ -68,7 +102,11 @@ export default function ReservationDetailPage() {
               </div>
               <div>
                 <dt className="text-muted">{t("status")}</dt>
-                <dd className="font-medium">{reservation.status}</dd>
+                <dd>
+                  <span className={`badge ${reservationStatusClass(reservation.status)}`}>
+                    {statusLabel(reservation.status)}
+                  </span>
+                </dd>
               </div>
               <div>
                 <dt className="text-muted">{t("checkIn")}</dt>
@@ -88,6 +126,12 @@ export default function ReservationDetailPage() {
               </div>
             </dl>
 
+            {reservation.status === "expected" ? (
+              <button type="button" className="btn bg-red-600 text-white hover:bg-red-700" disabled={canceling} onClick={() => void handleCancel()}>
+                {t("cancel")}
+              </button>
+            ) : null}
+
             <div>
               <h2 className="mb-2 font-semibold">
                 {t("guestsTitle", { count: reservation.guests?.length || 0 })}
@@ -102,7 +146,7 @@ export default function ReservationDetailPage() {
               </div>
             ) : null}
 
-            <p className="text-xs text-stay-muted/70">{t("readOnlyHint")}</p>
+            <p className="text-xs text-stay-muted/70">{t("actionsHint")}</p>
           </div>
         ) : null}
       </main>

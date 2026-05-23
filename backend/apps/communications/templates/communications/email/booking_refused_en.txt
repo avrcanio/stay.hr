@@ -1,0 +1,11 @@
+Dear {{ booker_name }},
+
+Unfortunately we could not confirm your reservation for the selected dates.
+
+Request code: {{ booking_code }}
+Property: {{ property_name }}
+{% if room_label %}Room: {{ room_label }}
+{% endif %}Check-in: {{ check_in }}
+Check-out: {{ check_out }}
+
+Those dates are no longer available. Please choose different dates or contact us.

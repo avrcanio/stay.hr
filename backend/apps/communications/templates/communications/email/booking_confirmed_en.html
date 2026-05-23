@@ -1,0 +1,10 @@
+<p>Dear {{ booker_name }},</p>
+<p>Your reservation is <strong>confirmed</strong>.</p>
+<ul>
+  <li>Booking code: <strong>{{ booking_code }}</strong></li>
+  <li>Property: {{ property_name }}</li>
+  {% if room_label %}<li>Room: {{ room_label }}</li>{% endif %}
+  <li>Check-in: {{ check_in }}</li>
+  <li>Check-out: {{ check_out }}</li>
+</ul>
+<p>We look forward to welcoming you!</p>

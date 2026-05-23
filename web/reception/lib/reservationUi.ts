@@ -6,6 +6,7 @@ export const statusClass: Record<string, string> = {
   checked_out: "badge-checked_out",
   canceled: "badge-canceled",
   pending: "badge-expected",
+  refused: "badge-canceled",
 };
 
 export const statusBarClass: Record<string, string> = {
@@ -14,6 +15,7 @@ export const statusBarClass: Record<string, string> = {
   checked_out: "bg-slate-200 border-slate-400 text-slate-800",
   canceled: "bg-red-100 border-red-300 text-red-900",
   pending: "bg-amber-200 border-amber-400 text-amber-950",
+  refused: "bg-red-100 border-red-300 text-red-900",
 };
 
 export function reservationStatusClass(status: string): string {

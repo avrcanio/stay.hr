@@ -3,6 +3,7 @@ import secrets
 from rest_framework import serializers
 
 from apps.properties.models import Property, Unit, UnitBed, UnitBathroom
+from apps.reservations.availability import validate_unit_available_for_booking
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.tenants.models import Tenant
 
@@ -130,6 +131,16 @@ class GuestInputSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=32, required=False, allow_blank=True)
 
 
+class PublicReservationStatusSerializer(serializers.Serializer):
+    booking_code = serializers.CharField()
+    status = serializers.CharField()
+    check_in = serializers.DateField()
+    check_out = serializers.DateField()
+    property_slug = serializers.CharField()
+    unit_code = serializers.CharField()
+    booker_name = serializers.CharField()
+
+
 class PublicReservationCreateSerializer(serializers.Serializer):
     property_slug = serializers.SlugField()
     unit_id = serializers.IntegerField()
@@ -172,6 +183,16 @@ class PublicReservationCreateSerializer(serializers.Serializer):
         )
         if unit is None:
             raise serializers.ValidationError({"unit_id": "Unit not found for this property."})
+
+        try:
+            validate_unit_available_for_booking(
+                tenant,
+                unit,
+                attrs["check_in"],
+                attrs["check_out"],
+            )
+        except ValueError as exc:
+            raise serializers.ValidationError({"unit_id": str(exc)}) from exc
 
         attrs["property"] = prop
         attrs["unit"] = unit

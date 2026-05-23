@@ -10,6 +10,7 @@ from apps.api.views import (
     PublicAvailabilityView,
     PublicPropertiesView,
     PublicReservationCreateView,
+    PublicReservationStatusView,
     PublicUnitsView,
 )
 from apps.api.site_context_views import SiteContextView
@@ -40,5 +41,10 @@ urlpatterns = [
         "public/reservations",
         PublicReservationCreateView.as_view(),
         name="public-reservations",
+    ),
+    path(
+        "public/reservations/<str:booking_code>",
+        PublicReservationStatusView.as_view(),
+        name="public-reservation-status",
     ),
 ]

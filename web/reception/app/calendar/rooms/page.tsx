@@ -156,8 +156,11 @@ export default function RoomCalendarPage() {
             <RoomCalendarDayDetail
               selection={selection}
               room={selectedRoom}
+              rooms={rooms}
               reservations={selectedReservations}
+              byRoom={byRoom}
               blocks={blocks}
+              onChanged={load}
             />
           </>
         ) : null}

@@ -1,0 +1,10 @@
+<p>Poštovani {{ booker_name }},</p>
+<p>Nažalost, nismo mogli potvrditi Vašu rezervaciju za tražene datume.</p>
+<ul>
+  <li>Kod zahtjeva: {{ booking_code }}</li>
+  <li>Objekt: {{ property_name }}</li>
+  {% if room_label %}<li>Soba: {{ room_label }}</li>{% endif %}
+  <li>Dolazak: {{ check_in }}</li>
+  <li>Odlazak: {{ check_out }}</li>
+</ul>
+<p>Termin više nije dostupan. Molimo odaberite druge datume ili nas kontaktirajte.</p>

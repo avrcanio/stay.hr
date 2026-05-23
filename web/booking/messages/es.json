@@ -37,7 +37,15 @@
     "failed": "La reserva no se completó."
   },
   "confirmation": {
-    "title": "Reserva recibida",
+    "titlePending": "Solicitud recibida",
+    "titleConfirmed": "Reserva confirmada",
+    "titleRefused": "Reserva no disponible",
+    "subtitlePending": "Estamos comprobando la disponibilidad. Suele tardar unos segundos.",
+    "subtitlePendingSlow": "El procesamiento tarda más de lo habitual. Revise su correo.",
+    "subtitleConfirmed": "Se ha enviado una confirmación a su email.",
+    "subtitleRefused": "Las fechas ya no están disponibles. Le hemos enviado un email.",
+    "processing": "Procesando su reserva…",
+    "lookupFailed": "El estado de la reserva no está disponible.",
     "codeLabel": "Número de reserva:",
     "backHome": "Volver al inicio"
   },

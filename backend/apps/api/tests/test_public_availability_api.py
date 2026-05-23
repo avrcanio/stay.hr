@@ -122,3 +122,25 @@ class PublicAvailabilityAPITests(TestCase):
 
         response = self._availability("2026-05-27", "2026-05-28")
         self.assertEqual(self._unit_blocks(response, self.unit_r1.id), [])
+
+    def test_pending_reservation_does_not_block(self):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            booking_code="PENDING1",
+            check_in=date(2026, 5, 27),
+            check_out=date(2026, 5, 31),
+            status=Reservation.Status.PENDING,
+            booker_name="Guest",
+            source="api",
+        )
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            unit=self.unit_r1,
+            sort_order=0,
+            room_name="R1",
+        )
+
+        response = self._availability("2026-05-27", "2026-05-28")
+        self.assertEqual(self._unit_blocks(response, self.unit_r1.id), [])

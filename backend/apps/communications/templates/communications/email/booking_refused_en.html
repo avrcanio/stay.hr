@@ -1,0 +1,10 @@
+<p>Dear {{ booker_name }},</p>
+<p>Unfortunately we could not confirm your reservation for the selected dates.</p>
+<ul>
+  <li>Request code: {{ booking_code }}</li>
+  <li>Property: {{ property_name }}</li>
+  {% if room_label %}<li>Room: {{ room_label }}</li>{% endif %}
+  <li>Check-in: {{ check_in }}</li>
+  <li>Check-out: {{ check_out }}</li>
+</ul>
+<p>Those dates are no longer available. Please choose different dates or contact us.</p>

@@ -41,7 +41,15 @@
     "failed": "Rezervacija nije uspjela."
   },
   "confirmation": {
-    "title": "Rezervacija zaprimljena",
+    "titlePending": "Zahtjev zaprimljen",
+    "titleConfirmed": "Rezervacija potvrđena",
+    "titleRefused": "Rezervacija nije moguća",
+    "subtitlePending": "Provjeravamo dostupnost termina. Ovo obično traje nekoliko sekundi.",
+    "subtitlePendingSlow": "Obrada traje duže nego obično. Provjerite email ili kontaktirajte nas.",
+    "subtitleConfirmed": "Potvrda je poslana na Vašu email adresu.",
+    "subtitleRefused": "Nažalost, termin više nije dostupan. Obavijest je poslana na email.",
+    "processing": "Obrađujemo rezervaciju…",
+    "lookupFailed": "Status rezervacije trenutno nije dostupan.",
     "codeLabel": "Broj rezervacije:",
     "backHome": "Natrag na početnu"
   },

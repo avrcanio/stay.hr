@@ -8,6 +8,7 @@ from rest_framework.exceptions import NotFound
 from apps.api.reception_serializers import payment_status_key
 from apps.api.reception_views import ReceptionReadView
 from apps.properties.models import Unit
+from apps.reservations.availability import CALENDAR_RESERVATION_STATUSES
 from apps.reservations.models import Reservation, ReservationUnit
 from apps.reservations.reservation_units import joined_room_names
 
@@ -116,9 +117,13 @@ class UnitCalendarView(ReceptionReadView, generics.ListAPIView):
         if not Unit.objects.for_tenant(tenant).filter(pk=room_id).exists():
             raise NotFound("Soba nije pronađena.")
 
+        status_filter = set(CALENDAR_RESERVATION_STATUSES)
+        if self._include_canceled():
+            status_filter.add(Reservation.Status.CANCELED)
+
         qs = (
             Reservation.objects.for_tenant(tenant)
-            .filter(units__unit_id=room_id)
+            .filter(units__unit_id=room_id, status__in=status_filter)
             .annotate(guests_count=Count("guests", distinct=True))
             .distinct()
             .prefetch_related(
@@ -132,8 +137,6 @@ class UnitCalendarView(ReceptionReadView, generics.ListAPIView):
             )
             .order_by("check_in", "id")
         )
-        if not self._include_canceled():
-            qs = qs.exclude(status=Reservation.Status.CANCELED)
 
         from_raw = (self.request.query_params.get("from") or "").strip()
         to_raw = (self.request.query_params.get("to") or "").strip()

@@ -37,7 +37,15 @@
     "failed": "Buchung fehlgeschlagen."
   },
   "confirmation": {
-    "title": "Buchung eingegangen",
+    "titlePending": "Anfrage eingegangen",
+    "titleConfirmed": "Buchung bestätigt",
+    "titleRefused": "Buchung nicht möglich",
+    "subtitlePending": "Wir prüfen die Verfügbarkeit. Das dauert meist wenige Sekunden.",
+    "subtitlePendingSlow": "Die Bearbeitung dauert länger als üblich. Prüfen Sie Ihre E-Mail.",
+    "subtitleConfirmed": "Eine Bestätigung wurde an Ihre E-Mail gesendet.",
+    "subtitleRefused": "Leider sind die Daten nicht mehr verfügbar. Wir haben Ihnen eine E-Mail gesendet.",
+    "processing": "Buchung wird bearbeitet…",
+    "lookupFailed": "Buchungsstatus ist derzeit nicht verfügbar.",
     "codeLabel": "Buchungsnummer:",
     "backHome": "Zurück zur Startseite"
   },

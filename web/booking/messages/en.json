@@ -41,7 +41,15 @@
     "failed": "Booking failed."
   },
   "confirmation": {
-    "title": "Booking received",
+    "titlePending": "Request received",
+    "titleConfirmed": "Booking confirmed",
+    "titleRefused": "Booking unavailable",
+    "subtitlePending": "We are checking availability. This usually takes a few seconds.",
+    "subtitlePendingSlow": "Processing is taking longer than usual. Check your email or contact us.",
+    "subtitleConfirmed": "A confirmation has been sent to your email address.",
+    "subtitleRefused": "Unfortunately those dates are no longer available. We sent you an email.",
+    "processing": "Processing your booking…",
+    "lookupFailed": "Booking status is unavailable right now.",
     "codeLabel": "Booking number:",
     "backHome": "Back to home"
   },

@@ -5,6 +5,7 @@ import logging
 from celery import shared_task
 
 from apps.integrations.smoobu.booking_service import sync_smoobu_reservations
+from apps.integrations.smoobu.error_classification import is_smoobu_block_conflict
 from apps.integrations.smoobu.exceptions import (
     SmoobuApiError,
     SmoobuBookingIngestError,
@@ -16,12 +17,23 @@ from apps.integrations.smoobu.reservation_blocking_service import (
     sync_reservation_smoobu_blocks,
 )
 from apps.integrations.smoobu.resolver import get_active_smoobu_integration
+from apps.reservations.booking_lifecycle import (
+    confirm_web_booking,
+    is_web_pending_booking,
+    refuse_web_booking,
+)
 from apps.reservations.models import Reservation
 from apps.tenants.models import Tenant
 
 logger = logging.getLogger(__name__)
 
 UZORITA_TENANT_ID = 2
+
+
+def _sync_result_has_blocks(result: dict) -> bool:
+    if result.get("skipped"):
+        return False
+    return bool(result.get("created") or result.get("skipped_units"))
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
@@ -65,23 +77,42 @@ def sync_reservation_smoobu_blocks_task(
         )
         return {"skipped": True, "reason": "not_found", "reservation_id": reservation_id}
 
+    web_pending = is_web_pending_booking(reservation)
+
     try:
         if action == "remove":
             result = remove_reservation_smoobu_blocks(reservation)
         else:
             result = sync_reservation_smoobu_blocks(reservation)
+            if web_pending and _sync_result_has_blocks(result):
+                confirm_web_booking(reservation_id)
+
         logger.info(
             "smoobu reservation block task completed",
             extra={"reservation_id": reservation_id, "action": action, "result": result},
         )
         return result
     except (SmoobuConfigError, SmoobuRatesError) as exc:
+        if web_pending and is_smoobu_block_conflict(exc):
+            refuse_web_booking(reservation_id, reason=str(exc))
+            return {
+                "refused": True,
+                "reason": str(exc),
+                "reservation_id": reservation_id,
+            }
         logger.warning(
             "smoobu reservation block skipped",
             extra={"reservation_id": reservation_id, "action": action, "reason": str(exc)},
         )
         return {"skipped": True, "reason": str(exc), "reservation_id": reservation_id}
     except SmoobuApiError as exc:
+        if web_pending and is_smoobu_block_conflict(exc):
+            refuse_web_booking(reservation_id, reason=str(exc))
+            return {
+                "refused": True,
+                "reason": str(exc),
+                "reservation_id": reservation_id,
+            }
         logger.warning(
             "smoobu reservation block api error",
             extra={"reservation_id": reservation_id, "action": action, "error": str(exc)},

@@ -10,6 +10,7 @@ const statusKeys: Record<ReservationStatus, string> = {
   checked_out: "statusCheckedOut",
   canceled: "statusCanceled",
   pending: "statusPending",
+  refused: "statusRefused",
 };
 
 export function useReservationStatusLabel() {

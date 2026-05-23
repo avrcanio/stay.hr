@@ -12,6 +12,12 @@ def reservation_created_notify(sender, instance: Reservation, created: bool, **k
     if instance.status == Reservation.Status.CANCELED:
         return
 
+    from apps.reservations.booking_lifecycle import is_web_pending_booking
+
+    # Web bookings: push after Smoobu confirms (see booking_lifecycle.confirm_web_booking).
+    if is_web_pending_booking(instance):
+        return
+
     from apps.core.tasks import notify_new_reservation
 
     notify_new_reservation.delay(instance.pk)

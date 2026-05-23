@@ -35,6 +35,8 @@ class TenantReceptionSettingsInline(admin.StackedInline):
         "auto_checkout_enabled",
         "auto_checkout_time",
         "auto_checkout_last_run_date",
+        "guest_contact_email",
+        "guest_contact_name",
         "updated_at",
     )
 

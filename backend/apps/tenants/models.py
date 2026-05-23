@@ -68,6 +68,15 @@ class TenantReceptionSettings(models.Model):
     auto_checkout_enabled = models.BooleanField(default=False)
     auto_checkout_time = models.TimeField(default=time(10, 0))
     auto_checkout_last_run_date = models.DateField(null=True, blank=True)
+    guest_contact_email = models.EmailField(
+        blank=True,
+        help_text="From/Reply-To address for guest booking confirmation and refusal emails.",
+    )
+    guest_contact_name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Display name for guest emails (e.g. property name).",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

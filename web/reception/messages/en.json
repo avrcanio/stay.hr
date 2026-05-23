@@ -60,7 +60,20 @@
     "clickDayHint": "Click a day in the calendar for room details.",
     "noItemsForDay": "No reservations or blocks for the selected day.",
     "blockTitle": "Block · {checkIn} → {checkOut} · {source}",
-    "roomDayAria": "{code}, {date}"
+    "roomDayAria": "{code}, {date}",
+    "blockUnitTitle": "Block unit",
+    "blockCheckIn": "Check-in",
+    "blockCheckOut": "Check-out",
+    "blockSubmit": "Block",
+    "unblock": "Unblock",
+    "unblockConfirm": "Unblock {unit}?",
+    "unblocking": "Unblocking {unit}…",
+    "blockConfirm": "Block from {from} to {to}?",
+    "blockingProgress": "Blocking {unit} ({current}/{total})…",
+    "blockActionFailed": "Block action failed.",
+    "blockPartialFailed": "Partial failure: {units}",
+    "blockRangeUnavailable": "Selected range is not free for all units.",
+    "noFreeUnits": "No free units for this night."
   },
   "reservation": {
     "notFound": "Reservation not found",
@@ -78,7 +91,13 @@
     "statusCheckedIn": "Checked in",
     "statusCheckedOut": "Checked out",
     "statusCanceled": "Canceled",
-    "statusPending": "Pending"
+    "statusPending": "Pending",
+    "statusRefused": "Refused",
+    "cancel": "Cancel reservation",
+    "cancelConfirm": "Cancel this reservation?",
+    "cancelFailed": "Cancellation failed.",
+    "cancelSuccess": "Reservation canceled.",
+    "actionsHint": "Cancel web bookings here; other changes on the tablet (Hospira)."
   },
   "guest": {
     "primary": "primary",

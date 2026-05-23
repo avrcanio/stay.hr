@@ -65,3 +65,13 @@ export type ReservationCreateResponse = {
   check_out: string;
   property_slug: string;
 };
+
+export type ReservationStatusResponse = {
+  booking_code: string;
+  status: string;
+  check_in: string;
+  check_out: string;
+  property_slug: string;
+  unit_code: string;
+  booker_name: string;
+};

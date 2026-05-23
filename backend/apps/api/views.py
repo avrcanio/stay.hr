@@ -1,6 +1,7 @@
 from datetime import date
 
 from rest_framework import status
+from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -13,19 +14,13 @@ from apps.api.serializers import (
     AppConfigSerializer,
     PublicPropertySerializer,
     PublicReservationCreateSerializer,
+    PublicReservationStatusSerializer,
     PublicUnitSerializer,
 )
 from apps.integrations.models import UnitAvailabilityBlock
 from apps.properties.models import Property, Unit, UnitBed, UnitBathroom
+from apps.reservations.availability import BLOCKING_RESERVATION_STATUSES
 from apps.reservations.models import Reservation, ReservationUnit
-
-BLOCKING_RESERVATION_STATUSES = frozenset(
-    {
-        Reservation.Status.PENDING,
-        Reservation.Status.EXPECTED,
-        Reservation.Status.CHECKED_IN,
-    }
-)
 
 
 class TenantAPIView(APIView):
@@ -229,3 +224,42 @@ class PublicReservationCreateView(TenantAPIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class PublicReservationStatusView(TenantAPIView):
+    required_scopes = ["public:read"]
+    permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
+
+    def get(self, request, booking_code: str):
+        code = (booking_code or "").strip().upper()
+        if not code:
+            raise NotFound("Reservation not found.")
+
+        reservation = (
+            Reservation.objects.for_tenant(request.tenant)
+            .filter(booking_code__iexact=code)
+            .select_related("property")
+            .prefetch_related("units__unit")
+            .first()
+        )
+        if reservation is None:
+            raise NotFound("Reservation not found.")
+
+        unit = reservation.units.first()
+        unit_code = ""
+        if unit is not None:
+            if unit.unit_id and unit.unit:
+                unit_code = unit.unit.code
+            else:
+                unit_code = unit.room_name or ""
+
+        payload = {
+            "booking_code": reservation.booking_code,
+            "status": reservation.status,
+            "check_in": reservation.check_in,
+            "check_out": reservation.check_out,
+            "property_slug": reservation.property.slug,
+            "unit_code": unit_code,
+            "booker_name": reservation.booker_name,
+        }
+        return Response(PublicReservationStatusSerializer(payload).data)

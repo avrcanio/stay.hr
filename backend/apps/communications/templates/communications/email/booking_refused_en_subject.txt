@@ -1,0 +1,1 @@
+Reservation unavailable — {{ property_name }}

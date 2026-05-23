@@ -118,6 +118,7 @@ export default function TimelinePage() {
             <select className="input mt-1 w-auto" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="">{t("statusAll")}</option>
               <option value="expected">{tr("statusExpected")}</option>
+              <option value="pending">{tr("statusPending")}</option>
               <option value="checked_in">{tr("statusCheckedIn")}</option>
               <option value="checked_out">{tr("statusCheckedOut")}</option>
               <option value="canceled">{tr("statusCanceled")}</option>

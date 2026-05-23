@@ -11,6 +11,7 @@ class Reservation(TenantScopedModel):
         CHECKED_IN = "checked_in", "Checked in"
         CHECKED_OUT = "checked_out", "Checked out"
         CANCELED = "canceled", "Canceled"
+        REFUSED = "refused", "Refused"
 
     OPERATIONAL_STATUSES = frozenset(
         {Status.EXPECTED, Status.CHECKED_IN, Status.CHECKED_OUT, Status.CANCELED}

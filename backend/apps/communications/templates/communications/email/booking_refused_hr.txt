@@ -1,0 +1,11 @@
+Poštovani {{ booker_name }},
+
+Nažalost, nismo mogli potvrditi Vašu rezervaciju za tražene datume.
+
+Kod zahtjeva: {{ booking_code }}
+Objekt: {{ property_name }}
+{% if room_label %}Soba: {{ room_label }}
+{% endif %}Dolazak: {{ check_in }}
+Odlazak: {{ check_out }}
+
+Termin više nije dostupan. Molimo odaberite druge datume ili nas kontaktirajte.

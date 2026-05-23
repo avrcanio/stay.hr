@@ -37,7 +37,15 @@
     "failed": "La réservation a échoué."
   },
   "confirmation": {
-    "title": "Réservation reçue",
+    "titlePending": "Demande reçue",
+    "titleConfirmed": "Réservation confirmée",
+    "titleRefused": "Réservation indisponible",
+    "subtitlePending": "Nous vérifions la disponibilité. Cela prend généralement quelques secondes.",
+    "subtitlePendingSlow": "Le traitement prend plus de temps que d'habitude. Vérifiez votre email.",
+    "subtitleConfirmed": "Une confirmation a été envoyée à votre adresse email.",
+    "subtitleRefused": "Les dates ne sont plus disponibles. Nous vous avons envoyé un email.",
+    "processing": "Traitement de votre réservation…",
+    "lookupFailed": "Le statut de la réservation est indisponible.",
     "codeLabel": "Numéro de réservation :",
     "backHome": "Retour à l'accueil"
   },
