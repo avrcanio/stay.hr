@@ -7,32 +7,72 @@ Operativne upute za domene web frontenda Stay.hr platforme.
 
 ---
 
-## Tri sloja
+## Tri sloja + internal mreža
 
 | Sloj | Tko konfigurira | Što radi |
 |------|-----------------|----------|
 | **Cloudflare DNS** | Django backend (admin / management command) | A/CNAME zapisi, proxied → Hetzner IP |
 | **Traefik** | `docker-compose.yml` labele (jednokratno + custom hostovi) | TLS (ACME DNS-01) + routing po `Host` |
 | **Django `TenantDomain`** | Admin (`admin.stay.hr`) | Koji `Host` = koji tenant + property (booking kontekst) |
+| **Docker `stay_internal`** | `docker-compose.yml` | Backend-to-backend (`stay_django:8000`) bez hairpin NAT-a |
 
 Token **`CF_DNS_API_TOKEN`** — isti kao u `/opt/stacks/traefik/.env` (Traefik cert resolver + Django DNS upsert).
+
+### Docker mreže
+
+```mermaid
+flowchart TB
+  Internet --> CF[Cloudflare_DNS]
+  CF --> Traefik
+  subgraph proxyNet [proxy_external]
+    Traefik
+    WebBooking[stay_web_booking]
+    WebReception[stay_web_reception]
+    DjangoEdge[stay_django]
+  end
+  subgraph stayInternal [stay_internal]
+    WebBooking
+    WebReception
+    DjangoEdge
+    CeleryWorker
+    CeleryBeat
+  end
+  Traefik --> WebBooking
+  Traefik --> WebReception
+  Traefik --> DjangoEdge
+  WebBooking -->|"http://stay_django:8000 + Host header"| DjangoEdge
+  WebReception -->|"http://stay_django:8000 + Host header"| DjangoEdge
+```
+
+| Servis | `proxy` | `stay_internal` | `postgis` | `hetzner_net` |
+|--------|---------|-----------------|-----------|---------------|
+| `django` | da | da | da | da |
+| `celery-worker` | ne | da | da | da |
+| `celery-beat` | ne | da | da | da |
+| `web-booking` | da | da | — | — |
+| `web-reception` | da | da | — | — |
+
+Web SSR/API proxy mora **prosljeđivati originalni `Host`** (npr. `booking.uzorita.hr`) da `TenantHostMiddleware` i `site-context` rade ispravno.
 
 ---
 
 ## Preduvjeti
 
 1. Traefik stack na `/opt/stacks/traefik`, mreža `proxy`
-2. U Django `.env` na serveru ( `/opt/stacks/stay.hr/.env` ):
+2. Mreža `stay_internal` (compose je kreira automatski; ili `docker network create stay_internal`)
+3. U Django `.env` na serveru ( `/opt/stacks/stay.hr/.env` ):
 
 ```env
 CF_DNS_API_TOKEN=...          # Cloudflare API token (Zone DNS Edit)
 STAY_SERVER_IP=...            # Javni IP Hetzner servera (proxied A record)
 CLOUDFLARE_ZONE_STAY=stay.hr  # Zona za *.stay.hr subdomene
+STAY_API_INTERNAL_URL=http://stay_django:8000
+STAY_PUBLIC_API_URL=https://api.stay.hr
 ```
 
-3. Web frontend containeri (`web/reception`, `web/booking`) deployani s Traefik labelama (kad budu u produkciji)
+4. Web frontend containeri (`web/booking`, `web/reception`) deployani s Traefik labelama
 
-> **Napomena:** Management command `provision_platform_dns` i admin akcija **Provision DNS** planirani su u backendu (faza web frontenda). Dok nisu deployani, za `api.stay.hr` / `admin.stay.hr` koristi postojeću skriptu `./scripts/cloudflare_dns_upsert.sh` (vidi README).
+Za legacy bootstrap `api.stay.hr` / `admin.stay.hr` i dalje je dostupna skripta `./scripts/cloudflare_dns_upsert.sh`.
 
 ---
 
@@ -56,15 +96,14 @@ Očekivani zapisi u zoni `stay.hr` (proxied A → `STAY_SERVER_IP`):
 
 API i admin (`api.stay.hr`, `admin.stay.hr`) već postoje — ne dirati osim provjere.
 
-**Interim (prije `provision_platform_dns`):** ručno u Cloudflare dashboardu ili proširi `STAY_DNS_HOSTS` u `scripts/.env` i pokreni `./scripts/cloudflare_dns_upsert.sh`.
-
 ### 2. Traefik (docker-compose)
 
-U `docker-compose.yml` web servisa — jednokratno:
+U `docker-compose.yml` web servisa — jednokratno (već u repou):
 
-- `Host(\`app.stay.hr\`)` → `stay-web-reception`
-- `HostRegexp(\`^[a-z0-9-]+\\.stay\\.hr$\`)` → `stay-web-booking`
-- `tls.certresolver=cloudflare` na oba routera
+- `Host(\`app.stay.hr\`)` → `stay-web-reception` (prioritet 100)
+- `HostRegexp(\`^[a-z0-9-]+\\.stay\\.hr$\`)` → `stay-web-booking` (prioritet 50)
+- `tls.certresolver=cloudflare` na routerima
+- Custom domene: eksplicitni `Host()` routeri (npr. `booking.uzorita.hr`)
 
 Zatim:
 
@@ -104,6 +143,7 @@ Wildcard DNS i Traefik `HostRegexp` već pokrivaju routing — **nema novih Trae
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' https://demo.stay.hr/
+curl -sS -H "Host: demo.stay.hr" http://stay_django:8000/api/v1/public/site-context/
 ```
 
 4. Postavi `is_verified=True` u adminu
@@ -135,7 +175,7 @@ Wildcard `*.stay.hr` **ne pokriva** vanjsku domenu — treba i DNS i Traefik `Ho
 2. Admin akcija **Provision DNS**  
    Backend upsert-a zapis u zoni `uzorita.hr` (mora biti u istom Cloudflare accountu kao token).
 
-3. **Traefik** — dodaj label u `docker-compose.yml` booking servisa:
+3. **Traefik** — label u `docker-compose.yml` booking servisa (Uzorita MVP):
 
 ```yaml
 - traefik.http.routers.stay-booking-uzorita.rule=Host(`booking.uzorita.hr`)
@@ -154,7 +194,7 @@ docker compose up -d
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' https://booking.uzorita.hr/
-curl -sS -H "Host: booking.uzorita.hr" https://api.stay.hr/api/v1/public/site-context/
+curl -sS -H "Host: booking.uzorita.hr" http://stay_django:8000/api/v1/public/site-context/
 ```
 
 5. `is_verified=True` u adminu
@@ -167,6 +207,26 @@ curl -sS -H "Host: booking.uzorita.hr" https://api.stay.hr/api/v1/public/site-co
 - Nema javnog bookiranja; auth = device token (kao Hospira tablet)
 - DNS: uključen u `provision_platform_dns`
 - Traefik: `Host(\`app.stay.hr\`)` → reception container
+
+---
+
+## E) Uzorita go-live (automatski rollout)
+
+Management command za seed + DNS + provjere:
+
+```bash
+cd /opt/stacks/stay.hr
+docker compose run --rm django python manage.py rollout_uzorita_domains
+```
+
+Command:
+
+1. Upsert-a `TenantDomain` zapise (`uzorita.stay.hr`, `booking.uzorita.hr`)
+2. Pokreće `provision_platform_dns` + **Provision DNS** po domenu
+3. Curl provjere (javni hostovi + internal `site-context`)
+4. Postavlja `is_verified=True` ako sve prođe
+
+Opcije: `--skip-dns`, `--skip-verify`, `--dry-run`.
 
 ---
 
@@ -186,11 +246,11 @@ git pull
 
 ### Redoslijed pri prvom web go-live
 
-1. `git pull` + `./scripts/deploy.sh` (backend s domain routing + Cloudflare modulom)
+1. `git pull` + `./scripts/deploy.sh` (backend + mreže + web imagei)
 2. `provision_platform_dns` (jednokratno)
-3. Deploy web frontend servisa (`docker compose up -d`)
-4. Admin: TenantDomain zapisi + **Provision DNS** po objektu
-5. Traefik `Host()` labele za custom domene izvan `*.stay.hr`
+3. `docker compose up -d` (web servisi + Traefik labele)
+4. Admin: TenantDomain zapisi + **Provision DNS** po objektu (ili `rollout_uzorita_domains`)
+5. Traefik `Host()` labele za custom domene izvan `*.stay.hr` (Uzorita već u compose-u)
 6. Provjera curl + `is_verified=True`
 
 ---
@@ -206,7 +266,7 @@ git pull
 | 5 | Traefik `Host(booking.uzorita.hr)` | |
 | 6 | `https://booking.uzorita.hr/` radi | |
 | 7 | `https://uzorita.stay.hr/p/uzorita/` radi | |
-| 8 | `https://app.stay.hr/` recepcija (kad je deployana) | |
+| 8 | `https://app.stay.hr/` recepcija | |
 
 ---
 
@@ -220,6 +280,7 @@ git pull
 | Booking prikazuje krivi objekt | `TenantDomain.property` FK; `site-context` s `Host` headerom |
 | `404` na custom domeni | Nedostaje Traefik `Host()` label za tu domenu |
 | Admin `is_verified` blokira | U produkciji middleware filtrira neverified domene — postavi verified nakon provjere |
+| Web ne vidi tenant | Prosljeđuje li edge `Host` header na `STAY_API_INTERNAL_URL`? |
 
 ---
 

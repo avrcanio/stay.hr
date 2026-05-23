@@ -12,10 +12,14 @@ class TenantHostMiddleware:
     def __call__(self, request):
         if getattr(request, "tenant", None) is None:
             host = request.get_host().split(":")[0].lower()
-            domains = TenantDomain.objects.select_related("tenant").filter(domain=host)
+            domains = TenantDomain.objects.select_related(
+                "tenant",
+                "property",
+            ).filter(domain=host)
             if not settings.DEBUG:
                 domains = domains.filter(is_verified=True)
             domain = domains.first()
             if domain is not None:
                 request.tenant = domain.tenant
+                request.tenant_domain = domain
         return self.get_response(request)

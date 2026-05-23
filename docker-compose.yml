@@ -12,6 +12,7 @@ services:
     networks:
       - postgis
       - proxy
+      - stay_internal
       - hetzner_net
     labels:
       - traefik.enable=true
@@ -22,19 +23,15 @@ services:
       - traefik.http.routers.stay-api.tls=true
       - traefik.http.routers.stay-api.tls.certresolver=cloudflare
       - traefik.http.routers.stay-api.service=stay-django
+      - traefik.http.routers.stay-api.priority=100
       # Admin (same backend)
       - traefik.http.routers.stay-admin.rule=Host(`admin.stay.hr`)
       - traefik.http.routers.stay-admin.entrypoints=websecure
       - traefik.http.routers.stay-admin.tls=true
       - traefik.http.routers.stay-admin.tls.certresolver=cloudflare
       - traefik.http.routers.stay-admin.service=stay-django
+      - traefik.http.routers.stay-admin.priority=100
       - traefik.http.services.stay-django.loadbalancer.server.port=8000
-      # Future tenant subdomains (*.stay.hr) — enable when DNS wildcard is ready:
-      # - traefik.http.routers.stay-tenant.rule=HostRegexp(`^[a-z0-9-]+\.stay\.hr$`)
-      # - traefik.http.routers.stay-tenant.entrypoints=websecure
-      # - traefik.http.routers.stay-tenant.tls=true
-      # - traefik.http.routers.stay-tenant.tls.certresolver=cloudflare
-      # - traefik.http.routers.stay-tenant.service=stay-django
 
   celery-worker:
     build: .
@@ -48,6 +45,7 @@ services:
       - ./hospira-fc0dc-f77596470912.json:/run/secrets/firebase-service-account.json:ro
     networks:
       - postgis
+      - stay_internal
       - hetzner_net
     command: ["celery", "-A", "config", "worker", "-l", "info"]
 
@@ -62,10 +60,67 @@ services:
       - ./hospira-fc0dc-f77596470912.json:/run/secrets/firebase-service-account.json:ro
     networks:
       - postgis
+      - stay_internal
       - hetzner_net
     command: ["celery", "-A", "config", "beat", "-l", "info"]
 
+  web-booking:
+    build:
+      context: ./web/booking
+    image: stay-hr-web-booking:latest
+    container_name: stay_web_booking
+    restart: unless-stopped
+    environment:
+      STAY_API_INTERNAL_URL: http://stay_django:8000
+      STAY_WEB_APP: booking
+      PORT: "3000"
+    networks:
+      - proxy
+      - stay_internal
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.services.stay-web-booking.loadbalancer.server.port=3000
+      - traefik.http.routers.stay-booking-tenant.rule=HostRegexp(`^[a-z0-9-]+\.stay\.hr$`)
+      - traefik.http.routers.stay-booking-tenant.entrypoints=websecure
+      - traefik.http.routers.stay-booking-tenant.tls=true
+      - traefik.http.routers.stay-booking-tenant.tls.certresolver=cloudflare
+      - traefik.http.routers.stay-booking-tenant.service=stay-web-booking
+      - traefik.http.routers.stay-booking-tenant.priority=50
+      - traefik.http.routers.stay-booking-uzorita.rule=Host(`booking.uzorita.hr`)
+      - traefik.http.routers.stay-booking-uzorita.entrypoints=websecure
+      - traefik.http.routers.stay-booking-uzorita.tls=true
+      - traefik.http.routers.stay-booking-uzorita.tls.certresolver=cloudflare
+      - traefik.http.routers.stay-booking-uzorita.service=stay-web-booking
+
+  web-reception:
+    build:
+      context: ./web/reception
+    image: stay-hr-web-reception:latest
+    container_name: stay_web_reception
+    restart: unless-stopped
+    environment:
+      STAY_API_INTERNAL_URL: http://stay_django:8000
+      STAY_WEB_APP: reception
+      PORT: "3000"
+    networks:
+      - proxy
+      - stay_internal
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.services.stay-web-reception.loadbalancer.server.port=3000
+      - traefik.http.routers.stay-reception.rule=Host(`app.stay.hr`)
+      - traefik.http.routers.stay-reception.entrypoints=websecure
+      - traefik.http.routers.stay-reception.tls=true
+      - traefik.http.routers.stay-reception.tls.certresolver=cloudflare
+      - traefik.http.routers.stay-reception.service=stay-web-reception
+      - traefik.http.routers.stay-reception.priority=100
+
 networks:
+  stay_internal:
+    name: stay_internal
+    driver: bridge
   postgis:
     external: true
   proxy:

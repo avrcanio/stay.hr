@@ -6,6 +6,9 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
 from apps.core.admin import SuperuserOnlyAdminMixin, TenantScopedAdminMixin
+from apps.core.admin import SuperuserOnlyAdminMixin, TenantScopedAdminMixin
+from apps.tenants.cloudflare.client import CloudflareAPIError
+from apps.tenants.cloudflare.dns import provision_tenant_domain_dns
 from apps.tenants.models import (
     VALID_SCOPES,
     ApiApplication,
@@ -21,6 +24,7 @@ User = get_user_model()
 class TenantDomainInline(admin.TabularInline):
     model = TenantDomain
     extra = 0
+    raw_id_fields = ("property",)
 
 
 class TenantReceptionSettingsInline(admin.StackedInline):
@@ -59,12 +63,48 @@ class TenantAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     inlines = [TenantDomainInline, TenantReceptionSettingsInline]
 
 
+@admin.action(description="Provision DNS in Cloudflare")
+def provision_tenant_domain_dns_action(modeladmin, request, queryset):
+    success = 0
+    for tenant_domain in queryset:
+        try:
+            message = provision_tenant_domain_dns(tenant_domain)
+        except CloudflareAPIError as exc:
+            modeladmin.message_user(
+                request,
+                f"{tenant_domain.domain}: {exc}",
+                level=messages.ERROR,
+            )
+            continue
+        modeladmin.message_user(
+            request,
+            f"{tenant_domain.domain}: {message}",
+            level=messages.SUCCESS,
+        )
+        success += 1
+
+    if success == 0 and queryset.exists():
+        modeladmin.message_user(
+            request,
+            "No DNS records were provisioned.",
+            level=messages.WARNING,
+        )
+
+
 @admin.register(TenantDomain)
 class TenantDomainAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
-    list_display = ("domain", "tenant", "domain_type", "is_primary", "is_verified")
+    list_display = (
+        "domain",
+        "tenant",
+        "property",
+        "domain_type",
+        "is_primary",
+        "is_verified",
+    )
     list_filter = ("domain_type", "is_primary", "is_verified")
-    search_fields = ("domain", "tenant__name", "tenant__slug")
-    raw_id_fields = ("tenant",)
+    search_fields = ("domain", "tenant__name", "tenant__slug", "property__name")
+    raw_id_fields = ("tenant", "property")
+    actions = [provision_tenant_domain_dns_action]
 
 
 class ApiApplicationAdminForm(forms.ModelForm):

@@ -86,6 +86,13 @@ class TenantDomain(models.Model):
         on_delete=models.CASCADE,
         related_name="domains",
     )
+    property = models.ForeignKey(
+        "properties.Property",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tenant_domains",
+    )
     domain = models.CharField(max_length=255, unique=True)
     domain_type = models.CharField(max_length=20, choices=DomainType.choices)
     is_primary = models.BooleanField(default=False)
