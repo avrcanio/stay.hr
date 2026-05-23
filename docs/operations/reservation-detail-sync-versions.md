@@ -34,10 +34,31 @@ git pull
 
 `deploy.sh`:
 
-- rebuild-a Django image ako ima novih migracija (ovdje **nema** → obično samo `docker compose restart`)
+- **rebuild-a Django image** ako su se promijenile migracije **ili backend Python kod** (`backend/**/*.py`, `requirements.txt`, `Dockerfile`) od zadnjeg builda
+- inače samo `docker compose restart`
 - pokreće `python manage.py check`
 
+**Važno:** samo `docker compose restart` **ne** deploya code-only promjene — kod je u Docker imageu (`COPY backend/` u Dockerfile). Za ovu promjenu (nema migracija) `deploy.sh` mora pokazati `Rebuild required (backend source changed since last image build)`.
+
 Očekivani kraj: `Done.` bez grešaka.
+
+**Ručni fallback** ako rebuild nije pokrenut:
+
+```bash
+docker compose build django celery-worker celery-beat
+docker compose up -d
+docker compose exec -T django python manage.py check
+```
+
+**Brza potvrda u containeru** (nakon deploya):
+
+```bash
+docker compose exec -T django python manage.py shell -c \
+  "import inspect; from apps.reservations.sync_versions import build_sync_versions_payload; \
+   print('reservation_id' in inspect.signature(build_sync_versions_payload).parameters)"
+```
+
+Očekivano: `True`.
 
 ---
 
@@ -128,9 +149,22 @@ Na produkcijskom serveru **`DJANGO_SECRET_KEY` već mora biti** u `/opt/stacks/s
 
 ## 5. Nakon backend deploya — Flutter
 
-1. Objavi novi Hospira build (`uzorita_flutter`) koji šalje `reservation_id` na sync-versions.
-2. Dok Flutter nije ažuriran, app i dalje radi (puni detail GET); nema breaking change na starom API-ju.
-3. Ako Flutter stigne **prije** backend deploya: `reservation_detail` polje nedostaje → app tretira kao stale i i dalje radi puni detail fetch (safe fallback).
+**Repo:** [github.com/avrcanio/uzorita_flutter](https://github.com/avrcanio/uzorita_flutter) (`hr.finestar.hospira`)
+
+1. Pull/commit s promjenom: `syncVersions(reservationId: …)` + `refreshIfStaleOnResume()` na detail ekranu.
+2. Build i distribucija na tablet (Play Store / sideload / MDM).
+3. Dok Flutter nije ažuriran, app i dalje radi (puni detail GET); nema breaking change na starom API-ju.
+4. Ako Flutter stigne **prije** backend deploya: `reservation_detail` polje nedostaje → app tretira kao stale i i dalje radi puni detail fetch (safe fallback).
+
+### Flutter build (lokalno, Windows/macOS s Flutter SDK)
+
+```bash
+cd uzorita_flutter
+flutter pub get
+flutter test test/features/reception/reception_sync_cache_test.dart
+flutter build apk --release
+# APK: build/app/outputs/flutter-apk/app-release.apk
+```
 
 ---
 
@@ -143,6 +177,23 @@ git checkout <prethodni-commit>
 ```
 
 Stari Flutter app nastavlja raditi (bez `reservation_id` parama).
+
+---
+
+## Checklist — deploy gotov
+
+| # | Korak | OK |
+|---|--------|-----|
+| 1 | `deploy.sh` detektira backend source promjene | |
+| 2 | `git pull` + `./scripts/deploy.sh` → `Done.`, `manage.py check` OK | |
+| 3 | Container: `reservation_id` u `build_sync_versions_payload` → `True` | |
+| 4 | curl **2a** — bez `reservation_detail` | |
+| 5 | curl **2b** — `reservation_detail` (16 hex) + `ETag` | |
+| 6 | curl **2c** — `304 Not Modified` | |
+| 7 | curl **2d** — `404` za nepostojeći ID | |
+| 8 | curl **2e** — hash se mijenja nakon promjene rezervacije | |
+| 9 | (opcionalno) unit testovi iz §3 prolaze | |
+| 10 | Hospira Flutter build objavljen na tablet | |
 
 ---
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Deploy stay.hr: rebuild + up when migrations are pending or migration files
-# changed since the image was built; otherwise restart only.
+# Deploy stay.hr: rebuild + up when migrations are pending, migration files,
+# or backend source changed since the image was built; otherwise restart only.
 #
 # Usage:
 #   ./scripts/deploy.sh
@@ -31,23 +31,45 @@ django_image_id() {
   docker compose images -q django 2>/dev/null | head -n1
 }
 
-migration_files_newer_than_image() {
-  local image_id created_ts file_ts
+image_created_epoch() {
+  local image_id created_ts
   image_id="$(django_image_id)"
-  [[ -n "$image_id" ]] || return 0
+  [[ -n "$image_id" ]] || return 1
 
   created_ts="$(docker inspect -f '{{.Created}}' "$image_id" 2>/dev/null || true)"
-  [[ -n "$created_ts" ]] || return 0
+  [[ -n "$created_ts" ]] || return 1
+
+  date -d "$created_ts" +%s 2>/dev/null \
+    || date -j -f '%Y-%m-%dT%H:%M:%S' "${created_ts%%.*}" +%s 2>/dev/null \
+    || return 1
+}
+
+files_newer_than_image() {
+  local image_ts file_ts
+  image_ts="$(image_created_epoch)" || return 0
 
   while IFS= read -r -d '' f; do
+    [[ -f "$f" ]] || continue
     file_ts="$(stat -c '%Y' "$f" 2>/dev/null || stat -f '%m' "$f")"
-    image_ts="$(date -d "$created_ts" +%s 2>/dev/null || date -j -f '%Y-%m-%dT%H:%M:%S' "${created_ts%%.*}" +%s 2>/dev/null || echo 0)"
     if [[ "$file_ts" -gt "$image_ts" ]]; then
       return 0
     fi
-  done < <(find backend/apps -path '*/migrations/*.py' ! -name '__init__.py' -print0 2>/dev/null)
+  done
 
   return 1
+}
+
+migration_files_newer_than_image() {
+  files_newer_than_image < <(
+    find backend/apps -path '*/migrations/*.py' ! -name '__init__.py' -print0 2>/dev/null
+  )
+}
+
+backend_source_newer_than_image() {
+  files_newer_than_image < <(
+    find backend -name '*.py' -print0 2>/dev/null
+    printf '%s\0' requirements.txt Dockerfile docker-entrypoint.sh
+  )
 }
 
 pending_migrations_in_db() {
@@ -68,6 +90,9 @@ reason=""
 if migration_files_newer_than_image; then
   needs_rebuild=true
   reason="migration files changed since last image build"
+elif backend_source_newer_than_image; then
+  needs_rebuild=true
+  reason="backend source changed since last image build"
 elif pending_migrations_in_db; then
   needs_rebuild=true
   reason="unapplied database migrations"
@@ -78,7 +103,7 @@ if $needs_rebuild; then
   docker compose build
   docker compose up -d
 else
-  log "No migration work needed; restarting services"
+  log "No rebuild needed; restarting services"
   docker compose restart
 fi
 
