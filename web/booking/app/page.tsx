@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { getTranslations } from "next-intl/server";
 import { BookingShell } from "@/app/_components/BookingShell";
 import { getSiteContext, propertyBasePath } from "@/lib/site-context";
 import { requestHost } from "@/lib/utils";
 
 export default async function HomePage() {
+  const t = await getTranslations("home");
   const host = await requestHost();
   let ctx;
   try {
@@ -21,10 +23,10 @@ export default async function HomePage() {
       <BookingShell ctx={ctx} propertySlug={ctx.property.slug}>
         <div className="card space-y-4">
           <h1 className="text-2xl font-bold">{name}</h1>
-          {address ? <p className="text-stone-600">{address}</p> : null}
-          <p className="text-stone-600">Odaberite datume boravka i pošaljite upit za rezervaciju.</p>
+          {address ? <p className="text-muted">{address}</p> : null}
+          <p className="text-muted">{t("selectDates")}</p>
           <Link href={`${base}/search`} className="btn">
-            Provjeri dostupnost
+            {t("checkAvailability")}
           </Link>
         </div>
       </BookingShell>
@@ -41,13 +43,13 @@ export default async function HomePage() {
     <BookingShell ctx={ctx} propertySlug="">
       <div className="space-y-4">
         <h1 className="text-2xl font-bold">{ctx.tenant.name}</h1>
-        <p className="text-stone-600">Odaberite objekt:</p>
+        <p className="text-muted">{t("selectProperty")}</p>
         <ul className="grid gap-3">
           {properties.results.map((p) => (
             <li key={p.slug}>
-              <Link href={`/p/${p.slug}`} className="card block hover:border-teal-300">
-                <div className="font-semibold">{p.name}</div>
-                {p.address ? <div className="text-sm text-stone-500">{p.address}</div> : null}
+              <Link href={`/p/${p.slug}`} className="card card-hover block">
+                <div className="font-semibold text-stay-navy">{p.name}</div>
+                {p.address ? <div className="text-sm text-muted">{p.address}</div> : null}
               </Link>
             </li>
           ))}

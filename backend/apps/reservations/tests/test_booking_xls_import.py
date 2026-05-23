@@ -351,3 +351,65 @@ class BookingXlsImportSkipExistingTests(TestCase):
         guest.refresh_from_db()
         self.assertEqual(guest.nationality, "ES")
         self.assertEqual(guest.document_country_iso2, "ES")
+
+    def test_skips_xls_when_pdf_locked(self):
+        pdf_at = timezone.now()
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="9998887",
+            booking_code="9998887",
+            check_in=date(2026, 7, 1),
+            check_out=date(2026, 7, 6),
+            booker_name="PDF Guest",
+            status=Reservation.Status.EXPECTED,
+            import_source="booking_pdf",
+            pdf_imported_at=pdf_at,
+            xls_imported_at=pdf_at,
+        )
+        row = _sample_row(
+            external_id="9998887",
+            booker_name="XLS, Intruder",
+        )
+        result = upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+            existing_mode="overwrite",
+        )
+        self.assertTrue(result.skipped)
+        self.assertEqual(result.skip_reason, "pdf_locked")
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.booker_name, "PDF Guest")
+
+    def test_authoritative_pdf_overwrite_sets_pdf_marker(self):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="9998888",
+            booking_code="9998888",
+            check_in=date(2026, 7, 1),
+            check_out=date(2026, 7, 6),
+            booker_name="Smoobu Guest",
+            status=Reservation.Status.EXPECTED,
+            import_source="smoobu",
+        )
+        row = _sample_row(
+            external_id="9998888",
+            booker_name="PDF, Winner",
+            guest_names=["PDF, Winner"],
+        )
+        result = upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+            existing_mode="overwrite",
+            authoritative_pdf=True,
+        )
+        self.assertFalse(result.skipped)
+        self.assertTrue(result.updated)
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.booker_name, "PDF, Winner")
+        self.assertEqual(reservation.import_source, "booking_pdf")
+        self.assertIsNotNone(reservation.pdf_imported_at)
+        self.assertIsNotNone(reservation.xls_imported_at)

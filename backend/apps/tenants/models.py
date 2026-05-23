@@ -3,6 +3,7 @@ from datetime import time
 from django.conf import settings
 from django.db import models
 
+from apps.core.languages import DEFAULT_LANGUAGE, LANGUAGE_CHOICES, normalize_language
 from apps.tenants.token_encryption import decrypt_api_token, encrypt_api_token
 from apps.tenants.tokens import DEFAULT_KEY_PREFIX, generate_token, hash_token
 
@@ -131,6 +132,32 @@ class TenantMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user} → {self.tenant}"
+
+
+class StaffProfile(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="staff_profile",
+    )
+    preferred_language = models.CharField(
+        max_length=10,
+        choices=LANGUAGE_CHOICES,
+        default=DEFAULT_LANGUAGE,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Staff profile"
+        verbose_name_plural = "Staff profiles"
+
+    def __str__(self) -> str:
+        return f"{self.user} ({self.preferred_language})"
+
+    @classmethod
+    def preferred_language_for(cls, user) -> str:
+        profile, _ = cls.objects.get_or_create(user=user)
+        return normalize_language(profile.preferred_language)
 
 
 class ApiApplication(models.Model):

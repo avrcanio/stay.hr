@@ -11,8 +11,9 @@ from apps.integrations.evisitor.exceptions import (
     EvisitorConfigError,
     EvisitorValidationError,
 )
-from apps.integrations.evisitor.summary import evisitor_summary_for_reservation
+from apps.integrations.evisitor.summary import evisitor_summary_for_guests
 from apps.reservations.checkout import CheckoutBlockedError, perform_reservation_checkout
+from apps.reservations.guest_slots import guests_for_checkout
 from apps.reservations.models import Reservation
 from apps.tenants.models import Tenant, TenantReceptionSettings
 
@@ -78,7 +79,7 @@ def run_auto_checkouts() -> dict:
         ).prefetch_related("guests")
 
         for reservation in reservations:
-            summary = evisitor_summary_for_reservation(reservation)
+            summary = evisitor_summary_for_guests(guests_for_checkout(reservation))
             if summary != "complete":
                 skipped.append(
                     _skipped_entry(reservation, _skip_reason_for_summary(summary))

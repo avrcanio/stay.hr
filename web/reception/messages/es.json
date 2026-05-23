@@ -1,0 +1,120 @@
+{
+  "meta": {
+    "title": "Stay.hr Recepción",
+    "description": "Vista de reservas de recepción"
+  },
+  "common": {
+    "loading": "Cargando…",
+    "error": "Error",
+    "refresh": "Actualizar",
+    "unknownCountry": "País desconocido",
+    "guestsCount": "{count} huésped(es)",
+    "dash": "—"
+  },
+  "nav": {
+    "reception": "Recepción",
+    "timeline": "Timeline",
+    "calendar": "Calendario",
+    "logout": "Cerrar sesión"
+  },
+  "language": {
+    "label": "Idioma"
+  },
+  "login": {
+    "title": "Recepción",
+    "subtitle": "Inicie sesión con su cuenta Stay.hr.",
+    "username": "Usuario o email",
+    "password": "Contraseña",
+    "tenant": "Tenant",
+    "tenantPlaceholder": "Seleccione tenant…",
+    "submit": "Iniciar sesión",
+    "submitting": "Iniciando sesión…",
+    "selectTenantRetry": "Seleccione un tenant y haga clic en Iniciar sesión de nuevo.",
+    "failed": "Error al iniciar sesión"
+  },
+  "timeline": {
+    "period": "Periodo",
+    "periodToday": "Hoy",
+    "periodWeek": "Semana",
+    "periodMonth": "Mes",
+    "periodAll": "Todo",
+    "status": "Estado",
+    "statusAll": "Todos",
+    "search": "Buscar",
+    "searchPlaceholder": "Nombre, habitación, ID…",
+    "loadFailed": "Error al cargar",
+    "noReservations": "No hay reservas para los filtros seleccionados.",
+    "arrivalOn": "llegada {date}"
+  },
+  "calendar": {
+    "title": "Calendario por habitaciones",
+    "prevMonth": "Mes anterior",
+    "nextMonth": "Mes siguiente",
+    "loadRoomsFailed": "Error al cargar habitaciones",
+    "loadRoomFailed": "Error al cargar calendario de {code}",
+    "loadBlocksFailed": "Error al cargar bloqueos",
+    "noActiveRooms": "No hay habitaciones activas.",
+    "block": "Bloqueo",
+    "channelBlocked": "Bloqueado en Booking.com",
+    "blocked": "Bloqueado",
+    "clickDayHint": "Haga clic en un día del calendario para ver detalles.",
+    "noItemsForDay": "No hay reservas ni bloqueos para el día seleccionado.",
+    "blockTitle": "Bloqueo · {checkIn} → {checkOut} · {source}",
+    "roomDayAria": "{code}, {date}"
+  },
+  "reservation": {
+    "notFound": "Reserva no encontrada",
+    "backToTimeline": "← Timeline",
+    "room": "Habitación",
+    "status": "Estado",
+    "checkIn": "Entrada",
+    "checkOut": "Salida",
+    "booker": "Reservante",
+    "phone": "Teléfono",
+    "guestsTitle": "Huéspedes ({count})",
+    "notes": "Notas",
+    "readOnlyHint": "Vista de solo lectura — cambios en la tablet (Hospira).",
+    "statusExpected": "Esperado",
+    "statusCheckedIn": "Registrado",
+    "statusCheckedOut": "Salida registrada",
+    "statusCanceled": "Cancelado",
+    "statusPending": "Pendiente"
+  },
+  "guest": {
+    "primary": "principal",
+    "noExtraData": "Sin datos adicionales.",
+    "email": "Email",
+    "phone": "Teléfono",
+    "dateOfBirth": "Fecha de nacimiento",
+    "sex": "Sexo",
+    "sexMale": "Masculino",
+    "sexFemale": "Femenino",
+    "documentType": "Tipo de documento",
+    "documentNumber": "Número de documento",
+    "dateOfIssue": "Fecha de emisión",
+    "dateOfExpiry": "Fecha de caducidad",
+    "issuingAuthority": "Autoridad emisora",
+    "personalId": "ID personal",
+    "address": "Dirección",
+    "evisitor": "eVisitor",
+    "evisitorError": "Error eVisitor",
+    "evisitorPending": "Pendiente",
+    "evisitorSubmitted": "Enviado",
+    "evisitorFailed": "Error",
+    "evisitorComplete": "Completado"
+  },
+  "source": {
+    "hospira": "Hospira",
+    "smoobu": "Smoobu"
+  },
+  "errors": {
+    "apiUnavailable": "API no disponible — inténtelo más tarde.",
+    "invalidCredentials": "Usuario o contraseña incorrectos.",
+    "noStaffAccess": "La cuenta no tiene acceso de staff a recepción.",
+    "noTenantAccess": "La cuenta no tiene tenant asignado — contacte al administrador.",
+    "noReceptionAccess": "No tiene acceso a recepción.",
+    "selectTenant": "Seleccione un tenant para iniciar sesión.",
+    "loginFailed": "Error al iniciar sesión.",
+    "loginFailedDetail": "Error al iniciar sesión: {detail}"
+  }
+}

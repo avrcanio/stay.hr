@@ -7,19 +7,29 @@ from rest_framework.views import APIView
 from django.db.models import Prefetch
 
 from apps.api.authentication import AppKeyAuthentication
-from apps.api.permissions import DenyAdminScopes, HasApiApplication, HasScope
+from apps.api.permissions import DenyAdminScopes, HasApiApplication, HasReceptionAccess, HasScope
+from apps.api.staff_authentication import StaffSessionAuthentication
 from apps.api.serializers import (
     AppConfigSerializer,
     PublicPropertySerializer,
     PublicReservationCreateSerializer,
     PublicUnitSerializer,
 )
+from apps.integrations.models import UnitAvailabilityBlock
 from apps.properties.models import Property, Unit, UnitBed, UnitBathroom
-from apps.reservations.models import Reservation
+from apps.reservations.models import Reservation, ReservationUnit
+
+BLOCKING_RESERVATION_STATUSES = frozenset(
+    {
+        Reservation.Status.PENDING,
+        Reservation.Status.EXPECTED,
+        Reservation.Status.CHECKED_IN,
+    }
+)
 
 
 class TenantAPIView(APIView):
-    authentication_classes = [AppKeyAuthentication]
+    authentication_classes = [AppKeyAuthentication, StaffSessionAuthentication]
     permission_classes = [HasApiApplication, DenyAdminScopes]
 
 
@@ -42,7 +52,7 @@ def _units_with_details_queryset(tenant):
 
 class AppConfigView(TenantAPIView):
     required_scopes = ["public:read"]
-    permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
+    permission_classes = [HasReceptionAccess, DenyAdminScopes]
 
     def get(self, request):
         tenant = request.tenant
@@ -133,34 +143,58 @@ class PublicAvailabilityView(TenantAPIView):
         if property_slug:
             units = units.filter(property__slug=property_slug)
 
-        reservations = Reservation.objects.for_tenant(request.tenant).filter(
-            status__in=[Reservation.Status.PENDING, Reservation.Status.CONFIRMED],
-            check_in__lt=to_date,
-            check_out__gt=from_date,
-        )
-        if property_slug:
-            reservations = reservations.filter(property__slug=property_slug)
+        unit_list = list(units.order_by("property__name", "code"))
+        unit_ids = [unit.id for unit in unit_list]
+        blocked_by_unit: dict[int, list[dict]] = {uid: [] for uid in unit_ids}
 
-        blocked_by_property: dict[str, list[dict]] = {}
-        for reservation in reservations.select_related("property"):
-            key = reservation.property.slug
-            blocked_by_property.setdefault(key, []).append(
-                {
-                    "booking_code": reservation.booking_code,
-                    "check_in": reservation.check_in.isoformat(),
-                    "check_out": reservation.check_out.isoformat(),
-                    "status": reservation.status,
-                }
+        if unit_ids:
+            reservation_units = (
+                ReservationUnit.objects.filter(
+                    tenant=request.tenant,
+                    unit_id__in=unit_ids,
+                    reservation__status__in=BLOCKING_RESERVATION_STATUSES,
+                    reservation__check_in__lt=to_date,
+                    reservation__check_out__gt=from_date,
+                )
+                .select_related("reservation")
             )
+            for row in reservation_units:
+                reservation = row.reservation
+                blocked_by_unit[row.unit_id].append(
+                    {
+                        "booking_code": reservation.booking_code
+                        or reservation.external_id
+                        or "",
+                        "check_in": reservation.check_in.isoformat(),
+                        "check_out": reservation.check_out.isoformat(),
+                        "status": reservation.status,
+                    }
+                )
+
+            manual_blocks = UnitAvailabilityBlock.objects.filter(
+                tenant=request.tenant,
+                unit_id__in=unit_ids,
+                check_in__lt=to_date,
+                check_out__gt=from_date,
+            )
+            for block in manual_blocks:
+                blocked_by_unit[block.unit_id].append(
+                    {
+                        "booking_code": block.smoobu_booking_id,
+                        "check_in": block.check_in.isoformat(),
+                        "check_out": block.check_out.isoformat(),
+                        "status": "blocked",
+                    }
+                )
 
         results = []
-        for unit in units.order_by("property__name", "code"):
+        for unit in unit_list:
             results.append(
                 {
                     "unit_id": unit.id,
                     "unit_code": unit.code,
                     "property_slug": unit.property.slug,
-                    "blocked_periods": blocked_by_property.get(unit.property.slug, []),
+                    "blocked_periods": blocked_by_unit.get(unit.id, []),
                 }
             )
 

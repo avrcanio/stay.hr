@@ -1,3 +1,5 @@
+import { monthLabelForLocale } from "@/lib/locale-format";
+
 const PROPERTY_TIME_ZONE = "Europe/Zagreb";
 
 export function todayIso(): string {
@@ -30,10 +32,10 @@ export function startOfIsoWeekIso(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+export { monthLabelForLocale } from "@/lib/locale-format";
+
 export function monthLabelHr(iso: string): string {
-  const d = new Date(`${iso}T12:00:00Z`);
-  const raw = new Intl.DateTimeFormat("hr-HR", { month: "long", year: "numeric" }).format(d);
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
+  return monthLabelForLocale("hr", iso);
 }
 
 export function flagClass(iso2?: string | null): string | null {

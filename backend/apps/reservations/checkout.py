@@ -1,5 +1,6 @@
 from apps.integrations.evisitor.service import checkout_reservation_guests_in_evisitor
 from apps.integrations.evisitor.summary import evisitor_summary_for_reservation
+from apps.reservations.guest_slots import remove_unfilled_secondary_guests
 from apps.reservations.models import Reservation
 
 
@@ -21,6 +22,8 @@ def perform_reservation_checkout(
             "invalid_status",
             f"Reservation status is {reservation.status}, expected checked_in.",
         )
+
+    remove_unfilled_secondary_guests(reservation)
 
     summary = evisitor_summary_for_reservation(reservation)
     if summary == "none":

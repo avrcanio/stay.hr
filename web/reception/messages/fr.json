@@ -1,0 +1,120 @@
+{
+  "meta": {
+    "title": "Stay.hr Réception",
+    "description": "Aperçu des réservations à la réception"
+  },
+  "common": {
+    "loading": "Chargement…",
+    "error": "Erreur",
+    "refresh": "Actualiser",
+    "unknownCountry": "Pays inconnu",
+    "guestsCount": "{count} client(s)",
+    "dash": "—"
+  },
+  "nav": {
+    "reception": "Réception",
+    "timeline": "Timeline",
+    "calendar": "Calendrier",
+    "logout": "Déconnexion"
+  },
+  "language": {
+    "label": "Langue"
+  },
+  "login": {
+    "title": "Réception",
+    "subtitle": "Connectez-vous avec votre compte Stay.hr.",
+    "username": "Nom d'utilisateur ou email",
+    "password": "Mot de passe",
+    "tenant": "Tenant",
+    "tenantPlaceholder": "Sélectionnez un tenant…",
+    "submit": "Se connecter",
+    "submitting": "Connexion…",
+    "selectTenantRetry": "Sélectionnez un tenant et cliquez à nouveau sur Se connecter.",
+    "failed": "Échec de la connexion"
+  },
+  "timeline": {
+    "period": "Période",
+    "periodToday": "Aujourd'hui",
+    "periodWeek": "Semaine",
+    "periodMonth": "Mois",
+    "periodAll": "Tout",
+    "status": "Statut",
+    "statusAll": "Tous",
+    "search": "Recherche",
+    "searchPlaceholder": "Nom, chambre, ID…",
+    "loadFailed": "Échec du chargement",
+    "noReservations": "Aucune réservation pour les filtres sélectionnés.",
+    "arrivalOn": "arrivée {date}"
+  },
+  "calendar": {
+    "title": "Calendrier par chambres",
+    "prevMonth": "Mois précédent",
+    "nextMonth": "Mois suivant",
+    "loadRoomsFailed": "Échec du chargement des chambres",
+    "loadRoomFailed": "Échec du chargement du calendrier pour {code}",
+    "loadBlocksFailed": "Échec du chargement des blocages",
+    "noActiveRooms": "Aucune chambre active.",
+    "block": "Blocage",
+    "channelBlocked": "Bloqué sur Booking.com",
+    "blocked": "Bloqué",
+    "clickDayHint": "Cliquez sur un jour du calendrier pour les détails.",
+    "noItemsForDay": "Aucune réservation ni blocage pour le jour sélectionné.",
+    "blockTitle": "Blocage · {checkIn} → {checkOut} · {source}",
+    "roomDayAria": "{code}, {date}"
+  },
+  "reservation": {
+    "notFound": "Réservation introuvable",
+    "backToTimeline": "← Timeline",
+    "room": "Chambre",
+    "status": "Statut",
+    "checkIn": "Arrivée",
+    "checkOut": "Départ",
+    "booker": "Réservant",
+    "phone": "Téléphone",
+    "guestsTitle": "Clients ({count})",
+    "notes": "Notes",
+    "readOnlyHint": "Vue en lecture seule — modifications sur la tablette (Hospira).",
+    "statusExpected": "Attendu",
+    "statusCheckedIn": "Enregistré",
+    "statusCheckedOut": "Départ enregistré",
+    "statusCanceled": "Annulé",
+    "statusPending": "En attente"
+  },
+  "guest": {
+    "primary": "principal",
+    "noExtraData": "Aucune donnée supplémentaire.",
+    "email": "Email",
+    "phone": "Téléphone",
+    "dateOfBirth": "Date de naissance",
+    "sex": "Sexe",
+    "sexMale": "Homme",
+    "sexFemale": "Femme",
+    "documentType": "Type de document",
+    "documentNumber": "Numéro de document",
+    "dateOfIssue": "Date de délivrance",
+    "dateOfExpiry": "Date d'expiration",
+    "issuingAuthority": "Autorité émettrice",
+    "personalId": "ID personnel",
+    "address": "Adresse",
+    "evisitor": "eVisitor",
+    "evisitorError": "Erreur eVisitor",
+    "evisitorPending": "En attente",
+    "evisitorSubmitted": "Envoyé",
+    "evisitorFailed": "Échec",
+    "evisitorComplete": "Terminé"
+  },
+  "source": {
+    "hospira": "Hospira",
+    "smoobu": "Smoobu"
+  },
+  "errors": {
+    "apiUnavailable": "API indisponible — réessayez plus tard.",
+    "invalidCredentials": "Nom d'utilisateur ou mot de passe incorrect.",
+    "noStaffAccess": "Le compte n'a pas accès staff à la réception.",
+    "noTenantAccess": "Aucun tenant assigné — contactez l'administrateur.",
+    "noReceptionAccess": "Vous n'avez pas accès à la réception.",
+    "selectTenant": "Sélectionnez un tenant pour vous connecter.",
+    "loginFailed": "Échec de la connexion.",
+    "loginFailedDetail": "Échec de la connexion : {detail}"
+  }
+}

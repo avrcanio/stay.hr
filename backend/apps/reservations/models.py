@@ -60,6 +60,7 @@ class Reservation(TenantScopedModel):
     details_pending = models.BooleanField(default=False)
     imported_at = models.DateTimeField(null=True, blank=True)
     xls_imported_at = models.DateTimeField(null=True, blank=True)
+    pdf_imported_at = models.DateTimeField(null=True, blank=True)
     smoobu_modified_at = models.DateTimeField(null=True, blank=True)
     smoobu_booking_id = models.CharField(max_length=64, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

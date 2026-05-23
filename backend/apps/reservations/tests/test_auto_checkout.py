@@ -205,3 +205,37 @@ class AutoCheckoutTaskTests(TestCase):
         self.tenant.save(update_fields=["timezone"])
         now = tenant_local_now(self.tenant)
         self.assertIsNotNone(now.tzinfo)
+
+    @patch("apps.core.tasks.notify_auto_checkout_summary.delay")
+    @patch("apps.core.tasks.notify_reservation_status_changed.delay")
+    @patch("apps.reservations.checkout.checkout_reservation_guests_in_evisitor")
+    def test_auto_checkout_removes_unfilled_secondary_guests(
+        self,
+        mock_evisitor_checkout,
+        mock_status_push,
+        mock_summary_push,
+    ):
+        from apps.reservations.guest_slots import PLACEHOLDER_FIRST, PLACEHOLDER_LAST
+
+        reservation = self._create_reservation()
+        placeholder = Guest.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            first_name=PLACEHOLDER_FIRST,
+            last_name=PLACEHOLDER_LAST,
+            name="Novi gost",
+            is_primary=False,
+            evisitor_status=EvisitorGuestStatus.NOT_SENT,
+        )
+        mock_evisitor_checkout.return_value = []
+
+        result = self._run_task()
+
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.status, Reservation.Status.CHECKED_OUT)
+        self.assertFalse(Guest.objects.filter(pk=placeholder.pk).exists())
+        self.assertEqual(result["checked_out"], 1)
+        self.assertEqual(result["skipped"], 0)
+        mock_evisitor_checkout.assert_called_once()
+        mock_status_push.assert_called_once()
+        mock_summary_push.assert_not_called()

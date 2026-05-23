@@ -5,8 +5,11 @@ from typing import Any
 
 from django.core.cache import cache
 from apps.integrations.models import IntegrationConfig, UnitAvailabilityBlock
-from apps.integrations.smoobu.blocking_service import SMOOBU_BLOCKED_CHANNEL_ID
-from apps.integrations.smoobu.booking_service import _booking_field, _parse_date
+from apps.integrations.smoobu.booking_service import (
+    _booking_field,
+    _is_blocked_smoobu_booking,
+    _parse_date,
+)
 from apps.integrations.smoobu.client import SmoobuClient
 from apps.integrations.smoobu.config import SmoobuRuntimeConfig
 from apps.integrations.smoobu.exceptions import SmoobuApiError, SmoobuConfigError, SmoobuRatesError
@@ -25,18 +28,6 @@ def _ranges_overlap(
     b_end: date,
 ) -> bool:
     return a_start < b_end and a_end > b_start
-
-
-def _is_blocked_smoobu_booking(booking: dict[str, Any]) -> bool:
-    if _booking_field(booking, "is-blocked-booking", "is_blocked_booking") is True:
-        return True
-    channel = _booking_field(booking, "channel") or {}
-    if isinstance(channel, dict):
-        channel_id = channel.get("id")
-        if channel_id is not None and int(channel_id) == SMOOBU_BLOCKED_CHANNEL_ID:
-            return True
-    booking_type = str(_booking_field(booking, "type") or "").strip().lower()
-    return booking_type in {"blocked", "block", "blocked-booking"}
 
 
 def _booking_is_cancelled(booking: dict[str, Any]) -> bool:
@@ -58,6 +49,7 @@ def _serialize_hospira_block(row: UnitAvailabilityBlock) -> dict[str, Any]:
         "check_in": row.check_in.isoformat(),
         "check_out": row.check_out.isoformat(),
         "smoobu_booking_id": row.smoobu_booking_id,
+        "reservation_id": row.reservation_id,
         "can_unblock": True,
         "source": "hospira",
     }

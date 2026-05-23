@@ -1,0 +1,45 @@
+{
+  "meta": {
+    "title": "Stay.hr Réservation",
+    "description": "Réservation d'hébergement"
+  },
+  "nav": { "booking": "Réservation" },
+  "language": { "label": "Langue" },
+  "home": {
+    "selectDates": "Choisissez vos dates de séjour et envoyez une demande de réservation.",
+    "checkAvailability": "Vérifier la disponibilité",
+    "selectProperty": "Choisissez l'établissement :"
+  },
+  "search": {
+    "title": "Disponibilité — {property}",
+    "dateRange": "{from} → {to} ({nights, plural, one {# nuit} other {# nuits}})",
+    "availabilityError": "La disponibilité ne peut pas être vérifiée pour le moment. Réessayez plus tard.",
+    "maxGuests": "Jusqu'à {count} clients",
+    "occupied": "Occupé",
+    "available": "Disponible",
+    "book": "Réserver",
+    "noUnits": "Aucune unité active pour cet établissement.",
+    "checkIn": "Arrivée",
+    "checkOut": "Départ",
+    "update": "Mettre à jour"
+  },
+  "checkout": {
+    "title": "Checkout",
+    "dateRange": "{from} → {to} ({nights, plural, one {# nuit} other {# nuits}})",
+    "bookerSection": "Coordonnées du réservant",
+    "bookerName": "Nom complet",
+    "email": "Email",
+    "phone": "Téléphone",
+    "guestFirst": "Prénom du client",
+    "guestLast": "Nom du client",
+    "submit": "Confirmer la réservation",
+    "submitting": "Envoi…",
+    "failed": "La réservation a échoué."
+  },
+  "confirmation": {
+    "title": "Réservation reçue",
+    "codeLabel": "Numéro de réservation :",
+    "backHome": "Retour à l'accueil"
+  },
+  "common": { "error": "Erreur" }
+}

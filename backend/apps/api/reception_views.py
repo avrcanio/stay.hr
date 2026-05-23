@@ -20,7 +20,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.api.permissions import DenyAdminScopes, HasApiApplication, HasScope
+from apps.api.permissions import DenyAdminScopes, HasReceptionAccess
 from apps.api.reception_serializers import (
     GuestCreateSerializer,
     GuestDetailSerializer,
@@ -62,12 +62,12 @@ from apps.reservations.sync_versions import (
 
 class ReceptionReadView(TenantAPIView):
     required_scopes = ["reception:read"]
-    permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
+    permission_classes = [HasReceptionAccess, DenyAdminScopes]
 
 
 class ReceptionWriteView(TenantAPIView):
     required_scopes = ["reception:write"]
-    permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
+    permission_classes = [HasReceptionAccess, DenyAdminScopes]
 
 
 def _reservation_queryset(tenant):
@@ -257,7 +257,7 @@ class ReservationTimelineListView(ReceptionReadView, generics.ListAPIView):
 
 
 class ReservationDetailView(TenantAPIView, generics.RetrieveUpdateAPIView):
-    permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
+    permission_classes = [HasReceptionAccess, DenyAdminScopes]
 
     def get_permissions(self):
         if self.request.method in ("PATCH", "PUT"):
@@ -284,6 +284,7 @@ class ReservationDetailView(TenantAPIView, generics.RetrieveUpdateAPIView):
         instance.refresh_from_db()
         if old_status != instance.status:
             from apps.core.tasks import notify_reservation_status_changed
+            from apps.integrations.smoobu.tasks import sync_reservation_smoobu_blocks_task
 
             notify_reservation_status_changed.delay(
                 instance.pk,
@@ -291,6 +292,14 @@ class ReservationDetailView(TenantAPIView, generics.RetrieveUpdateAPIView):
                 instance.status,
                 installation_id_from_request(request),
             )
+            if instance.status == Reservation.Status.CANCELED:
+                sync_reservation_smoobu_blocks_task.delay(instance.pk, "remove")
+            elif instance.status in {
+                Reservation.Status.PENDING,
+                Reservation.Status.EXPECTED,
+                Reservation.Status.CHECKED_IN,
+            }:
+                sync_reservation_smoobu_blocks_task.delay(instance.pk, "sync")
         detail = self.get_queryset().get(pk=instance.pk)
         output = ReservationTimelineSerializer(detail, context=self.get_serializer_context())
         return Response(output.data)
@@ -318,7 +327,7 @@ class ReservationGuestListCreateView(ReceptionWriteView, generics.CreateAPIView)
 class ReservationGuestDetailView(TenantAPIView, generics.RetrieveUpdateAPIView):
     serializer_class = GuestDetailSerializer
     lookup_url_kwarg = "guest_id"
-    permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
+    permission_classes = [HasReceptionAccess, DenyAdminScopes]
 
     def get_permissions(self):
         if self.request.method in ("PATCH", "PUT"):

@@ -1,0 +1,120 @@
+{
+  "meta": {
+    "title": "Stay.hr Reception",
+    "description": "Reception reservation overview"
+  },
+  "common": {
+    "loading": "Loading…",
+    "error": "Error",
+    "refresh": "Refresh",
+    "unknownCountry": "Unknown country",
+    "guestsCount": "{count} guest(s)",
+    "dash": "—"
+  },
+  "nav": {
+    "reception": "Reception",
+    "timeline": "Timeline",
+    "calendar": "Calendar",
+    "logout": "Log out"
+  },
+  "language": {
+    "label": "Language"
+  },
+  "login": {
+    "title": "Reception",
+    "subtitle": "Sign in with your Stay.hr account.",
+    "username": "Username or email",
+    "password": "Password",
+    "tenant": "Tenant",
+    "tenantPlaceholder": "Select tenant…",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "selectTenantRetry": "Select a tenant and click Sign in again.",
+    "failed": "Sign in failed"
+  },
+  "timeline": {
+    "period": "Period",
+    "periodToday": "Today",
+    "periodWeek": "Week",
+    "periodMonth": "Month",
+    "periodAll": "All",
+    "status": "Status",
+    "statusAll": "All",
+    "search": "Search",
+    "searchPlaceholder": "Name, room, ID…",
+    "loadFailed": "Failed to load",
+    "noReservations": "No reservations for the selected filters.",
+    "arrivalOn": "arrival {date}"
+  },
+  "calendar": {
+    "title": "Room calendar",
+    "prevMonth": "Previous month",
+    "nextMonth": "Next month",
+    "loadRoomsFailed": "Failed to load rooms",
+    "loadRoomFailed": "Failed to load calendar for {code}",
+    "loadBlocksFailed": "Failed to load blocks",
+    "noActiveRooms": "No active rooms.",
+    "block": "Block",
+    "channelBlocked": "Blocked on Booking.com",
+    "blocked": "Blocked",
+    "clickDayHint": "Click a day in the calendar for room details.",
+    "noItemsForDay": "No reservations or blocks for the selected day.",
+    "blockTitle": "Block · {checkIn} → {checkOut} · {source}",
+    "roomDayAria": "{code}, {date}"
+  },
+  "reservation": {
+    "notFound": "Reservation not found",
+    "backToTimeline": "← Timeline",
+    "room": "Room",
+    "status": "Status",
+    "checkIn": "Check-in",
+    "checkOut": "Check-out",
+    "booker": "Booker",
+    "phone": "Phone",
+    "guestsTitle": "Guests ({count})",
+    "notes": "Notes",
+    "readOnlyHint": "Read-only view — changes on the tablet (Hospira).",
+    "statusExpected": "Expected",
+    "statusCheckedIn": "Checked in",
+    "statusCheckedOut": "Checked out",
+    "statusCanceled": "Canceled",
+    "statusPending": "Pending"
+  },
+  "guest": {
+    "primary": "primary",
+    "noExtraData": "No additional details.",
+    "email": "Email",
+    "phone": "Phone",
+    "dateOfBirth": "Date of birth",
+    "sex": "Sex",
+    "sexMale": "Male",
+    "sexFemale": "Female",
+    "documentType": "Document type",
+    "documentNumber": "Document number",
+    "dateOfIssue": "Date of issue",
+    "dateOfExpiry": "Expiry date",
+    "issuingAuthority": "Issuing authority",
+    "personalId": "Personal ID",
+    "address": "Address",
+    "evisitor": "eVisitor",
+    "evisitorError": "eVisitor error",
+    "evisitorPending": "Pending",
+    "evisitorSubmitted": "Submitted",
+    "evisitorFailed": "Failed",
+    "evisitorComplete": "Complete"
+  },
+  "source": {
+    "hospira": "Hospira",
+    "smoobu": "Smoobu"
+  },
+  "errors": {
+    "apiUnavailable": "API unavailable — please try again later.",
+    "invalidCredentials": "Invalid username or password.",
+    "noStaffAccess": "Account does not have staff access to reception.",
+    "noTenantAccess": "Account has no assigned tenant — contact an administrator.",
+    "noReceptionAccess": "You do not have access to reception.",
+    "selectTenant": "Select a tenant to sign in.",
+    "loginFailed": "Sign in failed.",
+    "loginFailedDetail": "Sign in failed: {detail}"
+  }
+}

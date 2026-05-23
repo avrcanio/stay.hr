@@ -262,6 +262,13 @@ class UnitAvailabilityBlock(TenantScopedModel):
         on_delete=models.CASCADE,
         related_name="availability_blocks",
     )
+    reservation = models.ForeignKey(
+        "reservations.Reservation",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="smoobu_blocks",
+    )
     check_in = models.DateField()
     check_out = models.DateField()
     smoobu_booking_id = models.CharField(max_length=64)

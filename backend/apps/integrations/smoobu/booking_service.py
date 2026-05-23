@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.integrations.models import IntegrationConfig
+from apps.integrations.smoobu.blocking_service import SMOOBU_BLOCKED_CHANNEL_ID
 from apps.integrations.smoobu.client import SmoobuClient
 from apps.integrations.smoobu.config import SmoobuApartmentLink, SmoobuRuntimeConfig
 from apps.integrations.smoobu.exceptions import SmoobuApiError, SmoobuBookingIngestError
@@ -19,6 +20,8 @@ from apps.reservations.channel_sync import (
     IMPORT_SOURCE_SMOOBU as CHANNEL_SMOOBU,
     find_reservation_for_channel_merge,
     incoming_wins,
+    is_cancellation_status,
+    is_pdf_authoritative,
 )
 from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
@@ -84,6 +87,18 @@ def _booking_field(booking: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _is_blocked_smoobu_booking(booking: dict[str, Any]) -> bool:
+    if _booking_field(booking, "is-blocked-booking", "is_blocked_booking") is True:
+        return True
+    channel = _booking_field(booking, "channel") or {}
+    if isinstance(channel, dict):
+        channel_id = channel.get("id")
+        if channel_id is not None and int(channel_id) == SMOOBU_BLOCKED_CHANNEL_ID:
+            return True
+    booking_type = str(_booking_field(booking, "type") or "").strip().lower()
+    return booking_type in {"blocked", "block", "blocked-booking"}
+
+
 def _map_smoobu_status(booking: dict[str, Any]) -> str:
     booking_type = str(_booking_field(booking, "type") or "").strip().lower()
     if booking_type in {"cancellation", "cancelled", "canceled", "cancel"}:
@@ -98,6 +113,34 @@ def _map_smoobu_status(booking: dict[str, Any]) -> str:
         return Reservation.Status.CANCELED
 
     return Reservation.Status.EXPECTED
+
+
+def _apply_smoobu_cancellation_only(
+    *,
+    reservation: Reservation,
+    smoobu_id: str,
+    smoobu_modified: datetime,
+) -> SmoobuBookingResult:
+    old_status = reservation.status
+    reservation.status = Reservation.Status.CANCELED
+    reservation.canceled_at = smoobu_modified
+    reservation.smoobu_modified_at = smoobu_modified
+    reservation.smoobu_booking_id = smoobu_id
+    reservation.save(
+        update_fields=[
+            "status",
+            "canceled_at",
+            "smoobu_modified_at",
+            "smoobu_booking_id",
+            "updated_at",
+        ]
+    )
+    return SmoobuBookingResult(
+        reservation=reservation,
+        created=False,
+        updated=True,
+        old_status=old_status,
+    )
 
 
 def resolve_smoobu_property(integration_row: IntegrationConfig) -> Property:
@@ -168,6 +211,33 @@ def _upsert_reservation_from_smoobu_booking(
 
     smoobu_id = smoobu_external_id(raw_id)
     booking_code = str(_booking_field(booking, "reference-id", "reference_id") or "").strip()
+
+    if _is_blocked_smoobu_booking(booking):
+        ghost = find_reservation_for_channel_merge(
+            tenant=tenant,
+            booking_code=booking_code,
+            smoobu_booking_id=smoobu_id,
+            external_id=booking_code or smoobu_id,
+        )
+        if ghost is not None and ghost.import_source == IMPORT_SOURCE_SMOOBU:
+            logger.info(
+                "smoobu blocked booking removed ghost reservation",
+                extra={
+                    "smoobu_booking_id": smoobu_id,
+                    "reservation_id": ghost.id,
+                },
+            )
+            ghost.delete()
+        else:
+            logger.info(
+                "smoobu blocked booking skipped",
+                extra={"smoobu_booking_id": smoobu_id},
+            )
+        return SmoobuBookingResult(
+            skipped=True,
+            skip_reason="blocked_booking",
+        )
+
     now = timezone.now()
     smoobu_modified = (
         _parse_datetime(_booking_field(booking, "modified-at", "modified_at")) or now
@@ -180,10 +250,33 @@ def _upsert_reservation_from_smoobu_booking(
         external_id=booking_code,
     )
 
+    new_status = _map_smoobu_status(booking)
+
+    if existing is not None and is_pdf_authoritative(existing):
+        if not is_cancellation_status(new_status):
+            logger.info(
+                "smoobu booking skipped: pdf locked",
+                extra={
+                    "smoobu_booking_id": smoobu_id,
+                    "booking_code": booking_code,
+                    "reservation_id": existing.id,
+                },
+            )
+            return SmoobuBookingResult(
+                skipped=True,
+                skip_reason="pdf_locked",
+            )
+        return _apply_smoobu_cancellation_only(
+            reservation=existing,
+            smoobu_id=smoobu_id,
+            smoobu_modified=smoobu_modified,
+        )
+
     if existing is not None and not incoming_wins(
         existing,
         source=CHANNEL_SMOOBU,
         incoming_at=smoobu_modified,
+        incoming_status=new_status,
     ):
         logger.info(
             "smoobu booking skipped: stale smoobu payload",
@@ -202,7 +295,7 @@ def _upsert_reservation_from_smoobu_booking(
     check_out = _parse_date(_booking_field(booking, "departure"))
     if not check_in or not check_out:
         raise SmoobuBookingIngestError(
-            f"Smoobu booking {external_id} missing arrival/departure dates."
+            f"Smoobu booking {smoobu_id} missing arrival/departure dates."
         )
 
     apartment = _booking_field(booking, "apartment")
@@ -228,7 +321,6 @@ def _upsert_reservation_from_smoobu_booking(
     adults = int(_booking_field(booking, "adults") or 0)
     children = int(_booking_field(booking, "children") or 0)
     nights = (check_out - check_in).days
-    new_status = _map_smoobu_status(booking)
     guest_name = str(_booking_field(booking, "guest-name", "guest_name") or "").strip()
     booker_name = guest_name or "Smoobu guest"
 

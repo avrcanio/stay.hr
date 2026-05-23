@@ -204,9 +204,13 @@ curl -sS -H "Host: booking.uzorita.hr" http://stay_django:8000/api/v1/public/sit
 ## D) Recepcija (`app.stay.hr`)
 
 - Fiksna platform domena — **ne ovisi** o property slug-u
-- Nema javnog bookiranja; auth = device token (kao Hospira tablet)
+- Nema javnog bookiranja
+- **Web recepcija** (`app.stay.hr/login`): Django staff login (korisničko ime/email + lozinka). Korisnik mora imati `is_staff=True` i `TenantMembership` za tenant. Ako pripada više tenantima, login traži odabir tenanta.
+- **Hospira tablet**: device token (ApiApplication Bearer) — ne mijenja se
 - DNS: uključen u `provision_platform_dns`
 - Traefik: `Host(\`app.stay.hr\`)` → reception container
+- **ApiApplication scopes** za Hospiru/tablet: `reception:read`, `reception:write`, `public:read`. **Ne** dodavati `admin:read` / `admin:write` — Django ih blokira na mobilnim endpointima (`DenyAdminScopes`).
+- Ako tablet token ne radi nakon regeneracije u adminu, kopiraj novi **Device token** s change forme (admin akcija „Regenerate API token” poništava stari bearer).
 
 ---
 

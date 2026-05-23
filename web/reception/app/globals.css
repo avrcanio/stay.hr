@@ -1,27 +1,51 @@
 @import "tailwindcss";
+@import "flag-icons/css/flag-icons.min.css";
+
+@theme {
+  --color-stay-navy: #001833;
+  --color-stay-blue: #0077e6;
+  --color-stay-blue-dark: #005bb5;
+  --color-stay-blue-light: #e8f2ff;
+  --color-stay-muted: #64748b;
+  --color-stay-border: #e2e8f0;
+  --font-sans: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+}
 
 body {
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-family: var(--font-sans);
+  color: var(--color-stay-navy);
 }
 
 .btn {
-  @apply inline-flex items-center justify-center rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50;
+  @apply inline-flex items-center justify-center rounded-xl bg-stay-blue px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-stay-blue-dark disabled:opacity-50;
 }
 
 .btn-ghost {
-  @apply inline-flex items-center justify-center rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50;
+  @apply inline-flex items-center justify-center rounded-xl border border-stay-border bg-white px-3 py-2.5 text-sm font-medium text-stay-navy transition hover:border-stay-blue hover:bg-stay-blue-light;
 }
 
 .card {
-  @apply rounded-xl border border-stone-200 bg-white shadow-sm;
+  @apply rounded-2xl border border-stay-border bg-white shadow-sm transition;
+}
+
+.card-hover {
+  @apply hover:border-stay-blue hover:shadow-md;
 }
 
 .input {
-  @apply w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100;
+  @apply w-full rounded-xl border border-stay-border px-3 py-2.5 text-sm text-stay-navy outline-none transition focus:border-stay-blue focus:ring-2 focus:ring-stay-blue-light;
+}
+
+.label {
+  @apply text-xs font-semibold uppercase tracking-wide text-stay-muted;
+}
+
+.text-muted {
+  @apply text-stay-muted;
 }
 
 .badge {
-  @apply inline-flex rounded-full px-2 py-0.5 text-xs font-semibold;
+  @apply inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold;
 }
 
 .badge-expected {
@@ -29,11 +53,11 @@ body {
 }
 
 .badge-checked_in {
-  @apply bg-green-100 text-green-900;
+  @apply bg-emerald-100 text-emerald-900;
 }
 
 .badge-checked_out {
-  @apply bg-stone-200 text-stone-700;
+  @apply bg-slate-100 text-slate-700;
 }
 
 .badge-canceled {

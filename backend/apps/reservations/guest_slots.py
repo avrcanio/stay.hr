@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from apps.reservations.models import Guest, Reservation
+from apps.integrations.evisitor.summary import evisitor_status_for_guest
+from apps.reservations.models import EvisitorGuestStatus, Guest, Reservation
 from apps.tenants.models import Tenant
 
 PLACEHOLDER_FIRST = "Novi"
@@ -41,3 +42,59 @@ def ensure_adult_guest_slots(
         )
         created += 1
     return created
+
+
+def is_unfilled_guest(guest: Guest) -> bool:
+    """True when guest lacks identity data required for eVisitor check-in."""
+    has_document = bool((guest.document_number or "").strip())
+    has_core_identity = (
+        guest.date_of_birth is not None
+        and bool((guest.nationality or "").strip())
+        and bool((guest.sex or "").strip())
+    )
+    return not has_document and not has_core_identity
+
+
+def is_removable_empty_guest(guest: Guest) -> bool:
+    """Secondary guest that was never submitted to eVisitor and has no identity data."""
+    if guest.is_primary:
+        return False
+    status = evisitor_status_for_guest(guest)
+    if status != EvisitorGuestStatus.NOT_SENT:
+        return False
+    return is_unfilled_guest(guest)
+
+
+def guests_for_checkout(reservation: Reservation) -> list[Guest]:
+    """Guests that remain after removing unfilled secondary slots (simulation, no delete)."""
+    if hasattr(reservation, "_prefetched_objects_cache") and "guests" in getattr(
+        reservation, "_prefetched_objects_cache", {}
+    ):
+        guest_list = list(reservation.guests.all())
+    else:
+        guest_list = list(Guest.objects.filter(reservation_id=reservation.pk))
+    return [guest for guest in guest_list if not is_removable_empty_guest(guest)]
+
+
+def remove_unfilled_secondary_guests(reservation: Reservation) -> int:
+    """Delete unfilled secondary guests before checkout. Returns number deleted."""
+    if hasattr(reservation, "_prefetched_objects_cache") and "guests" in getattr(
+        reservation, "_prefetched_objects_cache", {}
+    ):
+        to_remove = [
+            guest.pk
+            for guest in reservation.guests.all()
+            if is_removable_empty_guest(guest)
+        ]
+    else:
+        to_remove = [
+            guest.pk
+            for guest in Guest.objects.filter(reservation_id=reservation.pk)
+            if is_removable_empty_guest(guest)
+        ]
+    if not to_remove:
+        return 0
+    deleted, _ = Guest.objects.filter(pk__in=to_remove).delete()
+    if hasattr(reservation, "_prefetched_objects_cache"):
+        reservation._prefetched_objects_cache.pop("guests", None)
+    return deleted

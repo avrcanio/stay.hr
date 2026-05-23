@@ -1,5 +1,5 @@
 function internalApiBase(): string {
-  return (process.env.STAY_API_INTERNAL_URL || "http://stay_django:8000").replace(/\/+$/, "");
+  return (process.env.STAY_API_INTERNAL_URL || "http://stay-django:8000").replace(/\/+$/, "");
 }
 
 function bookingToken(): string {
@@ -20,7 +20,8 @@ export async function stayFetch<T>(path: string, opts: StayFetchOptions): Promis
     Accept: "application/json",
   };
   const host = opts.host.split(":")[0].toLowerCase();
-  headers.Host = host;
+  // Node fetch ignores Host; Django resolves tenant from X-Forwarded-Host on internal calls.
+  headers["X-Forwarded-Host"] = host;
 
   const token = opts.token === null ? "" : (opts.token ?? bookingToken());
   if (token) {

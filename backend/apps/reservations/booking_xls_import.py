@@ -16,8 +16,11 @@ from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.properties.models import Property
 from apps.reservations.channel_sync import (
+    IMPORT_SOURCE_BOOKING_PDF,
+    IMPORT_SOURCE_BOOKING_XLS,
     IMPORT_SOURCE_BOOKING_XLS as CHANNEL_BOOKING_XLS,
     incoming_wins,
+    is_pdf_authoritative,
 )
 from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
@@ -26,8 +29,6 @@ from apps.reservations.reservation_units import (
     sync_reservation_units,
 )
 from apps.tenants.models import Tenant
-
-IMPORT_SOURCE_BOOKING_XLS = "booking_xls"
 
 LEGACY_XLS_OLE_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 BLOCKED_BOOKING_EXPORT_EXTENSIONS = (".xlsx", ".xlsm", ".csv", ".txt", ".pdf", ".zip", ".doc", ".docx")
@@ -529,8 +530,10 @@ def _reservation_field_updates_from_row(
     row: BookingXlsRow,
     booker_email: str,
     now: datetime,
+    authoritative_pdf: bool = False,
 ) -> dict[str, Any]:
-    return {
+    import_source = IMPORT_SOURCE_BOOKING_PDF if authoritative_pdf else IMPORT_SOURCE_BOOKING_XLS
+    updates: dict[str, Any] = {
         "property": property,
         "booking_code": row.external_id,
         "check_in": row.check_in_date,
@@ -544,7 +547,7 @@ def _reservation_field_updates_from_row(
         "amount": row.total_amount,
         "currency": row.currency or "EUR",
         "source": "Booking.com",
-        "import_source": IMPORT_SOURCE_BOOKING_XLS,
+        "import_source": import_source,
         "imported_at": now,
         "xls_imported_at": now,
         "booked_at": row.booked_at,
@@ -565,6 +568,9 @@ def _reservation_field_updates_from_row(
         "canceled_at": row.canceled_at,
         "details_pending": False,
     }
+    if authoritative_pdf:
+        updates["pdf_imported_at"] = now
+    return updates
 
 
 @transaction.atomic
@@ -575,6 +581,7 @@ def upsert_reservation_from_xls_row(
     row: BookingXlsRow,
     skip_existing: bool = False,
     existing_mode: ExistingReservationMode | None = None,
+    authoritative_pdf: bool = False,
 ) -> XlsImportResult:
     if existing_mode is None:
         existing_mode = "sync"
@@ -582,12 +589,25 @@ def upsert_reservation_from_xls_row(
     existing = _find_existing_reservation(tenant=tenant, external_id=row.external_id)
     now = timezone.now()
 
+    if existing is not None and is_pdf_authoritative(existing) and not authoritative_pdf:
+        return XlsImportResult(
+            external_id=row.external_id,
+            created=False,
+            skipped=True,
+            updated=False,
+            skip_reason="pdf_locked",
+            reservation_id=existing.id,
+        )
+
+    incoming_source = (
+        IMPORT_SOURCE_BOOKING_PDF if authoritative_pdf else CHANNEL_BOOKING_XLS
+    )
     if (
         existing is not None
         and existing_mode in {"sync", "overwrite"}
         and not incoming_wins(
             existing,
-            source=CHANNEL_BOOKING_XLS,
+            source=incoming_source,
             incoming_at=now,
         )
     ):
@@ -603,6 +623,8 @@ def upsert_reservation_from_xls_row(
     if existing is not None and existing_mode == "sync":
         existing_mode = "overwrite"
 
+    use_pdf_authority = authoritative_pdf and existing_mode == "overwrite"
+
     booker_email = ""
     if row.booker_name and "@" not in row.booker_name:
         slug = re.sub(r"[^a-z0-9]+", ".", row.booker_name.lower()).strip(".")
@@ -614,6 +636,7 @@ def upsert_reservation_from_xls_row(
         row=row,
         booker_email=booker_email,
         now=now,
+        authoritative_pdf=use_pdf_authority or (existing is None and authoritative_pdf),
     )
 
     if existing is not None and existing_mode == "fill_empty":

@@ -2,12 +2,16 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { SessionLocaleSync } from "@/app/_components/SessionLocaleSync";
+import { StayLogo } from "@/app/_components/StayLogo";
 
 type Props = { tenantName?: string };
 
 export function ReceptionNav({ tenantName }: Props) {
   const pathname = usePathname();
   const router = useRouter();
+  const t = useTranslations("nav");
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -16,26 +20,31 @@ export function ReceptionNav({ tenantName }: Props) {
   }
 
   const linkClass = (href: string) =>
-    `rounded-lg px-3 py-2 text-sm font-medium ${
-      pathname === href ? "bg-teal-700 text-white" : "text-stone-600 hover:bg-stone-200"
+    `rounded-xl px-3 py-2 text-sm font-medium transition ${
+      pathname === href
+        ? "bg-stay-blue text-white shadow-sm"
+        : "text-stay-muted hover:bg-stay-blue-light hover:text-stay-blue"
     }`;
 
   return (
-    <header className="border-b border-stone-200 bg-white">
+    <header className="border-b border-stay-border bg-white shadow-sm">
+      <SessionLocaleSync />
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-stone-400">Recepcija</div>
-          <div className="font-bold text-teal-900">{tenantName || "Stay.hr"}</div>
+        <div className="flex min-w-0 flex-col gap-1">
+          <StayLogo href="/" subtitle={t("reception")} />
+          {tenantName ? (
+            <div className="truncate pl-0.5 text-sm font-semibold text-stay-navy">{tenantName}</div>
+          ) : null}
         </div>
         <nav className="flex flex-wrap items-center gap-1">
           <Link href="/" className={linkClass("/")}>
-            Timeline
+            {t("timeline")}
           </Link>
           <Link href="/calendar/rooms" className={linkClass("/calendar/rooms")}>
-            Kalendar
+            {t("calendar")}
           </Link>
           <button type="button" onClick={logout} className="btn-ghost ml-2">
-            Odjava
+            {t("logout")}
           </button>
         </nav>
       </div>

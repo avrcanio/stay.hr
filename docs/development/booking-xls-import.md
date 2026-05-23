@@ -104,6 +104,39 @@ Booking status `cancelled` → `status=canceled`; inače `expected`.
 
 ---
 
+## PDF lock (najjači izvor)
+
+Ručni uvoz iz Booking.com **PDF potvrde** označava rezervaciju poljem `pdf_imported_at` i `import_source=booking_pdf`. Takva rezervacija je **zaključana** protiv automatskih kanala.
+
+| Izvor | Ponašanje |
+|--------|-----------|
+| Smoobu sync (normalan update) | Preskoči (`pdf_locked`) |
+| Smoobu sync (cancellation) | Samo `status=canceled` + `canceled_at` + Smoobu metadata |
+| XLS `--allow-update` / `--fill-empty` | Preskoči (`pdf_locked`) |
+| Ručni PDF upsert | `upsert_reservation_from_xls_row(..., existing_mode='overwrite', authoritative_pdf=True)` |
+
+Prioritet izvora:
+
+```text
+PDF (booking_pdf) > XLS (booking_xls) > Smoobu (smoobu)
+```
+
+Za PDF re-import iz shella:
+
+```python
+upsert_reservation_from_xls_row(
+    tenant=tenant,
+    property=prop,
+    row=row,
+    existing_mode="overwrite",
+    authoritative_pdf=True,
+)
+```
+
+Modifikacija na Booking.com (bez otkaza) zahtijeva novi ručni PDF upsert.
+
+---
+
 ## Push notifikacije
 
 Samo **novo kreirane** rezervacije (`created`) pokreću Celery task `notify_new_reservation` (FCM po tenantu). Preskočene ili `--fill-empty` merge **ne** šalju push.

@@ -7,10 +7,12 @@ from apps.integrations.evisitor.exceptions import (
 )
 from apps.integrations.evisitor.summary import (
     evisitor_status_for_guest,
+    evisitor_summary_for_guests,
     evisitor_summary_for_reservation,
 )
 from apps.reservations.checkout import CheckoutBlockedError, perform_reservation_checkout
 from apps.reservations.face_photo import guest_face_photo_url
+from apps.reservations.guest_slots import guests_for_checkout
 from apps.reservations.models import (
     EvisitorGuestStatus,
     Guest,
@@ -49,10 +51,18 @@ class GuestLiteSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "email",
+            "phone",
+            "date_of_birth",
+            "sex",
+            "address",
             "is_primary",
             "nationality",
             "document_number",
+            "document_type",
+            "date_of_issue",
             "date_of_expiry",
+            "issuing_authority",
+            "personal_id_number",
             "evisitor_status",
             "evisitor_error",
             "face_photo_url",
@@ -283,7 +293,8 @@ class ReservationUpdateSerializer(serializers.ModelSerializer):
             if (
                 current == Reservation.Status.CHECKED_IN
                 and value == Reservation.Status.CHECKED_OUT
-                and evisitor_summary_for_reservation(instance) != "complete"
+                and evisitor_summary_for_guests(guests_for_checkout(instance))
+                != "complete"
             ):
                 raise serializers.ValidationError(
                     "Odjava nije moguća dok svi gosti nisu prijavljeni u eVisitor."

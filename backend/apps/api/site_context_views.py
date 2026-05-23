@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.api.serializers import PropertySummarySerializer, TenantSummarySerializer
+from apps.core.languages import SUPPORTED_LANGUAGES, normalize_language
 from apps.properties.models import Property
 from apps.tenants.models import TenantDomain
 
@@ -44,6 +45,7 @@ class SiteContextView(APIView):
                 ),
                 "domain_type": tenant_domain.domain_type,
                 "branding": branding,
-                "languages": [tenant.default_language],
+                "languages": SUPPORTED_LANGUAGES,
+                "default_language": normalize_language(tenant.default_language),
             }
         )

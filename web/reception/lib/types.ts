@@ -1,4 +1,11 @@
 export const RECEPTION_TOKEN_COOKIE = "stay_device_token";
+export const RECEPTION_SESSION_COOKIE = "stay_sessionid";
+
+export type TenantOption = {
+  id: number;
+  name: string;
+  slug: string;
+};
 
 export type ReservationStatus = "expected" | "checked_in" | "checked_out" | "canceled" | "pending";
 
@@ -32,16 +39,30 @@ export type AppConfig = {
   branding: Record<string, unknown>;
 };
 
+export type GuestLite = {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  date_of_birth: string | null;
+  sex: string;
+  address: string;
+  is_primary: boolean;
+  nationality: string;
+  document_number: string;
+  document_type: string;
+  date_of_issue: string | null;
+  date_of_expiry: string | null;
+  issuing_authority: string;
+  personal_id_number: string;
+  evisitor_status: string;
+  evisitor_error: string;
+  face_photo_url: string;
+};
+
 export type ReservationDetail = Reservation & {
-  guests: Array<{
-    id: number;
-    first_name: string;
-    last_name: string;
-    email: string;
-    is_primary: boolean;
-    nationality: string;
-    evisitor_status: string;
-  }>;
+  guests: GuestLite[];
   booker_name: string;
   booker_phone: string;
   notes: string;
@@ -56,4 +77,21 @@ export type CalendarReservation = {
   room_name: string;
   primary_guest_name: string;
   primary_guest_nationality_iso2: string;
+};
+
+export type CalendarBlock = {
+  id: number | null;
+  unit_id: number;
+  unit_code: string;
+  check_in: string;
+  check_out: string;
+  smoobu_booking_id: string | null;
+  reservation_id: number | null;
+  can_unblock: boolean;
+  source: "hospira" | "smoobu";
+};
+
+export type CalendarSelection = {
+  roomId: number;
+  date: string;
 };

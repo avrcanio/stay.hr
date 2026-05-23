@@ -24,6 +24,7 @@ export type SiteContext = {
   domain_type: string;
   branding: Record<string, unknown>;
   languages: string[];
+  default_language: string;
 };
 
 export type PublicUnit = {

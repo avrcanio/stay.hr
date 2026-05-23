@@ -1,0 +1,45 @@
+{
+  "meta": {
+    "title": "Stay.hr Buchung",
+    "description": "Unterkunft buchen"
+  },
+  "nav": { "booking": "Buchung" },
+  "language": { "label": "Sprache" },
+  "home": {
+    "selectDates": "Wählen Sie Ihre Aufenthaltsdaten und senden Sie eine Buchungsanfrage.",
+    "checkAvailability": "Verfügbarkeit prüfen",
+    "selectProperty": "Objekt auswählen:"
+  },
+  "search": {
+    "title": "Verfügbarkeit — {property}",
+    "dateRange": "{from} → {to} ({nights, plural, one {# Nacht} other {# Nächte}})",
+    "availabilityError": "Verfügbarkeit kann derzeit nicht geprüft werden. Bitte später erneut versuchen.",
+    "maxGuests": "Bis zu {count} Gäste",
+    "occupied": "Belegt",
+    "available": "Verfügbar",
+    "book": "Buchen",
+    "noUnits": "Keine aktiven Einheiten für dieses Objekt.",
+    "checkIn": "Anreise",
+    "checkOut": "Abreise",
+    "update": "Aktualisieren"
+  },
+  "checkout": {
+    "title": "Checkout",
+    "dateRange": "{from} → {to} ({nights, plural, one {# Nacht} other {# Nächte}})",
+    "bookerSection": "Bucherdaten",
+    "bookerName": "Vollständiger Name",
+    "email": "E-Mail",
+    "phone": "Telefon",
+    "guestFirst": "Vorname des Gastes",
+    "guestLast": "Nachname des Gastes",
+    "submit": "Buchung bestätigen",
+    "submitting": "Wird gesendet…",
+    "failed": "Buchung fehlgeschlagen."
+  },
+  "confirmation": {
+    "title": "Buchung eingegangen",
+    "codeLabel": "Buchungsnummer:",
+    "backHome": "Zurück zur Startseite"
+  },
+  "common": { "error": "Fehler" }
+}

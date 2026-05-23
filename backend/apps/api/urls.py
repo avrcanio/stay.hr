@@ -1,5 +1,10 @@
 from django.urls import include, path
 
+from apps.api.auth_views import (
+    ReceptionLoginView,
+    ReceptionLogoutView,
+    ReceptionSessionView,
+)
 from apps.api.views import (
     AppConfigView,
     PublicAvailabilityView,
@@ -11,6 +16,9 @@ from apps.api.site_context_views import SiteContextView
 from apps.api.fcm_views import FcmTokenRegisterView
 
 urlpatterns = [
+    path("auth/reception-login/", ReceptionLoginView.as_view(), name="reception-login"),
+    path("auth/reception-logout/", ReceptionLogoutView.as_view(), name="reception-logout"),
+    path("auth/reception-session/", ReceptionSessionView.as_view(), name="reception-session"),
     path("integrations/", include("apps.api.integrations_urls")),
     path("reception/", include("apps.api.reception_urls")),
     path("rooms/", include("apps.api.rooms_urls")),

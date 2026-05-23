@@ -1,0 +1,120 @@
+{
+  "meta": {
+    "title": "Stay.hr Reception",
+    "description": "Panoramica prenotazioni reception"
+  },
+  "common": {
+    "loading": "Caricamento…",
+    "error": "Errore",
+    "refresh": "Aggiorna",
+    "unknownCountry": "Paese sconosciuto",
+    "guestsCount": "{count} ospite/i",
+    "dash": "—"
+  },
+  "nav": {
+    "reception": "Reception",
+    "timeline": "Timeline",
+    "calendar": "Calendario",
+    "logout": "Esci"
+  },
+  "language": {
+    "label": "Lingua"
+  },
+  "login": {
+    "title": "Reception",
+    "subtitle": "Accedi con il tuo account Stay.hr.",
+    "username": "Username o email",
+    "password": "Password",
+    "tenant": "Tenant",
+    "tenantPlaceholder": "Seleziona tenant…",
+    "submit": "Accedi",
+    "submitting": "Accesso in corso…",
+    "selectTenantRetry": "Seleziona un tenant e clicca di nuovo Accedi.",
+    "failed": "Accesso non riuscito"
+  },
+  "timeline": {
+    "period": "Periodo",
+    "periodToday": "Oggi",
+    "periodWeek": "Settimana",
+    "periodMonth": "Mese",
+    "periodAll": "Tutto",
+    "status": "Stato",
+    "statusAll": "Tutti",
+    "search": "Cerca",
+    "searchPlaceholder": "Nome, camera, ID…",
+    "loadFailed": "Caricamento non riuscito",
+    "noReservations": "Nessuna prenotazione per i filtri selezionati.",
+    "arrivalOn": "arrivo {date}"
+  },
+  "calendar": {
+    "title": "Calendario per camere",
+    "prevMonth": "Mese precedente",
+    "nextMonth": "Mese successivo",
+    "loadRoomsFailed": "Impossibile caricare le camere",
+    "loadRoomFailed": "Impossibile caricare il calendario di {code}",
+    "loadBlocksFailed": "Impossibile caricare i blocchi",
+    "noActiveRooms": "Nessuna camera attiva.",
+    "block": "Blocco",
+    "channelBlocked": "Bloccato su Booking.com",
+    "blocked": "Bloccato",
+    "clickDayHint": "Clicca un giorno nel calendario per i dettagli.",
+    "noItemsForDay": "Nessuna prenotazione o blocco per il giorno selezionato.",
+    "blockTitle": "Blocco · {checkIn} → {checkOut} · {source}",
+    "roomDayAria": "{code}, {date}"
+  },
+  "reservation": {
+    "notFound": "Prenotazione non trovata",
+    "backToTimeline": "← Timeline",
+    "room": "Camera",
+    "status": "Stato",
+    "checkIn": "Check-in",
+    "checkOut": "Check-out",
+    "booker": "Prenotante",
+    "phone": "Telefono",
+    "guestsTitle": "Ospiti ({count})",
+    "notes": "Note",
+    "readOnlyHint": "Vista sola lettura — modifiche sul tablet (Hospira).",
+    "statusExpected": "Atteso",
+    "statusCheckedIn": "Registrato",
+    "statusCheckedOut": "Check-out effettuato",
+    "statusCanceled": "Annullato",
+    "statusPending": "In attesa"
+  },
+  "guest": {
+    "primary": "principale",
+    "noExtraData": "Nessun dato aggiuntivo.",
+    "email": "Email",
+    "phone": "Telefono",
+    "dateOfBirth": "Data di nascita",
+    "sex": "Sesso",
+    "sexMale": "Maschio",
+    "sexFemale": "Femmina",
+    "documentType": "Tipo documento",
+    "documentNumber": "Numero documento",
+    "dateOfIssue": "Data di rilascio",
+    "dateOfExpiry": "Data di scadenza",
+    "issuingAuthority": "Autorità emittente",
+    "personalId": "ID personale",
+    "address": "Indirizzo",
+    "evisitor": "eVisitor",
+    "evisitorError": "Errore eVisitor",
+    "evisitorPending": "In attesa",
+    "evisitorSubmitted": "Inviato",
+    "evisitorFailed": "Errore",
+    "evisitorComplete": "Completato"
+  },
+  "source": {
+    "hospira": "Hospira",
+    "smoobu": "Smoobu"
+  },
+  "errors": {
+    "apiUnavailable": "API non disponibile — riprova più tardi.",
+    "invalidCredentials": "Username o password non validi.",
+    "noStaffAccess": "L'account non ha accesso staff alla reception.",
+    "noTenantAccess": "Nessun tenant assegnato — contatta l'amministratore.",
+    "noReceptionAccess": "Non hai accesso alla reception.",
+    "selectTenant": "Seleziona un tenant per accedere.",
+    "loginFailed": "Accesso non riuscito.",
+    "loginFailedDetail": "Accesso non riuscito: {detail}"
+  }
+}

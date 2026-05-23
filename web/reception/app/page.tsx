@@ -2,36 +2,28 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
+import { CountryFlag } from "@/app/_components/CountryFlag";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
-import type { Reservation, ReservationStatus } from "@/lib/types";
+import { useMonthLabel, useReservationStatusLabel } from "@/lib/i18n-ui";
+import type { Reservation } from "@/lib/types";
+import { reservationStatusClass } from "@/lib/reservationUi";
 import {
   addDaysIso,
   addMonthsIso,
-  monthLabelHr,
   startOfIsoWeekIso,
   startOfMonthIso,
   todayIso,
 } from "@/lib/utils";
 
-const statusLabel: Record<ReservationStatus, string> = {
-  expected: "Očekuje",
-  checked_in: "Prijavljen",
-  checked_out: "Odjavljen",
-  canceled: "Otkazan",
-  pending: "Pending",
-};
-
-const statusClass: Record<string, string> = {
-  expected: "badge-expected",
-  checked_in: "badge-checked_in",
-  checked_out: "badge-checked_out",
-  canceled: "badge-canceled",
-  pending: "badge-expected",
-};
-
 type OverviewMode = "today" | "week" | "month" | "all";
 
 export default function TimelinePage() {
+  const t = useTranslations("timeline");
+  const tc = useTranslations("common");
+  const tr = useTranslations("reservation");
+  const statusLabel = useReservationStatusLabel();
+  const monthLabel = useMonthLabel();
   const [tenantName, setTenantName] = useState("");
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,15 +63,15 @@ export default function TimelinePage() {
       if (periodTo) params.set("period_to", periodTo);
 
       const res = await fetch(`/api/stay/reception/reservations/?${params}`);
-      if (!res.ok) throw new Error("Učitavanje nije uspjelo");
+      if (!res.ok) throw new Error(t("loadFailed"));
       const data = (await res.json()) as Reservation[];
       setReservations(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Greška");
+      setError(err instanceof Error ? err.message : tc("error"));
     } finally {
       setLoading(false);
     }
-  }, [overviewMode, search, status]);
+  }, [overviewMode, search, status, t, tc]);
 
   useEffect(() => {
     void load();
@@ -109,70 +101,71 @@ export default function TimelinePage() {
       <main className="mx-auto max-w-6xl space-y-4 px-4 py-6">
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <div className="text-xs font-semibold uppercase text-stone-500">Period</div>
+            <div className="label">{t("period")}</div>
             <select
               className="input mt-1 w-auto"
               value={overviewMode}
               onChange={(e) => setOverviewMode(e.target.value as OverviewMode)}
             >
-              <option value="today">Danas</option>
-              <option value="week">Tjedan</option>
-              <option value="month">Mjesec</option>
-              <option value="all">Sve</option>
+              <option value="today">{t("periodToday")}</option>
+              <option value="week">{t("periodWeek")}</option>
+              <option value="month">{t("periodMonth")}</option>
+              <option value="all">{t("periodAll")}</option>
             </select>
           </div>
           <div>
-            <div className="text-xs font-semibold uppercase text-stone-500">Status</div>
+            <div className="label">{t("status")}</div>
             <select className="input mt-1 w-auto" value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="">Svi</option>
-              <option value="expected">Očekuje</option>
-              <option value="checked_in">Prijavljen</option>
-              <option value="checked_out">Odjavljen</option>
-              <option value="canceled">Otkazan</option>
+              <option value="">{t("statusAll")}</option>
+              <option value="expected">{tr("statusExpected")}</option>
+              <option value="checked_in">{tr("statusCheckedIn")}</option>
+              <option value="checked_out">{tr("statusCheckedOut")}</option>
+              <option value="canceled">{tr("statusCanceled")}</option>
             </select>
           </div>
           <div className="min-w-[200px] flex-1">
-            <div className="text-xs font-semibold uppercase text-stone-500">Pretraga</div>
+            <div className="label">{t("search")}</div>
             <input
               className="input mt-1"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Ime, soba, ID…"
+              placeholder={t("searchPlaceholder")}
             />
           </div>
           <button type="button" className="btn" onClick={() => void load()}>
-            Osvježi
+            {tc("refresh")}
           </button>
         </div>
 
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
-        {loading ? <p className="text-stone-500">Učitavanje…</p> : null}
+        {loading ? <p className="text-muted">{tc("loading")}</p> : null}
 
-        {!loading && grouped.length === 0 ? (
-          <p className="text-stone-500">Nema rezervacija za odabrane filtere.</p>
-        ) : null}
+        {!loading && grouped.length === 0 ? <p className="text-muted">{t("noReservations")}</p> : null}
 
         {grouped.map(([day, items]) => (
           <section key={day} className="space-y-2">
-            <h2 className="text-sm font-bold uppercase tracking-wide text-stone-500">
-              {monthLabelHr(day)} · dolazak {day}
+            <h2 className="label">
+              {monthLabel(day)} · {t("arrivalOn", { date: day })}
             </h2>
             <ul className="space-y-2">
               {items.map((r) => (
                 <li key={r.id}>
                   <Link
                     href={`/reservations/${r.id}`}
-                    className="card flex flex-wrap items-center justify-between gap-3 px-4 py-3 hover:border-teal-300"
+                    className="card card-hover flex flex-wrap items-center justify-between gap-3 px-4 py-3"
                   >
                     <div>
-                      <div className="font-semibold">{r.primary_guest_name || r.room_name}</div>
-                      <div className="text-sm text-stone-500">
-                        {r.room_name} · {r.check_in_date} → {r.check_out_date} · {r.guests_count}{" "}
-                        gost(a)
+                      <div className="flex items-center gap-2 font-semibold text-stay-navy">
+                        <CountryFlag iso2={r.primary_guest_nationality_iso2} />
+                        <span>{r.primary_guest_name || r.room_name}</span>
+                      </div>
+                      <div className="text-sm text-muted">
+                        {r.room_name} · {r.check_in_date} → {r.check_out_date} ·{" "}
+                        {tc("guestsCount", { count: r.guests_count })}
                       </div>
                     </div>
-                    <span className={`badge ${statusClass[r.status] || "badge-expected"}`}>
-                      {statusLabel[r.status] || r.status}
+                    <span className={`badge ${reservationStatusClass(r.status)}`}>
+                      {statusLabel(r.status)}
                     </span>
                   </Link>
                 </li>

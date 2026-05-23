@@ -9,6 +9,7 @@ from apps.integrations.smoobu.client import SmoobuClient
 from apps.integrations.smoobu.config import SmoobuRuntimeConfig
 from apps.integrations.smoobu.exceptions import SmoobuApiError, SmoobuRatesError
 from apps.properties.models import Unit
+from apps.reservations.models import Reservation
 
 SMOOBU_BLOCKED_CHANNEL_ID = 11
 HOSPIRA_BLOCK_EMAIL = "block@stay.hr.local"
@@ -22,6 +23,7 @@ def block_apartment_dates(
     check_out: date,
     notice: str = "",
     guest_label: str = "Block",
+    reservation: Reservation | None = None,
     client: SmoobuClient | None = None,
 ) -> dict:
     """Create a Smoobu blocked-booking (channel 11) for one apartment and date range."""
@@ -64,6 +66,7 @@ def block_apartment_dates(
         block_row = UnitAvailabilityBlock.objects.create(
             tenant=integration_row.tenant,
             unit=unit,
+            reservation=reservation,
             check_in=check_in,
             check_out=check_out,
             smoobu_booking_id=smoobu_id,

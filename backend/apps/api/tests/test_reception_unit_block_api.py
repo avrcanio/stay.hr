@@ -74,6 +74,33 @@ class ReceptionUnitBlockAPITests(TestCase):
         self.assertEqual(len(data), 1)
         self.assertTrue(data[0]["can_unblock"])
         self.assertEqual(data[0]["unit_code"], "R1")
+        self.assertIsNone(data[0]["reservation_id"])
+
+    def test_list_hospira_blocks_includes_reservation_id(self):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            check_in=date(2026, 10, 4),
+            check_out=date(2026, 10, 5),
+            status=Reservation.Status.PENDING,
+            booker_name="Ante Vrcan",
+        )
+        UnitAvailabilityBlock.objects.create(
+            tenant=self.tenant,
+            unit=self.unit,
+            reservation=reservation,
+            check_in=date(2026, 10, 4),
+            check_out=date(2026, 10, 5),
+            smoobu_booking_id="140631922",
+        )
+        response = self.client.get(
+            "/api/v1/reception/calendar/blocks/?from=2026-10-01&to=2026-10-31",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["reservation_id"], reservation.id)
 
     @patch("apps.integrations.smoobu.blocking_service.SmoobuClient")
     def test_create_block(self, mock_client_cls):
@@ -145,11 +172,12 @@ class ReceptionUnitBlockAPITests(TestCase):
         return_value=[
             {
                 "id": None,
-                "unit_id": self.unit.id,
+                "unit_id": 1,
                 "unit_code": "R1",
                 "check_in": "2026-08-04",
                 "check_out": "2026-08-06",
                 "smoobu_booking_id": "88001",
+                "reservation_id": None,
                 "can_unblock": False,
                 "source": "smoobu",
             }

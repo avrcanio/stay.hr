@@ -7,9 +7,10 @@ from apps.reservations.models import Reservation
 from apps.tenants.models import Tenant
 
 IMPORT_SOURCE_BOOKING_XLS = "booking_xls"
+IMPORT_SOURCE_BOOKING_PDF = "booking_pdf"
 IMPORT_SOURCE_SMOOBU = "smoobu"
 
-ChannelSource = Literal["booking_xls", "smoobu"]
+ChannelSource = Literal["booking_xls", "booking_pdf", "smoobu"]
 
 
 def find_reservation_for_channel_merge(
@@ -53,6 +54,14 @@ def find_reservation_for_channel_merge(
     return None
 
 
+def is_pdf_authoritative(reservation: Reservation) -> bool:
+    return reservation.pdf_imported_at is not None
+
+
+def is_cancellation_status(status: str | None) -> bool:
+    return status == Reservation.Status.CANCELED
+
+
 def opponent_timestamp(
     existing: Reservation,
     *,
@@ -68,7 +77,11 @@ def incoming_wins(
     *,
     source: ChannelSource,
     incoming_at: datetime,
+    incoming_status: str | None = None,
 ) -> bool:
+    if is_pdf_authoritative(existing) and source != IMPORT_SOURCE_BOOKING_PDF:
+        return is_cancellation_status(incoming_status)
+
     opponent_at = opponent_timestamp(existing, source=source)
     if opponent_at is None:
         return True

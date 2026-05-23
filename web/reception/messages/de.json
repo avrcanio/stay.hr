@@ -1,0 +1,120 @@
+{
+  "meta": {
+    "title": "Stay.hr Rezeption",
+    "description": "Rezeptionsübersicht der Reservierungen"
+  },
+  "common": {
+    "loading": "Laden…",
+    "error": "Fehler",
+    "refresh": "Aktualisieren",
+    "unknownCountry": "Unbekanntes Land",
+    "guestsCount": "{count} Gast/Gäste",
+    "dash": "—"
+  },
+  "nav": {
+    "reception": "Rezeption",
+    "timeline": "Timeline",
+    "calendar": "Kalender",
+    "logout": "Abmelden"
+  },
+  "language": {
+    "label": "Sprache"
+  },
+  "login": {
+    "title": "Rezeption",
+    "subtitle": "Melden Sie sich mit Ihrem Stay.hr-Konto an.",
+    "username": "Benutzername oder E-Mail",
+    "password": "Passwort",
+    "tenant": "Tenant",
+    "tenantPlaceholder": "Tenant auswählen…",
+    "submit": "Anmelden",
+    "submitting": "Anmeldung…",
+    "selectTenantRetry": "Wählen Sie einen Tenant und klicken Sie erneut auf Anmelden.",
+    "failed": "Anmeldung fehlgeschlagen"
+  },
+  "timeline": {
+    "period": "Zeitraum",
+    "periodToday": "Heute",
+    "periodWeek": "Woche",
+    "periodMonth": "Monat",
+    "periodAll": "Alle",
+    "status": "Status",
+    "statusAll": "Alle",
+    "search": "Suche",
+    "searchPlaceholder": "Name, Zimmer, ID…",
+    "loadFailed": "Laden fehlgeschlagen",
+    "noReservations": "Keine Reservierungen für die gewählten Filter.",
+    "arrivalOn": "Anreise {date}"
+  },
+  "calendar": {
+    "title": "Zimmerkalender",
+    "prevMonth": "Vorheriger Monat",
+    "nextMonth": "Nächster Monat",
+    "loadRoomsFailed": "Zimmer konnten nicht geladen werden",
+    "loadRoomFailed": "Kalender für {code} konnte nicht geladen werden",
+    "loadBlocksFailed": "Blockierungen konnten nicht geladen werden",
+    "noActiveRooms": "Keine aktiven Zimmer.",
+    "block": "Block",
+    "channelBlocked": "Auf Booking.com blockiert",
+    "blocked": "Blockiert",
+    "clickDayHint": "Klicken Sie auf einen Tag im Kalender für Zimmerdetails.",
+    "noItemsForDay": "Keine Reservierungen oder Blockierungen für den gewählten Tag.",
+    "blockTitle": "Block · {checkIn} → {checkOut} · {source}",
+    "roomDayAria": "{code}, {date}"
+  },
+  "reservation": {
+    "notFound": "Reservierung nicht gefunden",
+    "backToTimeline": "← Timeline",
+    "room": "Zimmer",
+    "status": "Status",
+    "checkIn": "Anreise",
+    "checkOut": "Abreise",
+    "booker": "Bucher",
+    "phone": "Telefon",
+    "guestsTitle": "Gäste ({count})",
+    "notes": "Notizen",
+    "readOnlyHint": "Nur-Lese-Ansicht — Änderungen auf dem Tablet (Hospira).",
+    "statusExpected": "Erwartet",
+    "statusCheckedIn": "Eingecheckt",
+    "statusCheckedOut": "Ausgecheckt",
+    "statusCanceled": "Storniert",
+    "statusPending": "Ausstehend"
+  },
+  "guest": {
+    "primary": "primär",
+    "noExtraData": "Keine weiteren Daten.",
+    "email": "E-Mail",
+    "phone": "Telefon",
+    "dateOfBirth": "Geburtsdatum",
+    "sex": "Geschlecht",
+    "sexMale": "Männlich",
+    "sexFemale": "Weiblich",
+    "documentType": "Dokumenttyp",
+    "documentNumber": "Dokumentnummer",
+    "dateOfIssue": "Ausstellungsdatum",
+    "dateOfExpiry": "Ablaufdatum",
+    "issuingAuthority": "Ausstellende Behörde",
+    "personalId": "Personalausweis",
+    "address": "Adresse",
+    "evisitor": "eVisitor",
+    "evisitorError": "eVisitor-Fehler",
+    "evisitorPending": "Ausstehend",
+    "evisitorSubmitted": "Gesendet",
+    "evisitorFailed": "Fehler",
+    "evisitorComplete": "Abgeschlossen"
+  },
+  "source": {
+    "hospira": "Hospira",
+    "smoobu": "Smoobu"
+  },
+  "errors": {
+    "apiUnavailable": "API nicht verfügbar — bitte später erneut versuchen.",
+    "invalidCredentials": "Ungültiger Benutzername oder Passwort.",
+    "noStaffAccess": "Konto hat keinen Staff-Zugang zur Rezeption.",
+    "noTenantAccess": "Kein Tenant zugewiesen — Administrator kontaktieren.",
+    "noReceptionAccess": "Kein Zugang zur Rezeption.",
+    "selectTenant": "Wählen Sie einen Tenant zur Anmeldung.",
+    "loginFailed": "Anmeldung fehlgeschlagen.",
+    "loginFailedDetail": "Anmeldung fehlgeschlagen: {detail}"
+  }
+}

@@ -165,21 +165,38 @@ class SmoobuBookingIngestTests(TestCase):
         self.assertEqual(reservation.amount, Decimal("999"))
 
     @patch("apps.core.tasks.notify_reservation_status_changed.delay")
-    def test_smoobu_cancels_xls_row_when_newer(self, mock_status_notify):
-        xls_at = timezone.now() - timedelta(days=1)
-        xls_reservation = Reservation.objects.create(
+    def test_smoobu_cancels_pdf_row_without_overwriting_details(self, mock_status_notify):
+        pdf_at = timezone.now() - timedelta(days=1)
+        pdf_reservation = Reservation.objects.create(
             tenant=self.tenant,
             property=self.property,
             external_id="5555555",
             booking_code="BCOM-REF-9001",
-            import_source="booking_xls",
+            import_source="booking_pdf",
             check_in=date(2026, 6, 10),
             check_out=date(2026, 6, 12),
             status=Reservation.Status.EXPECTED,
-            booker_name="XLS Guest",
+            booker_name="PDF Guest",
             amount=Decimal("100"),
-            xls_imported_at=xls_at,
-            imported_at=xls_at,
+            pdf_imported_at=pdf_at,
+            xls_imported_at=pdf_at,
+            imported_at=pdf_at,
+        )
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=pdf_reservation,
+            unit=self.unit,
+            sort_order=0,
+            room_name="Deluxe King Room R1",
+            amount=Decimal("100"),
+        )
+        Guest.objects.create(
+            tenant=self.tenant,
+            reservation=pdf_reservation,
+            first_name="PDF",
+            last_name="Guest",
+            name="PDF Guest",
+            is_primary=True,
         )
 
         result = process_smoobu_booking(
@@ -193,13 +210,50 @@ class SmoobuBookingIngestTests(TestCase):
 
         self.assertFalse(result.skipped)
         self.assertTrue(result.updated)
-        xls_reservation.refresh_from_db()
-        self.assertEqual(xls_reservation.status, Reservation.Status.CANCELED)
-        self.assertEqual(xls_reservation.external_id, "5555555")
-        self.assertEqual(xls_reservation.smoobu_booking_id, "9001002")
-        self.assertEqual(xls_reservation.import_source, IMPORT_SOURCE_SMOOBU)
+        pdf_reservation.refresh_from_db()
+        self.assertEqual(pdf_reservation.status, Reservation.Status.CANCELED)
+        self.assertEqual(pdf_reservation.external_id, "5555555")
+        self.assertEqual(pdf_reservation.smoobu_booking_id, "9001002")
+        self.assertEqual(pdf_reservation.import_source, "booking_pdf")
+        self.assertEqual(pdf_reservation.booker_name, "PDF Guest")
+        self.assertEqual(pdf_reservation.amount, Decimal("100"))
+        self.assertEqual(ReservationUnit.objects.filter(reservation=pdf_reservation).count(), 1)
+        self.assertEqual(Guest.objects.filter(reservation=pdf_reservation).count(), 1)
         self.assertEqual(Reservation.objects.filter(tenant=self.tenant).count(), 1)
         mock_status_notify.assert_called_once()
+
+    def test_skips_smoobu_update_when_pdf_locked(self):
+        pdf_at = timezone.now()
+        Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="5555555",
+            booking_code="BCOM-REF-9001",
+            import_source="booking_pdf",
+            check_in=date(2026, 6, 10),
+            check_out=date(2026, 6, 12),
+            status=Reservation.Status.EXPECTED,
+            booker_name="PDF Guest",
+            amount=Decimal("100"),
+            pdf_imported_at=pdf_at,
+            xls_imported_at=pdf_at,
+            imported_at=pdf_at,
+        )
+
+        result = process_smoobu_booking(
+            self.integration,
+            _sample_booking(
+                id=9001002,
+                **{"price": 999, "modified-at": "2026-06-03 09:00"},
+            ),
+        )
+
+        self.assertTrue(result.skipped)
+        self.assertEqual(result.skip_reason, "pdf_locked")
+        reservation = Reservation.objects.get(booking_code="BCOM-REF-9001")
+        self.assertEqual(reservation.booker_name, "PDF Guest")
+        self.assertEqual(reservation.amount, Decimal("100"))
+        self.assertEqual(reservation.status, Reservation.Status.EXPECTED)
 
     def test_skips_stale_smoobu_when_xls_newer(self):
         xls_at = timezone.now()
@@ -256,3 +310,69 @@ class SmoobuBookingIngestTests(TestCase):
             self.integration.get_config_dict().get("last_sync_modified_from"),
             "2026-06-05 11:00",
         )
+
+    def test_skips_blocked_booking_ingest(self):
+        result = process_smoobu_booking(
+            self.integration,
+            _sample_booking(
+                id=9003001,
+                **{
+                    "reference-id": None,
+                    "is-blocked-booking": True,
+                    "channel": {"id": 11, "name": "Blocked channel"},
+                    "guest-name": "Block R1",
+                },
+            ),
+        )
+
+        self.assertTrue(result.skipped)
+        self.assertEqual(result.skip_reason, "blocked_booking")
+        self.assertFalse(
+            Reservation.objects.filter(
+                tenant=self.tenant,
+                smoobu_booking_id="9003001",
+            ).exists()
+        )
+
+    def test_deletes_existing_ghost_on_blocked_sync(self):
+        ghost = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="9003002",
+            smoobu_booking_id="9003002",
+            import_source=IMPORT_SOURCE_SMOOBU,
+            source="Blocked channel",
+            booker_name="Block R1",
+            check_in=date(2026, 6, 10),
+            check_out=date(2026, 6, 12),
+            status=Reservation.Status.CANCELED,
+            adults_count=1,
+            units_count=1,
+            nights_count=2,
+            currency="EUR",
+            amount=Decimal("0"),
+        )
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=ghost,
+            unit=self.unit,
+            room_name=self.unit.name,
+            sort_order=0,
+        )
+
+        result = process_smoobu_booking(
+            self.integration,
+            _sample_booking(
+                id=9003002,
+                **{
+                    "reference-id": None,
+                    "is-blocked-booking": True,
+                    "channel": {"id": 11, "name": "Blocked channel"},
+                    "guest-name": "Block R1",
+                },
+            ),
+        )
+
+        self.assertTrue(result.skipped)
+        self.assertEqual(result.skip_reason, "blocked_booking")
+        self.assertFalse(Reservation.objects.filter(pk=ghost.pk).exists())

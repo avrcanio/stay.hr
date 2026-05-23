@@ -1,0 +1,45 @@
+{
+  "meta": {
+    "title": "Stay.hr Prenotazione",
+    "description": "Prenotazione alloggio"
+  },
+  "nav": { "booking": "Prenotazione" },
+  "language": { "label": "Lingua" },
+  "home": {
+    "selectDates": "Seleziona le date del soggiorno e invia una richiesta di prenotazione.",
+    "checkAvailability": "Verifica disponibilità",
+    "selectProperty": "Seleziona la struttura:"
+  },
+  "search": {
+    "title": "Disponibilità — {property}",
+    "dateRange": "{from} → {to} ({nights, plural, one {# notte} other {# notti}})",
+    "availabilityError": "Impossibile verificare la disponibilità al momento. Riprova più tardi.",
+    "maxGuests": "Fino a {count} ospiti",
+    "occupied": "Occupato",
+    "available": "Disponibile",
+    "book": "Prenota",
+    "noUnits": "Nessuna unità attiva per questa struttura.",
+    "checkIn": "Check-in",
+    "checkOut": "Check-out",
+    "update": "Aggiorna"
+  },
+  "checkout": {
+    "title": "Checkout",
+    "dateRange": "{from} → {to} ({nights, plural, one {# notte} other {# notti}})",
+    "bookerSection": "Dati del prenotante",
+    "bookerName": "Nome completo",
+    "email": "Email",
+    "phone": "Telefono",
+    "guestFirst": "Nome ospite",
+    "guestLast": "Cognome ospite",
+    "submit": "Conferma prenotazione",
+    "submitting": "Invio…",
+    "failed": "Prenotazione non riuscita."
+  },
+  "confirmation": {
+    "title": "Prenotazione ricevuta",
+    "codeLabel": "Numero prenotazione:",
+    "backHome": "Torna alla home"
+  },
+  "common": { "error": "Errore" }
+}

@@ -1,0 +1,120 @@
+{
+  "meta": {
+    "title": "Stay.hr Recepcija",
+    "description": "Recepcijski pregled rezervacija"
+  },
+  "common": {
+    "loading": "Učitavanje…",
+    "error": "Greška",
+    "refresh": "Osvježi",
+    "unknownCountry": "Nepoznata država",
+    "guestsCount": "{count} gost(a)",
+    "dash": "—"
+  },
+  "nav": {
+    "reception": "Recepcija",
+    "timeline": "Timeline",
+    "calendar": "Kalendar",
+    "logout": "Odjava"
+  },
+  "language": {
+    "label": "Jezik"
+  },
+  "login": {
+    "title": "Recepcija",
+    "subtitle": "Prijavite se Stay.hr računom.",
+    "username": "Korisničko ime ili email",
+    "password": "Lozinka",
+    "tenant": "Tenant",
+    "tenantPlaceholder": "Odaberite tenant…",
+    "submit": "Prijavi se",
+    "submitting": "Prijavljivanje…",
+    "selectTenantRetry": "Odaberite tenant i ponovno kliknite Prijavi se.",
+    "failed": "Prijava nije uspjela"
+  },
+  "timeline": {
+    "period": "Period",
+    "periodToday": "Danas",
+    "periodWeek": "Tjedan",
+    "periodMonth": "Mjesec",
+    "periodAll": "Sve",
+    "status": "Status",
+    "statusAll": "Svi",
+    "search": "Pretraga",
+    "searchPlaceholder": "Ime, soba, ID…",
+    "loadFailed": "Učitavanje nije uspjelo",
+    "noReservations": "Nema rezervacija za odabrane filtere.",
+    "arrivalOn": "dolazak {date}"
+  },
+  "calendar": {
+    "title": "Kalendar po sobama",
+    "prevMonth": "Prethodni mjesec",
+    "nextMonth": "Sljedeći mjesec",
+    "loadRoomsFailed": "Učitavanje soba nije uspjelo",
+    "loadRoomFailed": "Učitavanje kalendara za {code} nije uspjelo",
+    "loadBlocksFailed": "Učitavanje blokova nije uspjelo",
+    "noActiveRooms": "Nema aktivnih soba.",
+    "block": "Blok",
+    "channelBlocked": "Booking.com blokirano",
+    "blocked": "Blokirano",
+    "clickDayHint": "Kliknite dan u kalendaru za detalje sobe.",
+    "noItemsForDay": "Nema rezervacija ni blokova za odabrani dan.",
+    "blockTitle": "Blok · {checkIn} → {checkOut} · {source}",
+    "roomDayAria": "{code}, {date}"
+  },
+  "reservation": {
+    "notFound": "Rezervacija nije pronađena",
+    "backToTimeline": "← Timeline",
+    "room": "Soba",
+    "status": "Status",
+    "checkIn": "Dolazak",
+    "checkOut": "Odlazak",
+    "booker": "Booker",
+    "phone": "Telefon",
+    "guestsTitle": "Gosti ({count})",
+    "notes": "Napomena",
+    "readOnlyHint": "Read-only pregled — izmjene na tabletu (Hospira).",
+    "statusExpected": "Očekuje",
+    "statusCheckedIn": "Prijavljen",
+    "statusCheckedOut": "Odjavljen",
+    "statusCanceled": "Otkazan",
+    "statusPending": "Pending"
+  },
+  "guest": {
+    "primary": "primarni",
+    "noExtraData": "Nema dodatnih podataka.",
+    "email": "Email",
+    "phone": "Telefon",
+    "dateOfBirth": "Datum rođenja",
+    "sex": "Spol",
+    "sexMale": "Muški",
+    "sexFemale": "Ženski",
+    "documentType": "Tip dokumenta",
+    "documentNumber": "Broj dokumenta",
+    "dateOfIssue": "Datum izdavanja",
+    "dateOfExpiry": "Datum isteka",
+    "issuingAuthority": "Izdavatelj",
+    "personalId": "OIB",
+    "address": "Adresa",
+    "evisitor": "eVisitor",
+    "evisitorError": "eVisitor greška",
+    "evisitorPending": "Na čekanju",
+    "evisitorSubmitted": "Poslano",
+    "evisitorFailed": "Greška",
+    "evisitorComplete": "Završeno"
+  },
+  "source": {
+    "hospira": "Hospira",
+    "smoobu": "Smoobu"
+  },
+  "errors": {
+    "apiUnavailable": "API nije dostupan — pokušajte kasnije.",
+    "invalidCredentials": "Neispravno korisničko ime ili lozinka.",
+    "noStaffAccess": "Račun nema staff pristup recepciji.",
+    "noTenantAccess": "Račun nema dodijeljen tenant — kontaktirajte administratora.",
+    "noReceptionAccess": "Nemate pristup recepciji.",
+    "selectTenant": "Odaberite tenant za prijavu.",
+    "loginFailed": "Prijava nije uspjela.",
+    "loginFailedDetail": "Prijava nije uspjela: {detail}"
+  }
+}

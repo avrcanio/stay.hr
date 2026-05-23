@@ -1,0 +1,45 @@
+{
+  "meta": {
+    "title": "Stay.hr Reservas",
+    "description": "Reserva de alojamiento"
+  },
+  "nav": { "booking": "Reserva" },
+  "language": { "label": "Idioma" },
+  "home": {
+    "selectDates": "Seleccione las fechas de estancia y envíe una solicitud de reserva.",
+    "checkAvailability": "Comprobar disponibilidad",
+    "selectProperty": "Seleccione el alojamiento:"
+  },
+  "search": {
+    "title": "Disponibilidad — {property}",
+    "dateRange": "{from} → {to} ({nights, plural, one {# noche} other {# noches}})",
+    "availabilityError": "No se puede comprobar la disponibilidad ahora. Inténtelo más tarde.",
+    "maxGuests": "Hasta {count} huéspedes",
+    "occupied": "Ocupado",
+    "available": "Disponible",
+    "book": "Reservar",
+    "noUnits": "No hay unidades activas para este alojamiento.",
+    "checkIn": "Entrada",
+    "checkOut": "Salida",
+    "update": "Actualizar"
+  },
+  "checkout": {
+    "title": "Checkout",
+    "dateRange": "{from} → {to} ({nights, plural, one {# noche} other {# noches}})",
+    "bookerSection": "Datos del reservante",
+    "bookerName": "Nombre completo",
+    "email": "Email",
+    "phone": "Teléfono",
+    "guestFirst": "Nombre del huésped",
+    "guestLast": "Apellido del huésped",
+    "submit": "Confirmar reserva",
+    "submitting": "Enviando…",
+    "failed": "La reserva no se completó."
+  },
+  "confirmation": {
+    "title": "Reserva recibida",
+    "codeLabel": "Número de reserva:",
+    "backHome": "Volver al inicio"
+  },
+  "common": { "error": "Error" }
+}

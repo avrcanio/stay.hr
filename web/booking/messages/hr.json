@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "title": "Stay.hr Booking",
+    "description": "Rezervacija smještaja"
+  },
+  "nav": {
+    "booking": "Rezervacija"
+  },
+  "language": {
+    "label": "Jezik"
+  },
+  "home": {
+    "selectDates": "Odaberite datume boravka i pošaljite upit za rezervaciju.",
+    "checkAvailability": "Provjeri dostupnost",
+    "selectProperty": "Odaberite objekt:"
+  },
+  "search": {
+    "title": "Dostupnost — {property}",
+    "dateRange": "{from} → {to} ({nights, plural, one {# noć} few {# noći} other {# noći}})",
+    "availabilityError": "Dostupnost trenutno nije moguće provjeriti. Pokušajte ponovno kasnije.",
+    "maxGuests": "Do {count} gostiju",
+    "occupied": "Zauzeto",
+    "available": "Dostupno",
+    "book": "Rezerviraj",
+    "noUnits": "Nema aktivnih jedinica za ovaj objekt.",
+    "checkIn": "Dolazak",
+    "checkOut": "Odlazak",
+    "update": "Ažuriraj"
+  },
+  "checkout": {
+    "title": "Checkout",
+    "dateRange": "{from} → {to} ({nights, plural, one {# noć} few {# noći} other {# noći}})",
+    "bookerSection": "Podaci bookera",
+    "bookerName": "Ime i prezime",
+    "email": "Email",
+    "phone": "Telefon",
+    "guestFirst": "Ime gosta",
+    "guestLast": "Prezime gosta",
+    "submit": "Potvrdi rezervaciju",
+    "submitting": "Slanje…",
+    "failed": "Rezervacija nije uspjela."
+  },
+  "confirmation": {
+    "title": "Rezervacija zaprimljena",
+    "codeLabel": "Broj rezervacije:",
+    "backHome": "Natrag na početnu"
+  },
+  "common": {
+    "error": "Greška"
+  }
+}

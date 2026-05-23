@@ -5,9 +5,12 @@ from django.utils import timezone
 
 from apps.properties.models import Property
 from apps.reservations.channel_sync import (
+    IMPORT_SOURCE_BOOKING_PDF,
     IMPORT_SOURCE_BOOKING_XLS,
     IMPORT_SOURCE_SMOOBU,
     incoming_wins,
+    is_cancellation_status,
+    is_pdf_authoritative,
 )
 from apps.reservations.models import Reservation
 from apps.tenants.models import Tenant
@@ -66,4 +69,51 @@ class ChannelSyncTests(TestCase):
         reservation = self._reservation(xls_imported_at=ts)
         self.assertTrue(
             incoming_wins(reservation, source=IMPORT_SOURCE_SMOOBU, incoming_at=ts)
+        )
+
+    def test_pdf_authoritative_blocks_smoobu_update(self):
+        pdf_at = timezone.now()
+        reservation = self._reservation(
+            pdf_imported_at=pdf_at,
+            import_source=IMPORT_SOURCE_BOOKING_PDF,
+        )
+        self.assertTrue(is_pdf_authoritative(reservation))
+        self.assertFalse(
+            incoming_wins(
+                reservation,
+                source=IMPORT_SOURCE_SMOOBU,
+                incoming_at=timezone.now() + timedelta(days=1),
+                incoming_status=Reservation.Status.EXPECTED,
+            )
+        )
+
+    def test_pdf_authoritative_allows_smoobu_cancellation(self):
+        pdf_at = timezone.now()
+        reservation = self._reservation(
+            pdf_imported_at=pdf_at,
+            import_source=IMPORT_SOURCE_BOOKING_PDF,
+        )
+        self.assertTrue(
+            incoming_wins(
+                reservation,
+                source=IMPORT_SOURCE_SMOOBU,
+                incoming_at=timezone.now() + timedelta(days=1),
+                incoming_status=Reservation.Status.CANCELED,
+            )
+        )
+        self.assertTrue(is_cancellation_status(Reservation.Status.CANCELED))
+
+    def test_pdf_reimport_uses_timestamp_logic(self):
+        pdf_at = timezone.now() - timedelta(hours=1)
+        reservation = self._reservation(
+            pdf_imported_at=pdf_at,
+            import_source=IMPORT_SOURCE_BOOKING_PDF,
+            smoobu_modified_at=timezone.now(),
+        )
+        self.assertTrue(
+            incoming_wins(
+                reservation,
+                source=IMPORT_SOURCE_BOOKING_PDF,
+                incoming_at=timezone.now(),
+            )
         )

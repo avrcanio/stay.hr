@@ -10,10 +10,12 @@ services:
       - ./data/media:/app/backend/media
       - ./hospira-fc0dc-f77596470912.json:/run/secrets/firebase-service-account.json:ro
     networks:
-      - postgis
-      - proxy
-      - stay_internal
-      - hetzner_net
+      postgis: {}
+      proxy: {}
+      hetzner_net: {}
+      stay_internal:
+        aliases:
+          - stay-django
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
@@ -73,8 +75,9 @@ services:
     env_file:
       - .env
     environment:
-      STAY_API_INTERNAL_URL: http://stay_django:8000
+      STAY_API_INTERNAL_URL: http://stay-django:8000
       PORT: "3000"
+      HOSTNAME: "0.0.0.0"
     networks:
       - proxy
       - stay_internal
@@ -101,7 +104,7 @@ services:
     container_name: stay_web_reception
     restart: unless-stopped
     environment:
-      STAY_API_INTERNAL_URL: http://stay_django:8000
+      STAY_API_INTERNAL_URL: http://stay-django:8000
       STAY_RECEPTION_HOST: app.stay.hr
       PORT: "3000"
     networks:

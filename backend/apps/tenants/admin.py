@@ -6,12 +6,12 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
 from apps.core.admin import SuperuserOnlyAdminMixin, TenantScopedAdminMixin
-from apps.core.admin import SuperuserOnlyAdminMixin, TenantScopedAdminMixin
 from apps.tenants.cloudflare.client import CloudflareAPIError
 from apps.tenants.cloudflare.dns import provision_tenant_domain_dns
 from apps.tenants.models import (
     VALID_SCOPES,
     ApiApplication,
+    StaffProfile,
     Tenant,
     TenantDomain,
     TenantMembership,
@@ -45,6 +45,15 @@ class TenantMembershipInline(admin.TabularInline):
     raw_id_fields = ("tenant",)
     verbose_name = "Tenant access"
     verbose_name_plural = "Tenant access"
+
+
+class StaffProfileInline(admin.StackedInline):
+    model = StaffProfile
+    extra = 0
+    max_num = 1
+    can_delete = False
+    fields = ("preferred_language", "updated_at")
+    readonly_fields = ("updated_at",)
 
 
 @admin.register(Tenant)
@@ -277,4 +286,4 @@ admin.site.unregister(User)
 
 @admin.register(User)
 class StayUserAdmin(SuperuserOnlyAdminMixin, DjangoUserAdmin):
-    inlines = list(DjangoUserAdmin.inlines) + [TenantMembershipInline]
+    inlines = list(DjangoUserAdmin.inlines) + [StaffProfileInline, TenantMembershipInline]

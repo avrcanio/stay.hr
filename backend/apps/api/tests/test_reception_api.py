@@ -140,6 +140,46 @@ class ReceptionAPITests(TestCase):
             "tablet-checkout",
         )
 
+    @patch("apps.core.tasks.notify_reservation_status_changed.delay")
+    @patch("apps.reservations.checkout.checkout_reservation_guests_in_evisitor")
+    def test_patch_checkout_removes_unfilled_secondary_guests(
+        self,
+        mock_evisitor_checkout,
+        mock_notify_status,
+    ):
+        from apps.reservations.guest_slots import PLACEHOLDER_FIRST, PLACEHOLDER_LAST
+        from apps.reservations.models import EvisitorGuestStatus
+
+        self.reservation.status = Reservation.Status.CHECKED_IN
+        self.reservation.save(update_fields=["status", "updated_at"])
+        self.guest.evisitor_status = EvisitorGuestStatus.SENT
+        self.guest.save(update_fields=["evisitor_status"])
+        placeholder = Guest.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            first_name=PLACEHOLDER_FIRST,
+            last_name=PLACEHOLDER_LAST,
+            name="Novi gost",
+            is_primary=False,
+            evisitor_status=EvisitorGuestStatus.NOT_SENT,
+        )
+        mock_evisitor_checkout.return_value = []
+
+        response = self.client.patch(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            {"status": Reservation.Status.CHECKED_OUT},
+            format="json",
+            HTTP_AUTHORIZATION=self.auth["HTTP_AUTHORIZATION"],
+            HTTP_X_INSTALLATION_ID="tablet-checkout-cleanup",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], Reservation.Status.CHECKED_OUT)
+        self.assertFalse(Guest.objects.filter(pk=placeholder.pk).exists())
+        mock_evisitor_checkout.assert_called_once()
+        self.reservation.refresh_from_db()
+        self.assertEqual(self.reservation.status, Reservation.Status.CHECKED_OUT)
+
     def test_create_guest(self):
         response = self.client.post(
             f"/api/v1/reception/reservations/{self.reservation.id}/guests/",

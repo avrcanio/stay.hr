@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "title": "Stay.hr Booking",
+    "description": "Accommodation booking"
+  },
+  "nav": {
+    "booking": "Booking"
+  },
+  "language": {
+    "label": "Language"
+  },
+  "home": {
+    "selectDates": "Select your stay dates and submit a booking request.",
+    "checkAvailability": "Check availability",
+    "selectProperty": "Select property:"
+  },
+  "search": {
+    "title": "Availability — {property}",
+    "dateRange": "{from} → {to} ({nights, plural, one {# night} other {# nights}})",
+    "availabilityError": "Availability cannot be checked right now. Please try again later.",
+    "maxGuests": "Up to {count} guests",
+    "occupied": "Occupied",
+    "available": "Available",
+    "book": "Book",
+    "noUnits": "No active units for this property.",
+    "checkIn": "Check-in",
+    "checkOut": "Check-out",
+    "update": "Update"
+  },
+  "checkout": {
+    "title": "Checkout",
+    "dateRange": "{from} → {to} ({nights, plural, one {# night} other {# nights}})",
+    "bookerSection": "Booker details",
+    "bookerName": "Full name",
+    "email": "Email",
+    "phone": "Phone",
+    "guestFirst": "Guest first name",
+    "guestLast": "Guest last name",
+    "submit": "Confirm booking",
+    "submitting": "Submitting…",
+    "failed": "Booking failed."
+  },
+  "confirmation": {
+    "title": "Booking received",
+    "codeLabel": "Booking number:",
+    "backHome": "Back to home"
+  },
+  "common": {
+    "error": "Error"
+  }
+}

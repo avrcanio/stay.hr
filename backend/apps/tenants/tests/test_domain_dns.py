@@ -5,6 +5,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from apps.api.site_context_views import SiteContextView
 from apps.properties.models import Property
 from apps.tenants.cloudflare.dns import apex_zone_name, zone_name_for_tenant_domain
+from apps.tenants.middleware import TenantHostMiddleware, resolve_tenant_host
 from apps.tenants.models import Tenant, TenantDomain
 
 
@@ -44,12 +45,31 @@ class SiteContextViewTests(TestCase):
         self.assertEqual(response.data["tenant"]["slug"], "uzorita")
         self.assertEqual(response.data["property"]["slug"], "uzorita")
         self.assertEqual(response.data["branding"]["primary_color"], "#123456")
-        self.assertEqual(response.data["languages"], ["hr"])
+        self.assertEqual(response.data["languages"], ["hr", "en", "es", "fr", "de", "it"])
+        self.assertEqual(response.data["default_language"], "hr")
 
     def test_site_context_unknown_host_returns_404(self):
         request = self.factory.get("/api/v1/public/site-context/", HTTP_HOST="unknown.example")
         response = SiteContextView.as_view()(request)
         self.assertEqual(response.status_code, 404)
+
+    def test_middleware_resolves_host_from_x_forwarded_on_internal_bff(self):
+        request = self.factory.get(
+            "/api/v1/public/site-context/",
+            HTTP_HOST="stay-django:8000",
+            HTTP_X_FORWARDED_HOST="booking.uzorita.hr",
+        )
+        TenantHostMiddleware(lambda req: req)(request)
+        self.assertEqual(request.tenant.slug, "uzorita")
+        self.assertEqual(request.tenant_domain.domain, "booking.uzorita.hr")
+
+    def test_resolve_tenant_host_prefers_forwarded_on_internal(self):
+        request = self.factory.get(
+            "/",
+            HTTP_HOST="stay-django",
+            HTTP_X_FORWARDED_HOST="booking.uzorita.hr",
+        )
+        self.assertEqual(resolve_tenant_host(request), "booking.uzorita.hr")
 
 
 class CloudflareDnsHelperTests(TestCase):

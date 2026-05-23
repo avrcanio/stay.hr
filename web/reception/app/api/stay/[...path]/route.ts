@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getServerToken, stayFetch } from "@/lib/stay-server";
+import { buildStayAuthHeaders } from "@/lib/stay-server";
 
 type RouteContext = { params: Promise<{ path: string[] }> };
 
 async function proxy(request: NextRequest, pathSegments: string[]) {
-  const token = await getServerToken();
-  if (!token) {
+  const authHeaders = await buildStayAuthHeaders();
+  if (!authHeaders) {
     return NextResponse.json({ detail: "Not authenticated" }, { status: 401 });
   }
 
@@ -14,11 +14,7 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
   const url = new URL(request.url);
   const query = url.search;
 
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    Authorization: `Bearer ${token}`,
-    Host: (process.env.STAY_RECEPTION_HOST || "app.stay.hr").split(":")[0],
-  };
+  const headers: Record<string, string> = { ...authHeaders };
 
   const init: RequestInit = {
     method: request.method,
@@ -39,13 +35,24 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
     "",
   );
   const upstream = await fetch(`${internal}${path}${query}`, init);
-  const text = await upstream.text();
+  const contentType = upstream.headers.get("content-type") || "application/json";
+  const isBinary =
+    contentType.startsWith("image/") ||
+    contentType.includes("octet-stream") ||
+    contentType.startsWith("application/pdf");
 
-  return new NextResponse(text, {
+  const body = isBinary ? await upstream.arrayBuffer() : await upstream.text();
+
+  const responseHeaders: Record<string, string> = {
+    "Content-Type": contentType,
+  };
+  if (isBinary && upstream.headers.get("cache-control")) {
+    responseHeaders["Cache-Control"] = upstream.headers.get("cache-control")!;
+  }
+
+  return new NextResponse(body, {
     status: upstream.status,
-    headers: {
-      "Content-Type": upstream.headers.get("content-type") || "application/json",
-    },
+    headers: responseHeaders,
   });
 }
 

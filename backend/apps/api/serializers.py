@@ -3,7 +3,7 @@ import secrets
 from rest_framework import serializers
 
 from apps.properties.models import Property, Unit, UnitBed, UnitBathroom
-from apps.reservations.models import Guest, Reservation
+from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.tenants.models import Tenant
 
 
@@ -132,6 +132,7 @@ class GuestInputSerializer(serializers.Serializer):
 
 class PublicReservationCreateSerializer(serializers.Serializer):
     property_slug = serializers.SlugField()
+    unit_id = serializers.IntegerField()
     check_in = serializers.DateField()
     check_out = serializers.DateField()
     booker_name = serializers.CharField(max_length=255)
@@ -152,13 +153,10 @@ class PublicReservationCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"check_out": "Check-out must be after check-in."}
             )
-        return attrs
 
-    def create(self, validated_data):
         tenant = self.context["tenant"]
-        property_slug = validated_data.pop("property_slug")
-        guests_data = validated_data.pop("guests", [])
-        total_amount = validated_data.pop("total_amount", None)
+        property_slug = attrs["property_slug"]
+        unit_id = attrs["unit_id"]
 
         try:
             prop = Property.objects.get(tenant=tenant, slug=property_slug)
@@ -166,6 +164,27 @@ class PublicReservationCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"property_slug": "Property not found."}
             ) from exc
+
+        unit = (
+            Unit.objects.for_tenant(tenant)
+            .filter(pk=unit_id, property=prop, is_active=True)
+            .first()
+        )
+        if unit is None:
+            raise serializers.ValidationError({"unit_id": "Unit not found for this property."})
+
+        attrs["property"] = prop
+        attrs["unit"] = unit
+        return attrs
+
+    def create(self, validated_data):
+        tenant = self.context["tenant"]
+        prop = validated_data.pop("property")
+        unit = validated_data.pop("unit")
+        validated_data.pop("property_slug")
+        validated_data.pop("unit_id")
+        guests_data = validated_data.pop("guests", [])
+        total_amount = validated_data.pop("total_amount", None)
 
         booking_code = self._generate_booking_code(tenant)
         reservation = Reservation.objects.create(
@@ -181,6 +200,15 @@ class PublicReservationCreateSerializer(serializers.Serializer):
             currency=validated_data.get("currency", "EUR"),
             source=validated_data.get("source", "api"),
             status=Reservation.Status.PENDING,
+        )
+
+        ReservationUnit.objects.create(
+            tenant=tenant,
+            reservation=reservation,
+            unit=unit,
+            sort_order=0,
+            room_name=unit.name or unit.code,
+            amount=total_amount,
         )
 
         for guest_data in guests_data:
