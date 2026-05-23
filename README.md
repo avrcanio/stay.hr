@@ -129,6 +129,8 @@ cp scripts/.env.example scripts/.env
 
 Upserts proxied A records for `api.stay.hr` and `admin.stay.hr` pointing at this server.
 
+**Web frontend domene** (booking, recepcija, wildcard `*.stay.hr`): vidi [docs/operations/domain-setup.md](docs/operations/domain-setup.md).
+
 Verify:
 
 ```bash
