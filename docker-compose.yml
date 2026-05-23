@@ -70,9 +70,10 @@ services:
     image: stay-hr-web-booking:latest
     container_name: stay_web_booking
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       STAY_API_INTERNAL_URL: http://stay_django:8000
-      STAY_WEB_APP: booking
       PORT: "3000"
     networks:
       - proxy
@@ -101,7 +102,7 @@ services:
     restart: unless-stopped
     environment:
       STAY_API_INTERNAL_URL: http://stay_django:8000
-      STAY_WEB_APP: reception
+      STAY_RECEPTION_HOST: app.stay.hr
       PORT: "3000"
     networks:
       - proxy

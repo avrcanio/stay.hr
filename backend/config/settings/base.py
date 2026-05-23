@@ -55,6 +55,9 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+if DEBUG:
+    MIDDLEWARE.insert(0, "apps.core.dev_cors.DevCorsMiddleware")
+
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 

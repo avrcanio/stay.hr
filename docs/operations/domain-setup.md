@@ -1,6 +1,6 @@
-# Postavljanje domena (booking + recepcija)
+# Operacije Stay.hr
 
-Operativne upute za domene web frontenda Stay.hr platforme.
+Operativne upute: **domene** (booking + recepcija web), **deploy** s GitHuba, **Hospira** reception API (sync-versions).
 
 **Repo na serveru:** `/opt/stacks/stay.hr`  
 **Deploy:** `git pull` + `./scripts/deploy.sh` (vidi [Deploy s GitHuba](#deploy-s-githuba))
@@ -240,9 +240,24 @@ git pull
 ./scripts/deploy.sh
 ```
 
-`deploy.sh` rebuild-a image ako ima novih migracija; inače restart servisa.
+`deploy.sh` rebuild-a image ako:
 
-**Ova uputa** (`docs/operations/domain-setup.md`) dolazi na server automatski s `git pull` — nema zasebnog koraka.
+- ima novih migracija (datoteke ili neprimijenjenih u bazi), ili
+- se **backend Python kod** promijenio od zadnjeg builda (`backend/**/*.py`, `requirements.txt`, `Dockerfile`)
+
+Inače samo `docker compose restart`. Na kraju pokreće `python manage.py check`.
+
+**Važno:** samo `docker compose restart` **ne** deploya code-only promjene — kod je u Docker imageu. Očekuj `Rebuild required (backend source changed since last image build)` nakon pull-a s API izmjenama.
+
+**Ručni fallback** ako rebuild nije pokrenut:
+
+```bash
+docker compose build django celery-worker celery-beat
+docker compose up -d
+docker compose exec -T django python manage.py check
+```
+
+**Ova uputa** dolazi na server automatski s `git pull` — nema zasebnog koraka.
 
 ### Redoslijed pri prvom web go-live
 
@@ -252,6 +267,111 @@ git pull
 4. Admin: TenantDomain zapisi + **Provision DNS** po objektu (ili `rollout_uzorita_domains`)
 5. Traefik `Host()` labele za custom domene izvan `*.stay.hr` (Uzorita već u compose-u)
 6. Provjera curl + `is_verified=True`
+
+---
+
+## F) Hospira — sync-versions za detail ekran
+
+Backend dodaje **per-rezervacija hash** u `GET /api/v1/reception/sync-versions/` (query param `reservation_id`). Flutter detail ekran (`uzorita_flutter`) koristi to pri resume-u umjesto uvijek punog `GET /reservations/{id}/`.
+
+**Redoslijed:** **backend prvo** → zatim novi Hospira build.
+
+| Stavka | Potrebno ručno? |
+|--------|-----------------|
+| Nova Django migracija | **Ne** |
+| Novi env varijable | **Ne** |
+| Cloudflare / Traefik / DNS | **Ne** |
+| Admin konfiguracija | **Ne** |
+| Deploy koda na server | **Da** — [Deploy s GitHuba](#deploy-s-githuba) |
+
+API je **backward compatible**: pozivi bez `reservation_id` vraćaju isti JSON kao prije (bez polja `reservation_detail`).
+
+### Brza potvrda u containeru (nakon deploya)
+
+```bash
+docker compose exec -T django python manage.py shell -c \
+  "import inspect; from apps.reservations.sync_versions import build_sync_versions_payload; \
+   print('reservation_id' in inspect.signature(build_sync_versions_payload).parameters)"
+```
+
+Očekivano: `True`.
+
+### Provjera API-ja
+
+Zamijeni `<TOKEN>` device tokenom recepcije (Hospira tablet).
+
+**Bez reservation_id** (postojeće):
+
+```bash
+curl -sS -H "Authorization: Bearer <TOKEN>" \
+  "https://api.stay.hr/api/v1/reception/sync-versions/?year=2026"
+```
+
+Očekivano: `200`, JSON s `reservations`, `rooms`, `statistics` — **bez** `reservation_detail`.
+
+**S reservation_id** (novo):
+
+```bash
+curl -sS -D - -H "Authorization: Bearer <TOKEN>" \
+  "https://api.stay.hr/api/v1/reception/sync-versions/?year=2026&reservation_id=757"
+```
+
+Očekivano: `200`, header `ETag`, JSON s `"reservation_detail": "<16 hex znakova>"`.
+
+**304 Not Modified** — ponovi s `If-None-Match: W/"<ETAG>"` iz prethodnog odgovora.
+
+**404** — nepostojeći ID:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  -H "Authorization: Bearer <TOKEN>" \
+  "https://api.stay.hr/api/v1/reception/sync-versions/?year=2026&reservation_id=999999999"
+```
+
+Promijeni status rezervacije #757, ponovi sync-versions — `reservation_detail` i `ETag` moraju se promijeniti.
+
+### Test suite (opcionalno, na serveru)
+
+```bash
+docker compose build django
+docker compose run --rm django python manage.py test \
+  apps.reservations.tests.test_sync_versions \
+  apps.api.tests.test_reception_api.ReceptionAPITests.test_sync_versions \
+  apps.api.tests.test_reception_api.ReceptionAPITests.test_sync_versions_with_reservation_id \
+  apps.api.tests.test_reception_api.ReceptionAPITests.test_sync_versions_reservation_id_not_found \
+  -v 2
+```
+
+Detalji lokalnog testiranja (Windows): [Test suite](../development/test-suite.md).
+
+### Nakon backend deploya — Flutter
+
+**Repo:** [github.com/avrcanio/uzorita_flutter](https://github.com/avrcanio/uzorita_flutter) (`hr.finestar.hospira`)
+
+1. Pull/build s `syncVersions(reservationId: …)` + `refreshIfStale` na detail ekranu.
+2. Distribucija na tablet (Play Store / sideload / MDM).
+3. Stari Flutter app i dalje radi (puni detail GET); nema breaking change.
+4. Flutter **prije** backend deploya: nedostaje `reservation_detail` → app radi puni detail fetch (safe fallback).
+
+### Rollback
+
+```bash
+git checkout <prethodni-commit>
+./scripts/deploy.sh
+```
+
+### Checklist — Hospira sync-versions
+
+| # | Korak | OK |
+|---|--------|-----|
+| 1 | `deploy.sh` → `Done.`, `manage.py check` OK | |
+| 2 | Container: `reservation_id` u `build_sync_versions_payload` → `True` | |
+| 3 | curl bez `reservation_id` — nema `reservation_detail` | |
+| 4 | curl s `reservation_id` — `reservation_detail` + `ETag` | |
+| 5 | `304` s `If-None-Match` | |
+| 6 | `404` za nepostojeći ID | |
+| 7 | Hash se mijenja nakon promjene rezervacije | |
+| 8 | Hospira Flutter build na tabletu | |
 
 ---
 
@@ -294,6 +414,6 @@ git pull
 
 ## Povezani dokumenti
 
-- [README — Cloudflare DNS](../../README.md#cloudflare-dns-api--admin)
-- [README — Traefik / tenant subdomains](../../README.md#traefik--tenant-subdomains-later)
+- [README — operacije i quick start](../../README.md#operations)
+- [Test suite](../development/test-suite.md)
 - `scripts/cloudflare_dns_upsert.sh` — legacy bootstrap za api/admin hostove

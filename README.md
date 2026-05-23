@@ -7,6 +7,7 @@ Uzorita (`/opt/stacks/uzorita`) is a separate system; no migration is included i
 ## Prerequisites
 
 - Docker and external networks: `proxy`, `postgis`, `hetzner_net` (if missing: `docker network create proxy`, etc.)
+- Internal network `stay_internal` (created by `docker compose`; or `docker network create stay_internal`)
 - Shared PostGIS on the `postgis` network (`/opt/stacks/data`) **or** adjust `DB_HOST` in `.env`
 - Shared Redis on `hetzner_net` (`/opt/stacks/redis`, container `infra-redis`, **DB 2** for Stay)
 - Traefik with `certificatesresolvers.cloudflare` and `CF_DNS_API_TOKEN` in `/opt/stacks/traefik/.env`
@@ -93,7 +94,44 @@ curl -sS -X POST -H "Authorization: Bearer $TOKEN" \
 | GET | `/api/v1/public/availability?from=&to=&property=` | `public:read` |
 | POST | `/api/v1/public/reservations` | `reservations:create` |
 
-Tenant context is resolved from the API token (primary) or from the `Host` header via `TenantDomain` (for future `*.stay.hr` subdomains).
+Tenant context is resolved from the API token (primary) or from the `Host` header via `TenantDomain` (booking web on `*.stay.hr` and custom domains).
+
+## Operations
+
+Production runbook (domains, deploy, web go-live, Hospira sync-versions): **[docs/operations/domain-setup.md](docs/operations/domain-setup.md)**
+
+Quick reference on the server:
+
+```bash
+cd /opt/stacks/stay.hr
+git pull
+./scripts/deploy.sh
+```
+
+Legacy DNS bootstrap for `api.stay.hr` / `admin.stay.hr` only:
+
+```bash
+cp scripts/.env.example scripts/.env
+./scripts/cloudflare_dns_upsert.sh
+```
+
+Verify API and admin:
+
+```bash
+curl -sS https://api.stay.hr/health/
+curl -sS -o /dev/null -w '%{http_code}\n' https://admin.stay.hr/admin/login/
+```
+
+Web frontends (Traefik labels already in `docker-compose.yml`):
+
+| Host | Service |
+|------|---------|
+| `api.stay.hr`, `admin.stay.hr` | `django` |
+| `app.stay.hr` | `web-reception` |
+| `*.stay.hr` (tenant booking) | `web-booking` |
+| Custom (e.g. `booking.uzorita.hr`) | `web-booking` + explicit Traefik `Host()` rule |
+
+Uzorita one-shot rollout: `docker compose run --rm django python manage.py rollout_uzorita_domains` (see operations doc).
 
 ## Django admin
 
@@ -120,30 +158,6 @@ Staff users **do not** see the Tenants or Users modules. API login (device beare
 - **API applications:** device tokens are stored **encrypted** (`token_encrypted`, Fernet via `STAY_INTEGRATION_FERNET_KEY`). On the change form, **Device token** shows the full bearer for copy into Hospira. Legacy rows without ciphertext: use admin action **Regenerate API token** (invalidates the old bearer).
 - When adding an **API application**, the raw token is also shown once in a warning message
 
-## Cloudflare DNS (api + admin)
-
-```bash
-cp scripts/.env.example scripts/.env
-./scripts/cloudflare_dns_upsert.sh
-```
-
-Upserts proxied A records for `api.stay.hr` and `admin.stay.hr` pointing at this server.
-
-**Web frontend domene** (booking, recepcija, wildcard `*.stay.hr`): vidi [docs/operations/domain-setup.md](docs/operations/domain-setup.md).
-
-**Hospira detail sync-versions** (deploy backend + provjera API-ja): vidi [docs/operations/reservation-detail-sync-versions.md](docs/operations/reservation-detail-sync-versions.md).
-
-Verify:
-
-```bash
-curl -sS https://api.stay.hr/health/
-curl -sS -o /dev/null -w '%{http_code}\n' https://admin.stay.hr/admin/login/
-```
-
-## Traefik / tenant subdomains (later)
-
-Wildcard `*.stay.hr` router labels are commented in `docker-compose.yml`. Enable when Cloudflare DNS wildcard and tenant domains are ready.
-
 ## Security notes
 
 - API authentication uses SHA-256 **hash** lookup (`public_key_hash`); requests do not decrypt `token_encrypted`
@@ -160,7 +174,7 @@ Stay.hr does **not** run its own Postgres or Redis containers. It attaches to th
 |-----------|------------------|---------|------------|
 | PostGIS | `/opt/stacks/data` → `postgis` | `postgis` | DB `stay_platform_db`, user `stay` |
 | Redis | `/opt/stacks/redis` → `infra-redis` | `hetzner_net` | Redis logical DB **2** (broker + results) |
-| Traefik | `/opt/stacks/traefik` | `proxy` | TLS for `api.stay.hr`, `admin.stay.hr` |
+| Traefik | `/opt/stacks/traefik` | `proxy` | TLS: `api.stay.hr`, `admin.stay.hr`, `app.stay.hr`, `*.stay.hr`, custom booking hosts |
 | Document media | `/opt/stacks/stay.hr/data/media` | bind mount | Reception face/ID photos (`MEDIA_ROOT`) |
 
 Create the database once on shared PostGIS (as superuser):
@@ -180,5 +194,8 @@ Match `DB_PASSWORD` in `.env`. Celery beat runs an hourly `apps.core.tasks.ping`
 | `django` | Gunicorn, API + admin, Traefik labels; `./data/media` → `/app/backend/media` |
 | `celery-worker` | Background tasks; same media volume as django |
 | `celery-beat` | Scheduled tasks |
+| `web-booking` | Booking SSR; Traefik `*.stay.hr` + custom domains; proxies to `stay_django:8000` |
+| `web-reception` | Reception web at `app.stay.hr`; proxies to `stay_django:8000` |
 | `infra-redis` (`hetzner_net`, DB 2) | Celery broker and result backend |
 | PostGIS (`postgis` network) | Database `stay_platform_db` |
+| `stay_internal` (bridge) | Backend-to-backend without hairpin NAT |
