@@ -24,7 +24,7 @@ U kratkom razdoblju **22.–25. 5. 2026.** dogodilo se više preklapanja na **R3
 | **6541736653** | Etienne Sauvagere | 21.–24.5. | R2 + R3 | R2 + R3 | — | OSTAJE |
 | **5213202593** | Eva Hoferica | 22.–23.5. | R3 (i R1 u Smoobu) | R3 / issue | 139911907 (R3), 139910937 (R1) | **checked_in** — eksterni apartman |
 | **5272845192** | Benny Vlemminx | 23.–25.5. | Deluxe Triple **R3** | **R6** (interno) | **139911912** (R3) | expected |
-| **6250886338** | Kristina Mihaljević | 23.–24.5. | Deluxe Double **R6** | R6 + ParkCity | **140594307** (R6) | expected — gost odbio alternativu |
+| **6250886338** | Kristina Mihaljević | 23.–24.5. | Deluxe Double **R6** | R6 | **140594307** (R6) | **canceled** — PDF lock (23.5.) |
 
 PDF-ovi: `.imports/5272845192.pdf`, `.imports/6250886338.pdf`, `.imports/6541736653.pdf`
 
@@ -89,6 +89,7 @@ PDF-ovi: `.imports/5272845192.pdf`, `.imports/6250886338.pdf`, `.imports/6541736
 | Email | kmihal.952458@guest.booking.com |
 | Tel. | +387 177726 |
 | Smoobu | **140594307** na R6 |
+| stay.hr status | **canceled** (`booking_pdf`, `cancelled_by_guest`, PDF lock 23.5.2026) |
 
 #### Komunikacija s gostom
 
@@ -107,15 +108,15 @@ PDF-ovi: `.imports/5272845192.pdf`, `.imports/6250886338.pdf`, `.imports/6541736
 | Booking.com | [parkcity-rooms](https://www.booking.com/hotel/hr/parkcity-rooms.hr.html) |
 | Status | Rezervacija kod susjeda **dogovorena**, zatim **otkazana** |
 
-#### stay.hr napomena (cilj)
+#### stay.hr napomena (u bazi)
 
 ```
-Alternativni smještaj: ParkCity Rooms, Bana Josipa Jelačića 62, 22000 Šibenik.
-Tel. +385 98 932 2440. Rezervacija kod susjeda potvrđena → kasnije otkazana.
-Doručak uključen — dolazi na Luxury Room Uzorita B&B (ako se situacija riješi).
-Booking.com disruption: relocate to different property (submitted).
-Gost odbio alternativu; ParkCity otkazan; otkaz putem Booking.com preporučen.
+Alternativni smještaj: ParkCity Rooms — otkazano.
+Gost odbio alternativu; otkaz putem Booking.com.
+PDF: .imports/6250886338.pdf
 ```
+
+Rezervacija u stay.hr: **canceled**, PDF lock (`import_source=booking_pdf`), €88.11 / provizija €17.01.
 
 ---
 
@@ -138,7 +139,7 @@ Drži **R3** do 24.5. — legitimno preklapanje s Vlemminx (Booking R3) 23.–24
 |------|---------|--------|----------------|
 | **R3** | 22.–23.5. | 6541736653 Sauvagere | 5213202593 Hoferica (eksterni apartman) |
 | **R3** | 23.–24.5. | 6541736653 Sauvagere | 5272845192 Vlemminx (Booking R3, interno R6) |
-| **R6** | 23.–24.5. | — | 5272845192 vs 6250886338 (ako su oba na R6 u bazi) |
+| **R6** | 23.–24.5. | 5272845192 Vlemminx (interno R6) | 6250886338 Mihaljević **canceled** |
 
 Naredba:
 
@@ -162,18 +163,19 @@ docker compose exec django python manage.py detect_overbooking --tenant-id 2 --f
 | 140587217 | Block R6 23.–25.5. (Vlemminx) | **cancellation** (otkazan greškom) |
 | 140587672 | Duplikat Website R6 | **cancellation** |
 | 139911912 | Vlemminx Booking.com **R3** | aktivna |
-| 140594307 | Mihaljević Booking.com **R6** | aktivna |
+| 140594307 | Mihaljević Booking.com **R6** | **cancellation** |
 | 139911907 / 139910937 | Hoferica R3 / R1 | aktivna |
 
 ---
 
 ## Operativne akcije (checklist)
 
-- [ ] **Mihaljević:** potvrditi otkaz 6250886338 na Booking.com; podrška Booking.com za refund
+- [x] **Mihaljević:** stay.hr ažuriran (PDF otkaz, `canceled`, PDF lock 23.5.)
+- [ ] **Mihaljević:** podrška Booking.com za refund (ako treba)
 - [ ] **ParkCity:** potvrditi da je njihova rezervacija otkazana
 - [ ] **Vlemminx:** check-in u **R6** (interno); Smoobu UI po potrebi; R3 osloboditi za Sauvagere 23.–24.
 - [ ] **Hoferica:** issue dokumentiran; eksterni apartman
-- [ ] **R6 block:** po potrebi ponovno blokirati **24.–25.5.** (23.–24. zauzeto Mihaljević / Vlemminx ovisno o otkazu)
+- [ ] **R6 block:** po potrebi ponovno blokirati **24.–25.5.** (23.–24. zauzeto Vlemminx; Mihaljević otkazan)
 - [ ] **Sauvagere:** ažurirati email/proviziju iz PDF-a ako treba
 
 ---
