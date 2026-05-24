@@ -13,3 +13,10 @@ def send_guest_booking_refused_email(reservation_id: int, reason: str = "") -> d
     from apps.communications.guest_email import send_booking_refused_email
 
     return send_booking_refused_email(reservation_id, reason=reason)
+
+
+@shared_task
+def send_guest_booking_canceled_email(reservation_id: int) -> dict:
+    from apps.communications.guest_email import send_booking_canceled_email
+
+    return send_booking_canceled_email(reservation_id)

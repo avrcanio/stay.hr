@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
+import { BookingPdfImportForm } from "@/app/_components/BookingPdfImportForm";
 import { CountryFlag } from "@/app/_components/CountryFlag";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
 import { useMonthLabel, useReservationStatusLabel } from "@/lib/i18n-ui";
-import type { Reservation } from "@/lib/types";
+import type { BookingPdfImportResult, Reservation } from "@/lib/types";
 import { reservationStatusClass } from "@/lib/reservationUi";
+import { primaryPropertySlug } from "@/lib/app-config";
 import {
   addDaysIso,
   addMonthsIso,
@@ -19,6 +22,7 @@ import {
 type OverviewMode = "today" | "week" | "month" | "all";
 
 export default function TimelinePage() {
+  const router = useRouter();
   const t = useTranslations("timeline");
   const tc = useTranslations("common");
   const tr = useTranslations("reservation");
@@ -31,6 +35,7 @@ export default function TimelinePage() {
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const [overviewMode, setOverviewMode] = useState<OverviewMode>("today");
+  const [propertySlug, setPropertySlug] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -40,6 +45,15 @@ export default function TimelinePage() {
       if (session.ok) {
         const s = await session.json();
         setTenantName(s.tenant || "");
+      }
+
+      const configRes = await fetch("/api/stay/app/config");
+      if (configRes.ok) {
+        const config = (await configRes.json()) as {
+          tenant?: { slug?: string };
+          properties?: Array<{ slug: string }>;
+        };
+        setPropertySlug(primaryPropertySlug(config));
       }
 
       const today = todayIso();
@@ -95,6 +109,11 @@ export default function TimelinePage() {
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [reservations]);
 
+  function handleImportSuccess(result: BookingPdfImportResult) {
+    void load();
+    router.push(`/reservations/${result.id}`);
+  }
+
   return (
     <div>
       <ReceptionNav tenantName={tenantName} />
@@ -136,6 +155,7 @@ export default function TimelinePage() {
           <button type="button" className="btn" onClick={() => void load()}>
             {tc("refresh")}
           </button>
+          <BookingPdfImportForm propertySlug={propertySlug} onSuccess={handleImportSuccess} compact />
         </div>
 
         {error ? <p className="text-sm text-red-600">{error}</p> : null}

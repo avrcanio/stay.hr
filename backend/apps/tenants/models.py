@@ -77,6 +77,11 @@ class TenantReceptionSettings(models.Model):
         blank=True,
         help_text="Display name for guest emails (e.g. property name).",
     )
+    guest_smtp_password_encrypted = models.TextField(
+        blank=True,
+        default="",
+        help_text="Encrypted SMTP password for guest_contact_email (mail.{domain}:587).",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -84,6 +89,22 @@ class TenantReceptionSettings(models.Model):
 
     def __str__(self) -> str:
         return f"Reception settings — {self.tenant}"
+
+    @property
+    def has_guest_smtp_password(self) -> bool:
+        return bool(self.guest_smtp_password_encrypted)
+
+    def set_guest_smtp_password(self, raw: str) -> None:
+        from apps.tenants.token_encryption import encrypt_api_token
+
+        self.guest_smtp_password_encrypted = encrypt_api_token(raw) if raw else ""
+
+    def get_guest_smtp_password(self) -> str:
+        from apps.tenants.token_encryption import decrypt_api_token
+
+        if not self.guest_smtp_password_encrypted:
+            return ""
+        return decrypt_api_token(self.guest_smtp_password_encrypted)
 
 
 class TenantDomain(models.Model):

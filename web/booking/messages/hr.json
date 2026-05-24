@@ -55,5 +55,146 @@
   },
   "common": {
     "error": "Greška"
+  },
+  "platform": {
+    "metaTitle": "Stay.hr — platforma za iznajmljivače smještaja",
+    "metaDescription": "FINE STAR d.o.o. razvija Stay.hr (online rezervacije) i Hospira (recepcijska aplikacija) za iznajmljivače smještaja u Hrvatskoj.",
+    "eyebrow": "Stay.hr / Hospira",
+    "brands": "Robne marke: Stay.hr i Hospira",
+    "tagline": "Platforma za online rezervacije i recepcijski rad iznajmljivača smještaja",
+    "intro": "FINE STAR d.o.o. pruža softversku platformu za iznajmljivače apartmana, kuća za odmor i drugih smještajnih objekata. Gostima omogućujemo online upite i rezervacije; osoblju objekta digitalni check-in, kalendar, upravljanje rezervacijama i komunikaciju s gostima (uključujući WhatsApp kada je omogućeno).",
+    "services": {
+      "stay": {
+        "title": "Stay.hr",
+        "body": "Web stranice za rezervacije smještaja, provjera dostupnosti, online upiti i povezivanje s operativnim sustavom objekta."
+      },
+      "hospira": {
+        "title": "Hospira",
+        "body": "Recepcijska aplikacija na tabletu za check-in gostiju, pregled kalendara, rad s rezervacijama i poslovnu komunikaciju s gostima putem WhatsApp Business API-ja (potvrde boravka, informacije o dolasku i sl.)."
+      }
+    },
+    "whatsapp": {
+      "title": "WhatsApp Business (Hospira)",
+      "body": "Hospira je poslovni WhatsApp račun tvrtke FINE STAR d.o.o. Koristimo ga isključivo za komunikaciju s gostima smještajnih objekata u vezi s rezervacijama i boravkom (npr. potvrde, upute za dolazak, odgovori na upite). Obrada podataka opisana je u politici privatnosti. Gosti mogu prestati komunicirati u bilo kojem trenutku."
+    },
+    "contact": {
+      "title": "Kontakt poduzeća",
+      "company": "Tvrtka",
+      "oib": "OIB",
+      "address": "Adresa",
+      "infoEmail": "Opći upiti",
+      "privacyEmail": "Privatnost podataka"
+    },
+    "legalNotice": "Korištenjem usluga Stay.hr i Hospira prihvaćate uvjete korištenja i politiku privatnosti.",
+    "privacyLink": "Politika privatnosti",
+    "termsLink": "Uvjeti korištenja"
+  },
+  "privacy": {
+    "metaTitle": "Politika privatnosti — Stay.hr / Hospira",
+    "metaDescription": "Kako Stay.hr i Hospira obrađuju osobne podatke gostiju, osoblja i korisnika platforme.",
+    "title": "Politika privatnosti",
+    "lastUpdated": "Zadnje ažuriranje: {date}",
+    "intro": "Ova politika opisuje način na koji {controllerName} obrađuje osobne podatke putem platforme Stay.hr (web rezervacije, API, recepcijski web) i aplikacije Hospira (recepcijski tablet).",
+    "contactFooter": "Za pitanja o privatnosti pišite na {email}.",
+    "homeLink": "Početna stranica",
+    "termsLink": "Uvjeti korištenja",
+    "sections": {
+      "whoWeAre": {
+        "title": "1. Tko smo",
+        "body": "Voditelj obrade osobnih podataka u smislu Uredbe (EU) 2016/679 (GDPR) je {controllerName}.\n\nStay.hr je platforma za online rezervacije smještaja i upravljanje rezervacijama. Hospira je recepcijska aplikacija na tabletu koja osoblju omogućuje check-in gostiju, pregled kalendara i rad s rezervacijama.\n\nKontakt: {email}\nWeb: {websiteUrl}\nAdresa: {address}\nOIB: {oib}"
+      },
+      "dataWeCollect": {
+        "title": "2. Podaci koje obrađujemo",
+        "body": "Ovisno o tome kako koristite naše usluge, možemo obrađivati:\n\n• podatke bookera i gostiju: ime i prezime, email, telefon, adresa, datumi boravka, broj osoba;\n• podatke za check-in i zakonsku prijavu: identifikacijski dokument, datum rođenja, državljanstvo, OIB ili sličan identifikator, podatke s MRZ-a dokumenta;\n• podatke osoblja smještajnog objekta: korisničko ime, email, uloga, preferencije jezika;\n• tehničke podatke: IP adresa, logovi pristupa, identifikator uređaja (FCM token za Hospira tablet), informacije o pregledniku.\n\nNe tražimo podatke izvan onoga što je potrebno za rezervaciju, boravak ili rad recepcije."
+      },
+      "purposes": {
+        "title": "3. Svrha i pravna osnova",
+        "body": "Podatke obrađujemo radi:\n\n• sklapanja i izvršenja ugovora o smještaju (online rezervacija, potvrda, komunikacija s gostom);\n• ispunjavanja zakonskih obveza (npr. prijava boravka gostiju putem sustava eVisitor);\n• legitimnog interesa (sigurnost sustava, sprječavanje zloupotrebe, tehnička podrška, arhiviranje u razumnom opsegu);\n• pristanka, kada je potreban (npr. opcionalna komunikacija izvan nužnog obuhvata).\n\nBez nužnih podataka nismo u mogućnosti pružiti rezervaciju, check-in ili recepcijske usluge."
+      },
+      "accommodationRole": {
+        "title": "4. Uloga smještajnih objekata",
+        "body": "Smještajni objekti (tenanti) koji koriste Stay.hr i Hospira često su samostalni voditelji obrade podataka svojih gostiju u vezi s pružanjem usluge smještaja. U tom kontekstu {controllerName} djeluje kao pružatelj alata odnosno izvršitelj obrade prema uputama objekta, u granicama ugovora i primjenjivih propisa.\n\nZa pitanja vezana uz podatke koje je prikupio konkretni objekt, možete se obratiti i tom objektu izravno."
+      },
+      "recipients": {
+        "title": "5. Primatelji i procesori",
+        "body": "Podatke dijelimo samo kada je to nužno, s:\n\n• pružateljima hostinga i infrastrukture (Hetzner);\n• Cloudflare (CDN, TLS, zaštita);\n• integracijama koje objekt koristi: Smoobu, Channex, WhatsApp (Meta), sustav eVisitor, Firebase (push obavijesti za Hospira);\n• nadležnim tijelima, kada to zakon zahtijeva.\n\nS primateljima sklapamo ugovore o obradi podataka ili koristimo usluge u skladu s primjenjivim propisima."
+      },
+      "cookies": {
+        "title": "6. Kolačići",
+        "body": "Koristimo isključivo funkcionalne kolačiće:\n\n• preferenca jezika na booking stranicama;\n• session kolačić za prijavu u recepcijski web (app.stay.hr).\n\nNe koristimo kolačiće za oglašavanje niti alate za profiliranje trećih strana. Možete obrisati kolačiće u postavkama preglednika; neki dijelovi usluge tada možda neće raditi ispravno."
+      },
+      "retention": {
+        "title": "7. Rok čuvanja",
+        "body": "Podatke o rezervacijama i check-inu čuvamo dok traje ugovor o smještaju i koliko je potrebno radi ispunjavanja zakonskih obveza (npr. turistička evidencija, računovodstveni propisi). Tehničke logove čuvamo do 12 mjeseci, osim ako duže čuvanje nije potrebno radi sigurnosti ili rješavanja spora.\n\nPo isteku roka podatke brišemo ili anonimiziramo."
+      },
+      "rights": {
+        "title": "8. Vaša prava",
+        "body": "U skladu s GDPR-om imate pravo na pristup, ispravak, brisanje, ograničenje obrade, prigovor i prenosivost podataka, te pravo povući pristanak kada je obrada temeljena na pristanku.\n\nZahtjev pošaljite na {email}. Odgovorit ćemo u roku propisanom propisima, uz provjeru identiteta."
+      },
+      "complaint": {
+        "title": "9. Prigovor nadzornom tijelu",
+        "body": "Ako smatrate da je obrada vaših podataka protivna propisima, imate pravo podnijeti prigovor Agenciji za zaštitu osobnih podataka (AZOP), Martićeva 14, 10000 Zagreb, www.azop.hr."
+      },
+      "changes": {
+        "title": "10. Promjene politike",
+        "body": "Politiku možemo povremeno ažurirati. Datum zadnjeg ažuriranja naveden je na vrhu stranice. Nastavak korištenja usluge nakon objave smatra se prihvaćanjem ažurirane politike, osim ako zakon zahtijeva dodatnu obavijest ili pristanak."
+      }
+    }
+  },
+  "terms": {
+    "metaTitle": "Uvjeti korištenja — Stay.hr / Hospira",
+    "metaDescription": "Uvjeti korištenja platforme Stay.hr i recepcijske aplikacije Hospira.",
+    "title": "Uvjeti korištenja",
+    "lastUpdated": "Zadnje ažuriranje: {date}",
+    "intro": "Ovi uvjeti reguliraju korištenje usluga {controllerName}: platforme Stay.hr (web rezervacije, API, recepcijski web) i aplikacije Hospira (recepcijski tablet). Korištenjem usluga prihvaćate ove uvjete.",
+    "contactFooter": "Za pitanja o uvjetima pišite na {email}.",
+    "homeLink": "Početna stranica",
+    "privacyLink": "Politika privatnosti",
+    "sections": {
+      "scope": {
+        "title": "1. Opseg i ugovorne strane",
+        "body": "Usluge pruža {controllerName}, OIB {oib}, {address}.\n\nOvi uvjeti se primjenjuju na goste koji rezerviraju smještaj putem Stay.hr booking stranica, na osoblje smještajnih objekata koje koristi Hospira i recepcijski web, te na druge korisnike platforme u granicama dodijeljenog pristupa."
+      },
+      "services": {
+        "title": "2. Opis usluga",
+        "body": "Stay.hr omogućuje online upite i rezervacije smještaja, provjeru dostupnosti te povezivanje s operativnim sustavom objekta. Hospira je recepcijska aplikacija za check-in gostiju, pregled kalendara, rad s rezervacijama i komunikaciju s gostima (uključujući WhatsApp integraciju kada je omogućena).\n\nFunkcionalnosti mogu ovisiti o smještajnom objektu (tenantu) i njegovim postavkama integracija."
+      },
+      "guestBooking": {
+        "title": "3. Rezervacije gostiju",
+        "body": "Slanjem upita ili rezervacije putem Stay.hr booking stranica:\n\n• potvrđujete točnost unesenih podataka;\n• sklapate ugovor o smještaju s odgovarajućim smještajnim objektom, a ne izravno s {controllerName} kao pružateljem noćenja;\n• prihvaćate da objekt potvrđuje dostupnost i uvjete boravka;\n• prihvaćate primjenu cijena, pravila otkazivanja i kućnog reda objekta objavljenih na booking stranici ili u potvrdi.\n\n{controllerName} pruža tehničku platformu; uvjete boravka, plaćanje na licu mjesta i reklamacije u vezi smještaja rješava objekt, osim ako nije drugačije navedeno u potvrdi."
+      },
+      "providers": {
+        "title": "4. Smještajni objekti i osoblje",
+        "body": "Smještajni objekti i njihovo ovlašteno osoblje odgovorni su za:\n\n• točnost podataka o objektu, cijenama i dostupnosti;\n• zakonit check-in gostiju i prijave boravka;\n• sigurnost pristupnih podataka Hospira tableta i recepcijskog weba;\n\nPristup platformi dodjeljuje se prema ugovoru s {controllerName}. Zloupotreba pristupa može rezultirati suspenzijom računa."
+      },
+      "acceptableUse": {
+        "title": "5. Prihvatljivo korištenje",
+        "body": "Zabranjeno je:\n\n• slanje lažnih rezervacija ili zloupotreba booking sustava;\n• neovlašten pristup podacima drugih objekata ili korisnika;\n• ometanje rada platforme, automatsko masovno skeniranje bez dopuštenja;\n• korištenje usluga suprotno zakonu ili pravima trećih osoba.\n\nZadržavamo pravo ograničiti pristup radi zaštite sustava i korisnika."
+      },
+      "availability": {
+        "title": "6. Dostupnost i promjene usluge",
+        "body": "Usluge pružamo u načelu kontinuirano, ali ne jamčimo neprekidnu dostupnost. Planirani prekidi, održavanje, greške integracija trećih strana (npr. channel manageri, eVisitor, WhatsApp) ili viša sila mogu privremeno onemogućiti pojedine funkcije.\n\nFunkcionalnosti platforme mogu se razvijati; bitne promjene uvjeta objavit ćemo ažuriranjem ove stranice."
+      },
+      "liability": {
+        "title": "7. Odgovornost",
+        "body": "U mjeri dopuštenoj zakonom, {controllerName} ne odgovara za:\n\n• kvalitetu smještaja, usluge objekta ili sporove između gosta i objekta;\n• indirektne štete, gubitak dobiti ili podataka uzrokovane prekidom usluge;\n• sadržaj i točnost podataka koje unose objekti ili gosti.\n\nNišta u ovim uvjetima ne isključuje odgovornost koja se prema zakonu ne može isključiti."
+      },
+      "intellectualProperty": {
+        "title": "8. Intelektualno vlasništvo",
+        "body": "Stay.hr, Hospira, logotipi, softver i dokumentacija zaštićeni su pravima {controllerName} ili davatelja licence. Nije dopušteno kopirati, dekompilirati ili distribuirati platformu bez pisane suglasnosti, osim u okviru uobičajene uporabe usluge."
+      },
+      "termination": {
+        "title": "9. Trajanje i raskid",
+        "body": "Ugovor s korisnicima platforme traje dok traje pristup uslugama. Objekti i korisnici mogu prestati koristiti usluge prema ugovoru s {controllerName}.\n\nGosti mogu prestati koristiti booking stranice u bilo kojem trenutku; rezervacije koje su već potvrđene podliježu pravilima objekta."
+      },
+      "law": {
+        "title": "10. Mjerodavno pravo i nadležnost",
+        "body": "Na ove uvjete primjenjuje se pravo Republike Hrvatske. Za sporove je nadležan stvarno nadležan sud u Republici Hrvatskoj, osim ako imperativnim propisima o zaštiti potrošača nije drugačije određeno.\n\nObrada osobnih podataka regulirana je zasebnom politikom privatnosti ({privacyEmail})."
+      },
+      "changes": {
+        "title": "11. Promjene uvjeta",
+        "body": "Uvjete možemo povremeno ažurirati. Datum zadnjeg ažuriranja naveden je na vrhu stranice. Nastavak korištenja usluge nakon objave smatra se prihvaćanjem ažuriranih uvjeta, osim ako zakon zahtijeva dodatnu obavijest."
+      }
+    }
   }
 }

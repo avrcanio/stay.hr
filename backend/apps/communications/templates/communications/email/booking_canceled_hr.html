@@ -1,0 +1,10 @@
+<p>Poštovani {{ booker_name }},</p>
+<p>Obavještavamo Vas da je Vaša rezervacija otkazana.</p>
+<ul>
+  <li>Kod rezervacije: {{ booking_code }}</li>
+  <li>Objekt: {{ property_name }}</li>
+  {% if room_label %}<li>Soba: {{ room_label }}</li>{% endif %}
+  <li>Dolazak: {{ check_in }}</li>
+  <li>Odlazak: {{ check_out }}</li>
+</ul>
+<p>Ako imate pitanja, slobodno nas kontaktirajte.</p>

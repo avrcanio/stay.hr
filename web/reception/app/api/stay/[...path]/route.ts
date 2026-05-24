@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { buildDjangoApiPath } from "@/lib/django-api-path";
 import { buildStayAuthHeaders } from "@/lib/stay-server";
 
 type RouteContext = { params: Promise<{ path: string[] }> };
@@ -10,9 +11,9 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
     return NextResponse.json({ detail: "Not authenticated" }, { status: 401 });
   }
 
-  const path = `/api/v1/${pathSegments.join("/")}`;
   const url = new URL(request.url);
   const query = url.search;
+  const path = buildDjangoApiPath(pathSegments);
 
   const headers: Record<string, string> = { ...authHeaders };
 
@@ -20,13 +21,20 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
     method: request.method,
     headers,
     cache: "no-store",
+    redirect: "manual",
   };
 
   if (request.method !== "GET" && request.method !== "HEAD") {
-    const body = await request.text();
-    if (body) {
-      headers["Content-Type"] = request.headers.get("content-type") || "application/json";
-      init.body = body;
+    const contentType = request.headers.get("content-type") || "";
+    if (contentType.includes("multipart/form-data")) {
+      init.body = await request.arrayBuffer();
+      headers["Content-Type"] = contentType;
+    } else {
+      const body = await request.text();
+      if (body) {
+        headers["Content-Type"] = contentType || "application/json";
+        init.body = body;
+      }
     }
   }
 
@@ -35,6 +43,14 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
     "",
   );
   const upstream = await fetch(`${internal}${path}${query}`, init);
+
+  if (upstream.status >= 300 && upstream.status < 400) {
+    return NextResponse.json(
+      { detail: "Unexpected redirect from Stay API. Check trailing slash on upstream path." },
+      { status: 502 },
+    );
+  }
+
   const contentType = upstream.headers.get("content-type") || "application/json";
   const isBinary =
     contentType.startsWith("image/") ||

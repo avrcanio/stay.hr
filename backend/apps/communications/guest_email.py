@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.template.loader import render_to_string
 
 from apps.reservations.models import Reservation, ReservationUnit
 from apps.reservations.reservation_units import joined_room_names
 from apps.tenants.models import TenantReceptionSettings
+from apps.tenants.smtp import smtp_host_for_email
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,92 @@ def _language_for_reservation(reservation: Reservation) -> str:
     return base
 
 
-def send_booking_confirmed_email(reservation_id: int) -> dict:
+def _reception_settings_for_reservation(
+    reservation: Reservation,
+) -> TenantReceptionSettings | None:
+    return TenantReceptionSettings.objects.filter(tenant_id=reservation.tenant_id).first()
+
+
+def _smtp_connection_for_reservation(reservation: Reservation):
+    settings_row = _reception_settings_for_reservation(reservation)
+    if settings_row is None:
+        return None
+
+    from_email = (settings_row.guest_contact_email or "").strip()
+    if not from_email or not settings_row.has_guest_smtp_password:
+        if settings.EMAIL_HOST and settings.EMAIL_HOST_USER:
+            return get_connection(
+                host=settings.EMAIL_HOST,
+                port=settings.EMAIL_PORT,
+                username=settings.EMAIL_HOST_USER,
+                password=settings.EMAIL_HOST_PASSWORD,
+                use_tls=settings.EMAIL_USE_TLS,
+                use_ssl=settings.EMAIL_USE_SSL,
+            )
+        logger.warning(
+            "guest email skipped: no tenant SMTP credentials",
+            extra={"tenant_id": reservation.tenant_id, "reservation_id": reservation.pk},
+        )
+        return None
+
+    smtp_host = smtp_host_for_email(from_email)
+    if not smtp_host:
+        logger.warning(
+            "guest email skipped: invalid guest_contact_email",
+            extra={"tenant_id": reservation.tenant_id, "from_email": from_email},
+        )
+        return None
+
+    try:
+        password = settings_row.get_guest_smtp_password()
+    except Exception:
+        logger.exception(
+            "guest email skipped: cannot decrypt SMTP password",
+            extra={"tenant_id": reservation.tenant_id},
+        )
+        return None
+
+    return get_connection(
+        host=smtp_host,
+        port=settings.EMAIL_PORT,
+        username=from_email,
+        password=password,
+        use_tls=settings.EMAIL_USE_TLS,
+        use_ssl=settings.EMAIL_USE_SSL,
+    )
+
+
+def _send_guest_email(message: EmailMultiAlternatives, reservation: Reservation) -> bool:
+    connection = _smtp_connection_for_reservation(reservation)
+    if connection is None:
+        return False
+    message.connection = connection
+    message.send(fail_silently=False)
+    return True
+
+
+def should_send_guest_canceled_email(old_status: str) -> bool:
+    return old_status not in {
+        Reservation.Status.CANCELED,
+        Reservation.Status.REFUSED,
+    }
+
+
+def queue_guest_booking_canceled_email(reservation_id: int, *, old_status: str) -> None:
+    if not should_send_guest_canceled_email(old_status):
+        return
+    from apps.communications.tasks import send_guest_booking_canceled_email
+
+    send_guest_booking_canceled_email.delay(reservation_id)
+
+
+def _send_templated_guest_email(
+    reservation_id: int,
+    *,
+    template_base: str,
+    log_event: str,
+    extra_context: dict | None = None,
+) -> dict:
     reservation = (
         Reservation.objects.select_related("tenant", "property")
         .prefetch_related("guests")
@@ -91,17 +177,18 @@ def send_booking_confirmed_email(reservation_id: int) -> dict:
     recipient = _guest_recipient(reservation)
     if not recipient:
         logger.warning(
-            "booking confirmed email skipped: no recipient",
+            "%s skipped: no recipient",
+            log_event,
             extra={"reservation_id": reservation_id},
         )
         return {"sent": False, "reason": "no_recipient"}
 
     lang = _language_for_reservation(reservation)
-    template_base = f"communications/email/booking_confirmed_{lang}"
-    context = _email_context(reservation)
-    subject = render_to_string(f"{template_base}_subject.txt", context).strip()
-    body_text = render_to_string(f"{template_base}.txt", context)
-    body_html = render_to_string(f"{template_base}.html", context)
+    template_name = f"{template_base}_{lang}"
+    context = {**_email_context(reservation), **(extra_context or {})}
+    subject = render_to_string(f"communications/email/{template_name}_subject.txt", context).strip()
+    body_text = render_to_string(f"communications/email/{template_name}.txt", context)
+    body_html = render_to_string(f"communications/email/{template_name}.html", context)
 
     from_header, reply_to = _sender_for_reservation(reservation)
     message = EmailMultiAlternatives(
@@ -112,51 +199,35 @@ def send_booking_confirmed_email(reservation_id: int) -> dict:
         reply_to=[reply_to] if reply_to else None,
     )
     message.attach_alternative(body_html, "text/html")
-    message.send(fail_silently=False)
+    if not _send_guest_email(message, reservation):
+        return {"sent": False, "reason": "smtp_not_configured"}
     logger.info(
-        "booking confirmed email sent",
+        log_event,
         extra={"reservation_id": reservation_id, "to": recipient},
     )
     return {"sent": True, "to": recipient}
+
+
+def send_booking_confirmed_email(reservation_id: int) -> dict:
+    return _send_templated_guest_email(
+        reservation_id,
+        template_base="booking_confirmed",
+        log_event="booking confirmed email sent",
+    )
 
 
 def send_booking_refused_email(reservation_id: int, *, reason: str = "") -> dict:
-    reservation = (
-        Reservation.objects.select_related("tenant", "property")
-        .prefetch_related("guests")
-        .filter(pk=reservation_id)
-        .first()
+    return _send_templated_guest_email(
+        reservation_id,
+        template_base="booking_refused",
+        log_event="booking refused email sent",
+        extra_context={"reason": reason},
     )
-    if reservation is None:
-        return {"sent": False, "reason": "not_found"}
 
-    recipient = _guest_recipient(reservation)
-    if not recipient:
-        logger.warning(
-            "booking refused email skipped: no recipient",
-            extra={"reservation_id": reservation_id},
-        )
-        return {"sent": False, "reason": "no_recipient"}
 
-    lang = _language_for_reservation(reservation)
-    template_base = f"communications/email/booking_refused_{lang}"
-    context = {**_email_context(reservation), "reason": reason}
-    subject = render_to_string(f"{template_base}_subject.txt", context).strip()
-    body_text = render_to_string(f"{template_base}.txt", context)
-    body_html = render_to_string(f"{template_base}.html", context)
-
-    from_header, reply_to = _sender_for_reservation(reservation)
-    message = EmailMultiAlternatives(
-        subject=subject,
-        body=body_text,
-        from_email=from_header,
-        to=[recipient],
-        reply_to=[reply_to] if reply_to else None,
+def send_booking_canceled_email(reservation_id: int) -> dict:
+    return _send_templated_guest_email(
+        reservation_id,
+        template_base="booking_canceled",
+        log_event="booking canceled email sent",
     )
-    message.attach_alternative(body_html, "text/html")
-    message.send(fail_silently=False)
-    logger.info(
-        "booking refused email sent",
-        extra={"reservation_id": reservation_id, "to": recipient},
-    )
-    return {"sent": True, "to": recipient}

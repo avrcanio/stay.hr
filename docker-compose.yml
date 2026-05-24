@@ -91,6 +91,12 @@ services:
       - traefik.http.routers.stay-booking-tenant.tls.certresolver=cloudflare
       - traefik.http.routers.stay-booking-tenant.service=stay-web-booking
       - traefik.http.routers.stay-booking-tenant.priority=50
+      - traefik.http.routers.stay-booking-apex.rule=Host(`stay.hr`) || Host(`www.stay.hr`)
+      - traefik.http.routers.stay-booking-apex.entrypoints=websecure
+      - traefik.http.routers.stay-booking-apex.tls=true
+      - traefik.http.routers.stay-booking-apex.tls.certresolver=cloudflare
+      - traefik.http.routers.stay-booking-apex.service=stay-web-booking
+      - traefik.http.routers.stay-booking-apex.priority=110
       - traefik.http.routers.stay-booking-uzorita.rule=Host(`booking.uzorita.hr`)
       - traefik.http.routers.stay-booking-uzorita.entrypoints=websecure
       - traefik.http.routers.stay-booking-uzorita.tls=true

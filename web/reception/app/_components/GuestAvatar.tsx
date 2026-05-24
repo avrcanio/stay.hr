@@ -6,6 +6,7 @@ type Props = {
   reservationId: number;
   guestId: number;
   name: string;
+  facePhotoUrl?: string;
   size?: "sm" | "lg";
   className?: string;
 };
@@ -30,14 +31,16 @@ export function GuestAvatar({
   reservationId,
   guestId,
   name,
+  facePhotoUrl,
   size = "sm",
   className = "",
 }: Props) {
   const [failed, setFailed] = useState(false);
   const initials = initialsFromName(name);
   const sizeStyles = sizeClass[size];
+  const hasPhoto = Boolean(facePhotoUrl?.trim());
 
-  if (failed) {
+  if (failed || !hasPhoto) {
     return (
       <span
         className={`inline-flex shrink-0 items-center justify-center rounded-full bg-stay-blue-light font-semibold text-stay-blue ${sizeStyles} ${className}`}

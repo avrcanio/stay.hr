@@ -27,18 +27,57 @@ class TenantDomainInline(admin.TabularInline):
     raw_id_fields = ("property",)
 
 
+class TenantReceptionSettingsInlineForm(forms.ModelForm):
+    guest_smtp_password = forms.CharField(
+        label="Guest SMTP password",
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+        help_text="SMTP password for guest_contact_email. Leave blank to keep the current password.",
+    )
+
+    class Meta:
+        model = TenantReceptionSettings
+        fields = (
+            "auto_checkout_enabled",
+            "auto_checkout_time",
+            "auto_checkout_last_run_date",
+            "guest_contact_email",
+            "guest_contact_name",
+            "guest_smtp_password",
+        )
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        password = self.cleaned_data.get("guest_smtp_password")
+        if password:
+            instance.set_guest_smtp_password(password)
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
+
+
 class TenantReceptionSettingsInline(admin.StackedInline):
     model = TenantReceptionSettings
+    form = TenantReceptionSettingsInlineForm
     extra = 0
-    readonly_fields = ("auto_checkout_last_run_date", "updated_at")
+    readonly_fields = ("auto_checkout_last_run_date", "updated_at", "has_guest_smtp_password_display")
     fields = (
         "auto_checkout_enabled",
         "auto_checkout_time",
         "auto_checkout_last_run_date",
         "guest_contact_email",
         "guest_contact_name",
+        "guest_smtp_password",
+        "has_guest_smtp_password_display",
         "updated_at",
     )
+
+    @admin.display(description="SMTP password set", boolean=True)
+    def has_guest_smtp_password_display(self, obj: TenantReceptionSettings | None) -> bool:
+        if obj is None or not obj.pk:
+            return False
+        return obj.has_guest_smtp_password
 
 
 class TenantMembershipInline(admin.TabularInline):

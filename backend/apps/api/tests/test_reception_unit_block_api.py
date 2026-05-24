@@ -101,6 +101,7 @@ class ReceptionUnitBlockAPITests(TestCase):
         data = response.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["reservation_id"], reservation.id)
+        self.assertFalse(data[0]["can_unblock"])
 
     @patch("apps.integrations.smoobu.blocking_service.SmoobuClient")
     def test_create_block(self, mock_client_cls):
@@ -166,6 +167,30 @@ class ReceptionUnitBlockAPITests(TestCase):
         self.assertEqual(response.status_code, 204)
         mock_client.cancel_reservation.assert_called_once_with("99002")
         self.assertFalse(UnitAvailabilityBlock.objects.filter(pk=block_row.id).exists())
+
+    def test_cannot_unblock_reservation_linked_block(self):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            check_in=date(2026, 8, 4),
+            check_out=date(2026, 8, 6),
+            status=Reservation.Status.EXPECTED,
+            booker_name="Guest",
+        )
+        block_row = UnitAvailabilityBlock.objects.create(
+            tenant=self.tenant,
+            unit=self.unit,
+            reservation=reservation,
+            check_in=date(2026, 8, 4),
+            check_out=date(2026, 8, 6),
+            smoobu_booking_id="99003",
+        )
+        response = self.client.delete(
+            f"/api/v1/reception/blocks/{block_row.id}/",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(UnitAvailabilityBlock.objects.filter(pk=block_row.id).exists())
 
     @patch(
         "apps.integrations.smoobu.calendar_blocks_service._fetch_external_blocks",

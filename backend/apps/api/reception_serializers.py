@@ -11,6 +11,7 @@ from apps.integrations.evisitor.summary import (
     evisitor_summary_for_reservation,
 )
 from apps.reservations.checkout import CheckoutBlockedError, perform_reservation_checkout
+from apps.reservations.confirmation_pdf import reservation_confirmation_pdf_url
 from apps.reservations.face_photo import guest_face_photo_url
 from apps.reservations.guest_slots import guests_for_checkout
 from apps.reservations.models import (
@@ -136,6 +137,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
     effective_units_count = serializers.SerializerMethodField()
     payment_status_key = serializers.SerializerMethodField()
     evisitor_summary = serializers.SerializerMethodField()
+    confirmation_pdf_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Reservation
@@ -172,7 +174,11 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
             "payment_status_key",
             "nights_count",
             "booked_at",
+            "source",
             "import_source",
+            "pdf_imported_at",
+            "xls_imported_at",
+            "confirmation_pdf_url",
             "guests_count",
             "primary_guest_name",
             "primary_guest_nationality_iso2",
@@ -213,6 +219,12 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
 
     def get_evisitor_summary(self, obj) -> str:
         return evisitor_summary_for_reservation(obj)
+
+    def get_confirmation_pdf_url(self, obj) -> str:
+        request = self.context.get("request")
+        if not request:
+            return ""
+        return reservation_confirmation_pdf_url(obj, request)
 
 
 _ALLOWED_STATUS_TRANSITIONS = {

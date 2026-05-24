@@ -48,11 +48,46 @@ class UnitInline(admin.TabularInline):
 
 @admin.register(Property)
 class PropertyAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
-    list_display = ("name", "slug", "tenant", "unit_count", "updated_at")
-    list_filter = ("tenant",)
+    list_display = (
+        "name",
+        "slug",
+        "tenant",
+        "tourist_tax_zone",
+        "tourist_tax_category",
+        "unit_count",
+        "updated_at",
+    )
+    list_filter = ("tenant", "tourist_tax_zone", "tourist_tax_category")
     search_fields = ("name", "slug", "tenant__name", "tenant__slug")
     prepopulated_fields = {"slug": ("name",)}
     raw_id_fields = ("tenant",)
+    autocomplete_fields = ("tourist_tax_zone", "tourist_tax_category")
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "tenant",
+                    "name",
+                    "slug",
+                    "address",
+                    "contact",
+                    "branding",
+                    "timezone",
+                    "language",
+                ),
+            },
+        ),
+        (
+            "Turistička pristojba",
+            {
+                "fields": ("tourist_tax_zone", "tourist_tax_category"),
+                "description": (
+                    "Postavite zonu i kategoriju smještaja prema odluci Grada Šibenika."
+                ),
+            },
+        ),
+    )
     inlines = [UnitInline]
 
     @admin.display(description="Units")

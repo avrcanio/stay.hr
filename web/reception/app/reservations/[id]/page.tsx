@@ -1,22 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
+import { BookingPdfImportForm } from "@/app/_components/BookingPdfImportForm";
 import { CountryFlag } from "@/app/_components/CountryFlag";
 import { GuestList } from "@/app/_components/GuestList";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
-import { useReservationStatusLabel } from "@/lib/i18n-ui";
-import type { ReservationDetail } from "@/lib/types";
+import { useImportSourceLabel, useReservationStatusLabel } from "@/lib/i18n-ui";
+import { primaryPropertySlug } from "@/lib/app-config";
+import { reservationConfirmationPdfPath } from "@/lib/stay-client";
+import type { BookingPdfImportResult, ReservationDetail } from "@/lib/types";
 import { reservationStatusClass } from "@/lib/reservationUi";
 
 export default function ReservationDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const t = useTranslations("reservation");
   const tc = useTranslations("common");
   const statusLabel = useReservationStatusLabel();
+  const importSourceLabel = useImportSourceLabel();
   const [tenantName, setTenantName] = useState("");
+  const [propertySlug, setPropertySlug] = useState("");
   const [reservation, setReservation] = useState<ReservationDetail | null>(null);
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
@@ -32,6 +38,14 @@ export default function ReservationDetailPage() {
         const s = await session.json();
         setTenantName(s.tenant || "");
       }
+      const configRes = await fetch("/api/stay/app/config");
+      if (configRes.ok) {
+        const config = (await configRes.json()) as {
+          tenant?: { slug?: string };
+          properties?: Array<{ slug: string }>;
+        };
+        setPropertySlug(primaryPropertySlug(config));
+      }
       const res = await fetch(`/api/stay/reception/reservations/${params.id}/`);
       if (!res.ok) throw new Error(t("notFound"));
       setReservation((await res.json()) as ReservationDetail);
@@ -45,6 +59,15 @@ export default function ReservationDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  function handleImportSuccess(result: BookingPdfImportResult) {
+    if (String(result.id) !== params.id) {
+      router.push(`/reservations/${result.id}`);
+      return;
+    }
+    setReservation(result);
+    setActionMessage(t("importPdfSuccess"));
+  }
 
   async function handleCancel() {
     if (!reservation || reservation.status !== "expected") return;
@@ -109,6 +132,12 @@ export default function ReservationDetailPage() {
                 </dd>
               </div>
               <div>
+                <dt className="text-muted">{t("importSource")}</dt>
+                <dd className="font-medium">
+                  {importSourceLabel(reservation.import_source, reservation.source)}
+                </dd>
+              </div>
+              <div>
                 <dt className="text-muted">{t("checkIn")}</dt>
                 <dd className="font-medium">{reservation.check_in_date}</dd>
               </div>
@@ -125,6 +154,19 @@ export default function ReservationDetailPage() {
                 <dd className="font-medium">{reservation.booker_phone || tc("dash")}</dd>
               </div>
             </dl>
+
+            {reservation.pdf_imported_at || reservation.confirmation_pdf_url ? (
+              <p>
+                <a
+                  href={reservationConfirmationPdfPath(reservation.id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-medium text-stay-blue hover:underline"
+                >
+                  {t("downloadPdf")}
+                </a>
+              </p>
+            ) : null}
 
             {reservation.status === "expected" ? (
               <button type="button" className="btn bg-red-600 text-white hover:bg-red-700" disabled={canceling} onClick={() => void handleCancel()}>
@@ -145,6 +187,13 @@ export default function ReservationDetailPage() {
                 <p className="whitespace-pre-wrap text-sm text-muted">{reservation.notes}</p>
               </div>
             ) : null}
+
+            <BookingPdfImportForm
+              propertySlug={propertySlug}
+              reservationId={reservation.id}
+              expectedBookingNumber={reservation.external_id || reservation.booking_code}
+              onSuccess={handleImportSuccess}
+            />
 
             <p className="text-xs text-stay-muted/70">{t("actionsHint")}</p>
           </div>

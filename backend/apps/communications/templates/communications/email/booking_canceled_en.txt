@@ -1,0 +1,11 @@
+Dear {{ booker_name }},
+
+We would like to inform you that your reservation has been canceled.
+
+Booking code: {{ booking_code }}
+Property: {{ property_name }}
+{% if room_label %}Room: {{ room_label }}
+{% endif %}Check-in: {{ check_in }}
+Check-out: {{ check_out }}
+
+If you have any questions, please contact us.

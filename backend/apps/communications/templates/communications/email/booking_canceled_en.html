@@ -1,0 +1,10 @@
+<p>Dear {{ booker_name }},</p>
+<p>We would like to inform you that your reservation has been canceled.</p>
+<ul>
+  <li>Booking code: {{ booking_code }}</li>
+  <li>Property: {{ property_name }}</li>
+  {% if room_label %}<li>Room: {{ room_label }}</li>{% endif %}
+  <li>Check-in: {{ check_in }}</li>
+  <li>Check-out: {{ check_out }}</li>
+</ul>
+<p>If you have any questions, please contact us.</p>

@@ -23,6 +23,7 @@ from apps.reservations.channel_sync import (
     is_cancellation_status,
     is_pdf_authoritative,
 )
+from apps.reservations.booking_xls_import import _parse_guest_name
 from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.tenants.models import Tenant
@@ -178,15 +179,6 @@ def _unit_for_apartment_link(
         code=link.unit_code,
         is_active=True,
     ).first()
-
-
-def _parse_guest_name(full_name: str) -> tuple[str, str]:
-    parts = full_name.strip().split(None, 1)
-    if not parts:
-        return "Guest", ""
-    if len(parts) == 1:
-        return parts[0], ""
-    return parts[0], parts[1]
 
 
 def _resolve_create_external_id(
@@ -448,6 +440,7 @@ def process_smoobu_booking(
         and result.old_status
         and result.old_status != result.reservation.status
     ):
+        from apps.communications.guest_email import queue_guest_booking_canceled_email
         from apps.core.tasks import notify_reservation_status_changed
 
         notify_reservation_status_changed.delay(
@@ -455,6 +448,11 @@ def process_smoobu_booking(
             result.old_status,
             result.reservation.status,
         )
+        if result.reservation.status == Reservation.Status.CANCELED:
+            queue_guest_booking_canceled_email(
+                result.reservation.pk,
+                old_status=result.old_status,
+            )
 
     logger.info(
         "smoobu booking processed",

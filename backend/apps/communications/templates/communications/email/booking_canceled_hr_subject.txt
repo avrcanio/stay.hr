@@ -1,0 +1,1 @@
+Rezervacija otkazana — {{ property_name }}

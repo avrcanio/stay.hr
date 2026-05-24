@@ -26,4 +26,23 @@ export function reservationStatusBarClass(status: string): string {
   return statusBarClass[status] || statusBarClass.expected;
 }
 
+export type ImportSourceKey =
+  | "booking_pdf"
+  | "booking_xls"
+  | "smoobu"
+  | "web"
+  | "manual";
+
+export function importSourceKey(
+  importSource: string | null | undefined,
+  source: string | null | undefined,
+): ImportSourceKey {
+  const normalized = (importSource || "").trim().toLowerCase();
+  if (normalized === "booking_pdf") return "booking_pdf";
+  if (normalized === "booking_xls") return "booking_xls";
+  if (normalized === "smoobu") return "smoobu";
+  if ((source || "").trim().toLowerCase() === "api") return "web";
+  return "manual";
+}
+
 export type { ReservationStatus };

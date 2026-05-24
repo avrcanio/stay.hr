@@ -13,9 +13,9 @@ from apps.integrations.models import (
 
 @admin.register(IntegrationConfig)
 class IntegrationConfigAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
-    list_display = ("provider", "tenant", "property", "is_active", "updated_at")
+    list_display = ("provider", "tenant", "property", "routing_key", "is_active", "updated_at")
     list_filter = ("provider", "is_active", "tenant")
-    search_fields = ("tenant__name", "tenant__slug", "property__slug")
+    search_fields = ("tenant__name", "tenant__slug", "property__slug", "routing_key")
     raw_id_fields = ("tenant", "property")
     readonly_fields = ("config_encrypted", "created_at", "updated_at")
 

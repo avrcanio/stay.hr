@@ -4,6 +4,12 @@ from django.db import models
 from apps.core.models import TenantScopedModel
 
 
+def booking_confirmation_pdf_upload_to(instance, filename: str) -> str:
+    code = (instance.booking_code or instance.external_id or str(instance.pk or "unknown")).strip()
+    tenant_slug = instance.tenant.slug if instance.tenant_id else "unknown"
+    return f"booking_confirmations/{tenant_slug}/{code}.pdf"
+
+
 class Reservation(TenantScopedModel):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -64,6 +70,11 @@ class Reservation(TenantScopedModel):
     pdf_imported_at = models.DateTimeField(null=True, blank=True)
     smoobu_modified_at = models.DateTimeField(null=True, blank=True)
     smoobu_booking_id = models.CharField(max_length=64, blank=True)
+    confirmation_pdf = models.FileField(
+        upload_to=booking_confirmation_pdf_upload_to,
+        blank=True,
+        null=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

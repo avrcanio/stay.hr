@@ -35,6 +35,9 @@ from apps.integrations.evisitor.exceptions import (
     EvisitorValidationError,
 )
 from apps.integrations.evisitor.service import submit_guest_checkin
+from apps.properties.models import Property
+from apps.reservations.booking_pdf_import import parse_booking_pdf
+from apps.reservations.booking_xls_import import upsert_reservation_from_xls_row
 from apps.reservations.document_photo_storage import (
     DOCUMENT_TYPE_NATIONAL_ID,
     DOCUMENT_TYPE_PASSPORT,
@@ -283,6 +286,7 @@ class ReservationDetailView(TenantAPIView, generics.RetrieveUpdateAPIView):
         self.perform_update(update_serializer)
         instance.refresh_from_db()
         if old_status != instance.status:
+            from apps.communications.guest_email import queue_guest_booking_canceled_email
             from apps.core.tasks import notify_reservation_status_changed
             from apps.integrations.smoobu.tasks import sync_reservation_smoobu_blocks_task
 
@@ -293,6 +297,7 @@ class ReservationDetailView(TenantAPIView, generics.RetrieveUpdateAPIView):
                 installation_id_from_request(request),
             )
             if instance.status == Reservation.Status.CANCELED:
+                queue_guest_booking_canceled_email(instance.pk, old_status=old_status)
                 sync_reservation_smoobu_blocks_task.delay(instance.pk, "remove")
             elif instance.status in {
                 Reservation.Status.PENDING,
@@ -355,6 +360,18 @@ class GuestFacePhotoView(ReceptionReadView, APIView):
         return FileResponse(
             doc.face_photo.open("rb"),
             content_type=content_type or "image/jpeg",
+        )
+
+
+class ReservationConfirmationPdfView(ReceptionReadView, APIView):
+    def get(self, request, pk: int):
+        reservation = _get_reservation(request.tenant, pk)
+        if not reservation.confirmation_pdf:
+            raise NotFound("PDF potvrda nije dostupna.")
+        content_type, _ = mimetypes.guess_type(reservation.confirmation_pdf.name)
+        return FileResponse(
+            reservation.confirmation_pdf.open("rb"),
+            content_type=content_type or "application/pdf",
         )
 
 
@@ -850,3 +867,132 @@ class EvisitorSubmitView(ReceptionWriteView, APIView):
                 "Gost je već prijavljen u eVisitoru; status usklađen."
             )
         return Response(payload)
+
+
+MAX_BOOKING_PDF_BYTES = 5 * 1024 * 1024
+
+
+def _validate_booking_pdf_file(value) -> object:
+    if value.size > MAX_BOOKING_PDF_BYTES:
+        raise serializers.ValidationError(
+            f"PDF je prevelik (max {MAX_BOOKING_PDF_BYTES} bajtova)."
+        )
+    content_type = (getattr(value, "content_type", "") or "").lower()
+    if content_type and content_type not in {"application/pdf", "application/octet-stream"}:
+        raise serializers.ValidationError("Datoteka mora biti PDF.")
+    return value
+
+
+def _reservation_booking_number(reservation: Reservation) -> str:
+    return (reservation.booking_code or reservation.external_id or "").strip()
+
+
+class BookingPdfImportSerializer(serializers.Serializer):
+    file = serializers.FileField()
+    property_slug = serializers.CharField(required=False, allow_blank=True, default="")
+    reservation_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    confirm_booking_mismatch = serializers.BooleanField(required=False, default=False)
+
+    def validate_file(self, value):
+        return _validate_booking_pdf_file(value)
+
+
+class BookingPdfImportView(ReceptionWriteView, APIView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        serializer = BookingPdfImportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        upload = data["file"]
+        content = upload.read()
+        if not content.startswith(b"%PDF"):
+            raise serializers.ValidationError({"file": "Datoteka nije valjani PDF."})
+
+        try:
+            row = parse_booking_pdf(content)
+        except ValueError as exc:
+            raise serializers.ValidationError({"file": str(exc)}) from exc
+
+        context_reservation = None
+        reservation_id = data.get("reservation_id")
+        if reservation_id is not None:
+            context_reservation = _get_reservation(request.tenant, reservation_id)
+            context_booking_number = _reservation_booking_number(context_reservation)
+            pdf_booking_number = (row.external_id or "").strip()
+            if (
+                context_booking_number
+                and pdf_booking_number
+                and context_booking_number != pdf_booking_number
+                and not data.get("confirm_booking_mismatch")
+            ):
+                return Response(
+                    {
+                        "code": "booking_number_mismatch",
+                        "detail": (
+                            f"Broj rezervacije u PDF-u ({pdf_booking_number}) razlikuje se "
+                            f"od broja na ovoj stranici ({context_booking_number})."
+                        ),
+                        "pdf_booking_number": pdf_booking_number,
+                        "context_booking_number": context_booking_number,
+                        "context_reservation_id": context_reservation.id,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+        property_slug = (data.get("property_slug") or "").strip()
+        prop = None
+        if property_slug:
+            prop = Property.objects.filter(
+                tenant=request.tenant,
+                slug=property_slug,
+            ).first()
+            if prop is None:
+                raise serializers.ValidationError(
+                    {"property_slug": f"Property slug={property_slug!r} nije pronađen."}
+                )
+        else:
+            prop = (
+                Property.objects.filter(tenant=request.tenant, slug=request.tenant.slug).first()
+                or Property.objects.filter(tenant=request.tenant).order_by("name").first()
+            )
+        if prop is None:
+            raise serializers.ValidationError(
+                {"property_slug": "Tenant nema definiran property."}
+            )
+
+        result = upsert_reservation_from_xls_row(
+            tenant=request.tenant,
+            property=prop,
+            row=row,
+            existing_mode="overwrite",
+            authoritative_pdf=True,
+        )
+        if result.skipped:
+            return Response(
+                {
+                    "detail": result.skip_reason or "Uvoz preskočen.",
+                    "skip_reason": result.skip_reason,
+                    "reservation_id": result.reservation_id,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        reservation = _get_reservation(request.tenant, result.reservation_id)
+        if reservation.confirmation_pdf:
+            reservation.confirmation_pdf.delete(save=False)
+        reservation.confirmation_pdf.save(
+            f"{row.external_id}.pdf",
+            ContentFile(content),
+            save=True,
+        )
+
+        reservation = _reservation_queryset(request.tenant).filter(pk=reservation.pk).first()
+        payload = ReservationTimelineSerializer(
+            reservation,
+            context={"request": request},
+        ).data
+        payload["created"] = result.created
+        payload["skip_reason"] = result.skip_reason
+        return Response(payload, status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK)

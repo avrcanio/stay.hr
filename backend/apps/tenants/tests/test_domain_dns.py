@@ -112,7 +112,13 @@ class ProvisionPlatformDnsTests(TestCase):
         records = provision_platform_dns()
 
         client.verify_token.assert_called_once()
-        self.assertEqual(client.upsert_a_record.call_count, 2)
+        self.assertEqual(client.upsert_a_record.call_count, 3)
+        client.upsert_a_record.assert_any_call(
+            "zone123",
+            "stay.hr",
+            "203.0.113.10",
+            proxied=True,
+        )
         client.upsert_a_record.assert_any_call(
             "zone123",
             "app.stay.hr",
@@ -125,4 +131,4 @@ class ProvisionPlatformDnsTests(TestCase):
             "203.0.113.10",
             proxied=True,
         )
-        self.assertEqual(len(records), 2)
+        self.assertEqual(len(records), 3)

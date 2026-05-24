@@ -41,9 +41,20 @@ def apply_unit_amounts_from_total(
     reservation: Reservation,
     total_amount: Decimal | None,
     units: list[ReservationUnit] | None = None,
+    unit_amounts: tuple[Decimal, ...] | None = None,
 ) -> None:
     unit_list = units if units is not None else list(reservation.units.order_by("sort_order", "id"))
-    if not unit_list or total_amount is None:
+    if not unit_list:
+        return
+
+    if unit_amounts and len(unit_amounts) == len(unit_list):
+        for unit, amount in zip(unit_list, unit_amounts):
+            if unit.amount != amount:
+                unit.amount = amount
+                unit.save(update_fields=["amount", "updated_at"])
+        return
+
+    if total_amount is None:
         return
     for unit, amount in zip(unit_list, split_unit_amounts(total_amount, len(unit_list))):
         if unit.amount != amount:

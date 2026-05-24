@@ -55,5 +55,146 @@
   },
   "common": {
     "error": "Error"
+  },
+  "platform": {
+    "metaTitle": "Stay.hr — accommodation provider platform",
+    "metaDescription": "FINE STAR d.o.o. develops Stay.hr (online booking) and Hospira (reception app) for accommodation providers in Croatia.",
+    "eyebrow": "Stay.hr / Hospira",
+    "brands": "Brands: Stay.hr and Hospira",
+    "tagline": "Online booking and reception platform for accommodation providers",
+    "intro": "FINE STAR d.o.o. provides software for landlords and operators of apartments, holiday homes, and other accommodation. We enable online booking requests for guests and digital check-in, calendars, reservation management, and guest communication (including WhatsApp when enabled) for property staff.",
+    "services": {
+      "stay": {
+        "title": "Stay.hr",
+        "body": "Booking websites, availability checks, online requests, and connection to the property's operational system."
+      },
+      "hospira": {
+        "title": "Hospira",
+        "body": "Reception tablet app for guest check-in, calendar views, reservation handling, and business guest communication via WhatsApp Business API (stay confirmations, arrival info, etc.)."
+      }
+    },
+    "whatsapp": {
+      "title": "WhatsApp Business (Hospira)",
+      "body": "Hospira is the WhatsApp Business account of FINE STAR d.o.o. We use it solely to communicate with guests of accommodation properties about bookings and stays (e.g. confirmations, arrival instructions, replies to enquiries). Data processing is described in our privacy policy. Guests may stop communicating at any time."
+    },
+    "contact": {
+      "title": "Company contact",
+      "company": "Company",
+      "oib": "Tax ID (OIB)",
+      "address": "Address",
+      "infoEmail": "General enquiries",
+      "privacyEmail": "Data privacy"
+    },
+    "legalNotice": "By using Stay.hr and Hospira you accept our terms of service and privacy policy.",
+    "privacyLink": "Privacy Policy",
+    "termsLink": "Terms of Service"
+  },
+  "privacy": {
+    "metaTitle": "Privacy Policy — Stay.hr / Hospira",
+    "metaDescription": "How Stay.hr and Hospira process personal data for guests, staff, and platform users.",
+    "title": "Privacy Policy",
+    "lastUpdated": "Last updated: {date}",
+    "intro": "This policy describes how {controllerName} processes personal data through the Stay.hr platform (web booking, API, reception web) and the Hospira app (reception tablet).",
+    "contactFooter": "For privacy questions, contact {email}.",
+    "homeLink": "Home",
+    "termsLink": "Terms of Service",
+    "sections": {
+      "whoWeAre": {
+        "title": "1. Who we are",
+        "body": "The data controller within the meaning of Regulation (EU) 2016/679 (GDPR) is {controllerName}.\n\nStay.hr is a platform for online accommodation bookings and reservation management. Hospira is a reception tablet app that lets staff check guests in, view calendars, and manage reservations.\n\nContact: {email}\nWeb: {websiteUrl}\nAddress: {address}\nTax ID (OIB): {oib}"
+      },
+      "dataWeCollect": {
+        "title": "2. Data we process",
+        "body": "Depending on how you use our services, we may process:\n\n• booker and guest data: name, email, phone, address, stay dates, number of guests;\n• check-in and legal registration data: identity document, date of birth, nationality, personal ID number, MRZ data;\n• accommodation staff data: username, email, role, language preferences;\n• technical data: IP address, access logs, device identifier (FCM token for Hospira tablet), browser information.\n\nWe do not request data beyond what is needed for booking, stay, or reception operations."
+      },
+      "purposes": {
+        "title": "3. Purpose and legal basis",
+        "body": "We process data to:\n\n• enter into and perform accommodation contracts (online booking, confirmation, guest communication);\n• comply with legal obligations (e.g. guest registration via the eVisitor system);\n• pursue legitimate interests (system security, abuse prevention, technical support, reasonable archiving);\n• rely on consent where required (e.g. optional communication beyond what is necessary).\n\nWithout necessary data we cannot provide booking, check-in, or reception services."
+      },
+      "accommodationRole": {
+        "title": "4. Role of accommodation providers",
+        "body": "Accommodation providers (tenants) using Stay.hr and Hospira are often independent controllers of their guests' data in connection with providing accommodation. In that context, {controllerName} acts as a tool provider or processor following the provider's instructions, within contractual and legal limits.\n\nFor questions about data collected by a specific property, you may also contact that property directly."
+      },
+      "recipients": {
+        "title": "5. Recipients and processors",
+        "body": "We share data only when necessary with:\n\n• hosting and infrastructure providers (Hetzner);\n• Cloudflare (CDN, TLS, protection);\n• integrations used by the property: Smoobu, Channex, WhatsApp (Meta), eVisitor, Firebase (push notifications for Hospira);\n• competent authorities when required by law.\n\nWe use data processing agreements or compliant services with recipients where applicable."
+      },
+      "cookies": {
+        "title": "6. Cookies",
+        "body": "We use functional cookies only:\n\n• language preference on booking pages;\n• session cookie for reception web login (app.stay.hr).\n\nWe do not use advertising cookies or third-party profiling tools. You can delete cookies in your browser settings; some parts of the service may then not work correctly."
+      },
+      "retention": {
+        "title": "7. Retention",
+        "body": "We retain reservation and check-in data for the duration of the accommodation contract and as long as needed to meet legal obligations (e.g. tourist records, accounting rules). Technical logs are kept for up to 12 months unless longer retention is required for security or dispute resolution.\n\nAfter the retention period, data is deleted or anonymised."
+      },
+      "rights": {
+        "title": "8. Your rights",
+        "body": "Under the GDPR you have the right to access, rectification, erasure, restriction of processing, objection, and data portability, and to withdraw consent where processing is consent-based.\n\nSend requests to {email}. We will respond within the statutory timeframe after verifying your identity."
+      },
+      "complaint": {
+        "title": "9. Supervisory authority",
+        "body": "If you believe your data is processed unlawfully, you may lodge a complaint with the Croatian Personal Data Protection Agency (AZOP), Martićeva 14, 10000 Zagreb, www.azop.hr."
+      },
+      "changes": {
+        "title": "10. Changes to this policy",
+        "body": "We may update this policy from time to time. The date of the last update is shown at the top of this page. Continued use of the service after publication constitutes acceptance of the updated policy, unless the law requires additional notice or consent."
+      }
+    }
+  },
+  "terms": {
+    "metaTitle": "Terms of Service — Stay.hr / Hospira",
+    "metaDescription": "Terms of use for the Stay.hr platform and Hospira reception app.",
+    "title": "Terms of Service",
+    "lastUpdated": "Last updated: {date}",
+    "intro": "These terms govern use of services provided by {controllerName}: the Stay.hr platform (web booking, API, reception web) and the Hospira app (reception tablet). By using the services you accept these terms.",
+    "contactFooter": "For questions about these terms, contact {email}.",
+    "homeLink": "Home",
+    "privacyLink": "Privacy Policy",
+    "sections": {
+      "scope": {
+        "title": "1. Scope and parties",
+        "body": "Services are provided by {controllerName}, tax ID (OIB) {oib}, {address}.\n\nThese terms apply to guests booking accommodation via Stay.hr booking sites, to staff of accommodation properties using Hospira and reception web, and to other platform users within the scope of their assigned access."
+      },
+      "services": {
+        "title": "2. Description of services",
+        "body": "Stay.hr enables online booking requests and reservations, availability checks, and connection to the property's operational system. Hospira is a reception app for guest check-in, calendar views, reservation management, and guest communication (including WhatsApp integration when enabled).\n\nFeatures may depend on the accommodation property (tenant) and its integration settings."
+      },
+      "guestBooking": {
+        "title": "3. Guest bookings",
+        "body": "By submitting a request or booking via Stay.hr booking sites:\n\n• you confirm the accuracy of the data you provide;\n• you enter into an accommodation contract with the relevant property, not directly with {controllerName} as the accommodation provider;\n• you accept that the property confirms availability and stay conditions;\n• you accept prices, cancellation rules, and house rules published on the booking site or in the confirmation.\n\n{controllerName} provides the technical platform; stay conditions, on-site payment, and accommodation-related complaints are handled by the property unless stated otherwise in the confirmation."
+      },
+      "providers": {
+        "title": "4. Accommodation providers and staff",
+        "body": "Accommodation properties and their authorised staff are responsible for:\n\n• accuracy of property data, prices, and availability;\n• lawful guest check-in and stay registration;\n• security of Hospira tablet and reception web credentials;\n\nPlatform access is granted under agreement with {controllerName}. Misuse may result in account suspension."
+      },
+      "acceptableUse": {
+        "title": "5. Acceptable use",
+        "body": "You must not:\n\n• submit fake bookings or abuse the booking system;\n• access other properties' or users' data without authorisation;\n• disrupt platform operation or perform unauthorised automated scraping;\n• use the services unlawfully or in violation of third-party rights.\n\nWe may restrict access to protect the system and users."
+      },
+      "availability": {
+        "title": "6. Availability and service changes",
+        "body": "We aim to provide services continuously but do not guarantee uninterrupted availability. Planned maintenance, third-party integration failures (e.g. channel managers, eVisitor, WhatsApp), or force majeure may temporarily disable certain features.\n\nPlatform features may evolve; material changes to these terms will be published by updating this page."
+      },
+      "liability": {
+        "title": "7. Liability",
+        "body": "To the extent permitted by law, {controllerName} is not liable for:\n\n• quality of accommodation, property services, or disputes between guests and properties;\n• indirect damages, loss of profit, or data loss caused by service interruption;\n• content and accuracy of data entered by properties or guests.\n\nNothing in these terms excludes liability that cannot be excluded under applicable law."
+      },
+      "intellectualProperty": {
+        "title": "8. Intellectual property",
+        "body": "Stay.hr, Hospira, logos, software, and documentation are protected by {controllerName} or its licensors. You may not copy, decompile, or distribute the platform without written consent, except as part of normal use of the service."
+      },
+      "termination": {
+        "title": "9. Term and termination",
+        "body": "The agreement with platform users lasts while access to the services continues. Properties and users may stop using the services under their agreement with {controllerName}.\n\nGuests may stop using booking sites at any time; confirmed bookings remain subject to the property's rules."
+      },
+      "law": {
+        "title": "10. Governing law and jurisdiction",
+        "body": "These terms are governed by the laws of the Republic of Croatia. Disputes fall under the jurisdiction of the competent courts in Croatia, unless mandatory consumer protection rules provide otherwise.\n\nPersonal data processing is governed by a separate privacy policy ({privacyEmail})."
+      },
+      "changes": {
+        "title": "11. Changes to these terms",
+        "body": "We may update these terms from time to time. The date of the last update is shown at the top of this page. Continued use of the service after publication constitutes acceptance of the updated terms, unless the law requires additional notice."
+      }
+    }
   }
 }

@@ -22,7 +22,9 @@ from apps.reservations.channel_sync import (
     incoming_wins,
     is_pdf_authoritative,
 )
+from apps.integrations.evisitor.summary import evisitor_status_for_guest
 from apps.reservations.guest_slots import ensure_adult_guest_slots
+from apps.reservations.models import EvisitorGuestStatus
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.reservations.reservation_units import (
     apply_unit_amounts_from_total,
@@ -125,6 +127,8 @@ class BookingXlsRow:
     canceled_at: datetime | None
     booker_address: str
     booker_phone: str
+    booker_email: str = ""
+    unit_amounts: tuple[Decimal, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -291,6 +295,60 @@ def _parse_guest_name(full_name: str) -> tuple[str, str]:
     return (" ".join(parts[:-1]), parts[-1])
 
 
+def _normalize_guest_name_key(name: str) -> str:
+    return re.sub(r"\s+", " ", html.unescape(name or "").strip()).casefold()
+
+
+def _guest_display_name(guest: Guest) -> str:
+    stored = (guest.name or "").strip()
+    if stored:
+        return stored
+    return f"{guest.first_name} {guest.last_name}".strip()
+
+
+def _find_guest_by_full_name(
+    reservation: Reservation,
+    full_name: str,
+    *,
+    prefer_primary: bool = False,
+) -> Guest | None:
+    key = _normalize_guest_name_key(full_name)
+    if not key:
+        return None
+    matches = [
+        guest
+        for guest in Guest.objects.filter(reservation=reservation)
+        if _normalize_guest_name_key(_guest_display_name(guest)) == key
+    ]
+    if not matches:
+        return None
+    if prefer_primary:
+        for guest in matches:
+            if guest.is_primary:
+                return guest
+    return matches[0]
+
+
+def _remove_duplicate_named_guests(
+    reservation: Reservation,
+    guest_names: list[str],
+    *,
+    keep_guest_ids: set[int],
+) -> None:
+    named_keys = {_normalize_guest_name_key(name) for name in guest_names if name.strip()}
+    if not named_keys:
+        return
+
+    for guest in Guest.objects.filter(reservation=reservation, is_primary=False):
+        if guest.pk in keep_guest_ids:
+            continue
+        if _normalize_guest_name_key(_guest_display_name(guest)) not in named_keys:
+            continue
+        if evisitor_status_for_guest(guest) != EvisitorGuestStatus.NOT_SENT:
+            continue
+        guest.delete()
+
+
 def _operational_status_from_booking(booking_status: str) -> str:
     normalized = (booking_status or "").strip().lower()
     if normalized in {"cancelled_by_guest", "cancelled", "canceled", "cancelled_by_hotel"}:
@@ -427,6 +485,21 @@ def _find_guest_for_fill_empty(
     return None
 
 
+def _preserve_existing_contact_fields(
+    *,
+    existing: Reservation,
+    field_updates: dict[str, Any],
+    booker_email: str,
+) -> str:
+    preserved_email = booker_email
+    if (existing.booker_phone or "").strip():
+        field_updates["booker_phone"] = existing.booker_phone
+    if (existing.booker_email or "").strip():
+        preserved_email = existing.booker_email.strip()
+        field_updates["booker_email"] = preserved_email
+    return preserved_email
+
+
 def _sync_guests(
     *,
     tenant: Tenant,
@@ -435,12 +508,16 @@ def _sync_guests(
     booker_country: str,
     booker_email: str,
     fill_empty_only: bool = False,
+    preserve_primary_contact: bool = False,
+    authoritative_pdf: bool = False,
 ) -> None:
     if not guest_names:
         return
 
     if not fill_empty_only:
         Guest.objects.filter(reservation=reservation).update(is_primary=False)
+
+    synced_guest_ids: set[int] = set()
 
     for idx, full_name in enumerate(guest_names):
         first_name, last_name = _parse_guest_name(full_name)
@@ -460,6 +537,12 @@ def _sync_guests(
                 is_primary=is_primary,
                 guest_names_count=len(guest_names),
             )
+        if guest is None:
+            guest = _find_guest_by_full_name(
+                reservation,
+                full_name,
+                prefer_primary=is_primary,
+            )
         guest_updates = _guest_updates_from_row(
             is_primary=is_primary,
             first_name=first_name,
@@ -471,7 +554,7 @@ def _sync_guests(
         if guest is None:
             if fill_empty_only and Guest.objects.filter(reservation=reservation).exists():
                 continue
-            Guest.objects.create(
+            guest = Guest.objects.create(
                 tenant=tenant,
                 reservation=reservation,
                 first_name=first_name or "-",
@@ -482,30 +565,52 @@ def _sync_guests(
                 document_country_iso2=guest_updates.get("document_country_iso2", ""),
                 is_primary=is_primary,
             )
+            synced_guest_ids.add(guest.pk)
             continue
 
         if fill_empty_only:
             changed = _merge_empty_fields(guest, guest_updates)
             if changed:
                 guest.save(update_fields=[*changed, "updated_at"])
+            synced_guest_ids.add(guest.pk)
             continue
 
         guest.is_primary = is_primary
+        guest.first_name = first_name or "-"
+        guest.last_name = last_name or "-"
         guest.name = guest_updates.get("name") or guest.name
-        if is_primary and booker_email:
+        if (
+            is_primary
+            and booker_email
+            and not (preserve_primary_contact and (guest.email or "").strip())
+        ):
             guest.email = booker_email
-        if is_primary and booker_country and not guest.nationality:
-            guest.nationality = booker_country
-            guest.document_country_iso2 = booker_country
+        if is_primary and booker_country:
+            if authoritative_pdf:
+                guest.nationality = booker_country
+                guest.document_country_iso2 = booker_country
+            elif not guest.nationality:
+                guest.nationality = booker_country
+                guest.document_country_iso2 = booker_country
         guest.save(
             update_fields=[
                 "is_primary",
+                "first_name",
+                "last_name",
                 "name",
                 "email",
                 "nationality",
                 "document_country_iso2",
                 "updated_at",
             ]
+        )
+        synced_guest_ids.add(guest.pk)
+
+    if authoritative_pdf and not fill_empty_only:
+        _remove_duplicate_named_guests(
+            reservation,
+            guest_names,
+            keep_guest_ids=synced_guest_ids,
         )
 
 
@@ -625,8 +730,8 @@ def upsert_reservation_from_xls_row(
 
     use_pdf_authority = authoritative_pdf and existing_mode == "overwrite"
 
-    booker_email = ""
-    if row.booker_name and "@" not in row.booker_name:
+    booker_email = (row.booker_email or "").strip()
+    if not booker_email and row.booker_name and "@" not in row.booker_name:
         slug = re.sub(r"[^a-z0-9]+", ".", row.booker_name.lower()).strip(".")
         if slug:
             booker_email = f"{slug}@booking-import.local"
@@ -688,6 +793,12 @@ def upsert_reservation_from_xls_row(
             Reservation.Status.CHECKED_OUT,
         ):
             field_updates["status"] = reservation.status
+        if use_pdf_authority:
+            booker_email = _preserve_existing_contact_fields(
+                existing=reservation,
+                field_updates=field_updates,
+                booker_email=booker_email,
+            )
         for field, value in field_updates.items():
             setattr(reservation, field, value)
         reservation.save()
@@ -699,6 +810,8 @@ def upsert_reservation_from_xls_row(
         booker_country=row.booker_country,
         booker_email=booker_email,
         fill_empty_only=False,
+        preserve_primary_contact=use_pdf_authority and existing is not None,
+        authoritative_pdf=use_pdf_authority or (existing is None and authoritative_pdf),
     )
     ensure_adult_guest_slots(
         tenant=tenant,
@@ -715,6 +828,7 @@ def upsert_reservation_from_xls_row(
         reservation=reservation,
         total_amount=row.total_amount,
         units=units,
+        unit_amounts=row.unit_amounts or None,
     )
 
     return XlsImportResult(

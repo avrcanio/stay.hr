@@ -93,6 +93,7 @@ export function GuestList({ reservationId, guests }: Props) {
                   reservationId={reservationId}
                   guestId={guest.id}
                   name={fullName}
+                  facePhotoUrl={guest.face_photo_url}
                   size="sm"
                 />
                 <CountryFlag iso2={guest.nationality} />
@@ -113,6 +114,7 @@ export function GuestList({ reservationId, guests }: Props) {
                     reservationId={reservationId}
                     guestId={guest.id}
                     name={fullName}
+                    facePhotoUrl={guest.face_photo_url}
                     size="lg"
                   />
                   <div className="min-w-0">

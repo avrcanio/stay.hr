@@ -14,6 +14,7 @@ class IntegrationConfig(TenantScopedModel):
         EVISITOR = "evisitor", "eVisitor"
         CHANNEX = "channex", "Channex"
         SMOOBU = "smoobu", "Smoobu"
+        WHATSAPP = "whatsapp", "WhatsApp"
         OTHER = "other", "Other"
 
     property = models.ForeignKey(
@@ -24,6 +25,13 @@ class IntegrationConfig(TenantScopedModel):
         related_name="integration_configs",
     )
     provider = models.CharField(max_length=20, choices=Provider.choices)
+    routing_key = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Meta phone_number_id for WhatsApp tenant routing.",
+    )
     config = models.JSONField(
         default=dict,
         blank=True,
@@ -40,6 +48,11 @@ class IntegrationConfig(TenantScopedModel):
             models.UniqueConstraint(
                 fields=["tenant", "provider", "property"],
                 name="integrations_config_unique_tenant_provider_property",
+            ),
+            models.UniqueConstraint(
+                fields=["provider", "routing_key"],
+                condition=models.Q(routing_key__gt=""),
+                name="integrations_config_unique_provider_routing_key",
             ),
         ]
 
@@ -293,3 +306,41 @@ class UnitAvailabilityBlock(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"{self.unit.code} block {self.check_in}..{self.check_out}"
+
+
+class WhatsAppMessage(TenantScopedModel):
+    class Direction(models.TextChoices):
+        INBOUND = "inbound", "Inbound"
+        OUTBOUND = "outbound", "Outbound"
+
+    integration = models.ForeignKey(
+        IntegrationConfig,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="whatsapp_messages",
+    )
+    reservation = models.ForeignKey(
+        "reservations.Reservation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="whatsapp_messages",
+    )
+    wamid = models.CharField(max_length=128, unique=True)
+    wa_id = models.CharField(max_length=32, db_index=True)
+    phone_number_id = models.CharField(max_length=32, blank=True)
+    direction = models.CharField(max_length=16, choices=Direction.choices)
+    message_type = models.CharField(max_length=32, blank=True)
+    body = models.TextField(blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["tenant", "wa_id", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.direction} {self.wamid} ({self.wa_id})"

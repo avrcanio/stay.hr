@@ -1,6 +1,7 @@
 import io
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -384,3 +385,149 @@ class ReceptionAPITests(TestCase):
             HTTP_AUTHORIZATION=f"Bearer {read_token}",
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_import_booking_pdf(self):
+        pdf_path = Path(__file__).resolve().parents[4] / ".imports" / "5145601516.pdf"
+        if not pdf_path.is_file():
+            self.skipTest("Sample PDF not available")
+
+        with pdf_path.open("rb") as handle:
+            upload = SimpleUploadedFile(
+                "5145601516.pdf",
+                handle.read(),
+                content_type="application/pdf",
+            )
+
+        response = self.client.post(
+            "/api/v1/reception/reservations/import-pdf/",
+            {"file": upload, "property_slug": "uzorita"},
+            format="multipart",
+            **self.auth,
+        )
+        self.assertIn(response.status_code, {200, 201})
+        data = response.json()
+        self.assertEqual(data["external_id"], "5145601516")
+        self.assertEqual(data["import_source"], "booking_pdf")
+        self.assertTrue(data["pdf_imported_at"])
+        self.assertTrue(data["confirmation_pdf_url"])
+        self.assertIn("confirmation-pdf", data["confirmation_pdf_url"])
+
+        reservation = Reservation.objects.get(pk=data["id"])
+        self.assertEqual(reservation.import_source, "booking_pdf")
+        self.assertIsNotNone(reservation.pdf_imported_at)
+        self.assertIn("5145601516", reservation.confirmation_pdf.name)
+
+    def test_import_booking_pdf_matching_reservation_id(self):
+        pdf_path = Path(__file__).resolve().parents[4] / ".imports" / "5145601516.pdf"
+        if not pdf_path.is_file():
+            self.skipTest("Sample PDF not available")
+
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="5145601516",
+            booking_code="5145601516",
+            check_in=date(2026, 5, 23),
+            check_out=date(2026, 5, 24),
+            status=Reservation.Status.EXPECTED,
+            booker_name="Peter Boogaart",
+        )
+
+        with pdf_path.open("rb") as handle:
+            upload = SimpleUploadedFile(
+                "5145601516.pdf",
+                handle.read(),
+                content_type="application/pdf",
+            )
+
+        response = self.client.post(
+            "/api/v1/reception/reservations/import-pdf/",
+            {
+                "file": upload,
+                "property_slug": "uzorita",
+                "reservation_id": str(reservation.id),
+            },
+            format="multipart",
+            **self.auth,
+        )
+        self.assertIn(response.status_code, {200, 201})
+        self.assertEqual(response.json()["external_id"], "5145601516")
+
+    def test_import_booking_pdf_mismatch_requires_confirm(self):
+        pdf_path = Path(__file__).resolve().parents[4] / ".imports" / "5145601516.pdf"
+        if not pdf_path.is_file():
+            self.skipTest("Sample PDF not available")
+
+        other = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="6250886338",
+            booking_code="6250886338",
+            check_in=date(2026, 5, 23),
+            check_out=date(2026, 5, 24),
+            status=Reservation.Status.EXPECTED,
+            booker_name="Other Guest",
+        )
+
+        with pdf_path.open("rb") as handle:
+            upload = SimpleUploadedFile(
+                "5145601516.pdf",
+                handle.read(),
+                content_type="application/pdf",
+            )
+
+        response = self.client.post(
+            "/api/v1/reception/reservations/import-pdf/",
+            {
+                "file": upload,
+                "property_slug": "uzorita",
+                "reservation_id": str(other.id),
+            },
+            format="multipart",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 409)
+        data = response.json()
+        self.assertEqual(data["code"], "booking_number_mismatch")
+        self.assertEqual(data["pdf_booking_number"], "5145601516")
+        self.assertEqual(data["context_booking_number"], "6250886338")
+        self.assertEqual(data["context_reservation_id"], other.id)
+
+    def test_import_booking_pdf_mismatch_confirmed(self):
+        pdf_path = Path(__file__).resolve().parents[4] / ".imports" / "5145601516.pdf"
+        if not pdf_path.is_file():
+            self.skipTest("Sample PDF not available")
+
+        other = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="6250886338",
+            booking_code="6250886338",
+            check_in=date(2026, 5, 23),
+            check_out=date(2026, 5, 24),
+            status=Reservation.Status.EXPECTED,
+            booker_name="Other Guest",
+        )
+
+        with pdf_path.open("rb") as handle:
+            upload = SimpleUploadedFile(
+                "5145601516.pdf",
+                handle.read(),
+                content_type="application/pdf",
+            )
+
+        response = self.client.post(
+            "/api/v1/reception/reservations/import-pdf/",
+            {
+                "file": upload,
+                "property_slug": "uzorita",
+                "reservation_id": str(other.id),
+                "confirm_booking_mismatch": "true",
+            },
+            format="multipart",
+            **self.auth,
+        )
+        self.assertIn(response.status_code, {200, 201})
+        data = response.json()
+        self.assertEqual(data["external_id"], "5145601516")
+        self.assertNotEqual(data["id"], other.id)

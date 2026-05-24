@@ -8,6 +8,7 @@ from apps.tenants.models import TenantDomain
 RESERVED_STAY_SUBDOMAINS = frozenset({"api", "admin", "app"})
 
 PLATFORM_DNS_HOSTS = (
+    "stay.hr",
     "app.stay.hr",
     "*.stay.hr",
 )

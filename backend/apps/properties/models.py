@@ -12,6 +12,20 @@ class Property(TenantScopedModel):
     branding = models.JSONField(default=dict, blank=True)
     timezone = models.CharField(max_length=64, blank=True)
     language = models.CharField(max_length=10, blank=True)
+    tourist_tax_zone = models.ForeignKey(
+        "tourist_tax.TouristTaxZone",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="properties",
+    )
+    tourist_tax_category = models.ForeignKey(
+        "tourist_tax.TouristTaxAccommodationCategory",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="properties",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -6,6 +6,7 @@ from apps.api.reception_calendar_block_views import (
     ReceptionUnitBlockDeleteView,
 )
 from apps.api.reception_views import (
+    BookingPdfImportView,
     DocumentPhotosUploadView,
     DocumentScanIngestView,
     EvisitorSubmitView,
@@ -14,6 +15,7 @@ from apps.api.reception_views import (
     ReceptionHealthView,
     ReceptionMonthlyStatisticsView,
     ReceptionSyncVersionsView,
+    ReservationConfirmationPdfView,
     ReservationDetailView,
     ReservationGuestDetailView,
     ReservationGuestListCreateView,
@@ -36,6 +38,16 @@ urlpatterns = [
         "reservations/",
         ReservationTimelineListView.as_view(),
         name="reception-reservations-list",
+    ),
+    path(
+        "reservations/import-pdf/",
+        BookingPdfImportView.as_view(),
+        name="reception-reservation-import-pdf",
+    ),
+    path(
+        "reservations/<int:pk>/confirmation-pdf/",
+        ReservationConfirmationPdfView.as_view(),
+        name="reception-reservation-confirmation-pdf",
     ),
     path(
         "reservations/<int:pk>/",

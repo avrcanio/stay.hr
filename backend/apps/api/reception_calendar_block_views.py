@@ -84,6 +84,17 @@ class ReceptionUnitBlockDeleteView(ReceptionWriteView, APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        if block_row.reservation_id is not None:
+            return Response(
+                {
+                    "detail": (
+                        "Blok je vezan uz rezervaciju i ne može se ručno ukloniti. "
+                        "Otkažite rezervaciju da se ukloni blok na Booking.com."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         try:
             unblock_apartment_dates(block_row)
         except SmoobuRatesError as exc:

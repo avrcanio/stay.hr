@@ -66,6 +66,16 @@ export type ReservationDetail = Reservation & {
   booker_name: string;
   booker_phone: string;
   notes: string;
+  source: string;
+  import_source: string;
+  pdf_imported_at: string | null;
+  xls_imported_at: string | null;
+  confirmation_pdf_url: string;
+};
+
+export type BookingPdfImportResult = ReservationDetail & {
+  created?: boolean;
+  skip_reason?: string;
 };
 
 export type CalendarReservation = {

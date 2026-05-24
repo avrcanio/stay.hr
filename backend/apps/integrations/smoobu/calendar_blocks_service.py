@@ -50,7 +50,7 @@ def _serialize_hospira_block(row: UnitAvailabilityBlock) -> dict[str, Any]:
         "check_out": row.check_out.isoformat(),
         "smoobu_booking_id": row.smoobu_booking_id,
         "reservation_id": row.reservation_id,
-        "can_unblock": True,
+        "can_unblock": row.reservation_id is None,
         "source": "hospira",
     }
 

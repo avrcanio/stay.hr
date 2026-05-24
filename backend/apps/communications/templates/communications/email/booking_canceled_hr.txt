@@ -1,0 +1,11 @@
+Poštovani {{ booker_name }},
+
+Obavještavamo Vas da je Vaša rezervacija otkazana.
+
+Kod rezervacije: {{ booking_code }}
+Objekt: {{ property_name }}
+{% if room_label %}Soba: {{ room_label }}
+{% endif %}Dolazak: {{ check_in }}
+Odlazak: {{ check_out }}
+
+Ako imate pitanja, slobodno nas kontaktirajte.

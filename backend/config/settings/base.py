@@ -15,6 +15,9 @@ environ.Env.read_env(BASE_DIR.parent / ".env")
 
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 STAY_INTEGRATION_FERNET_KEY = env("STAY_INTEGRATION_FERNET_KEY", default="")
+WHATSAPP_WEBHOOK_VERIFY_TOKEN = env("WHATSAPP_WEBHOOK_VERIFY_TOKEN", default="")
+WHATSAPP_APP_SECRET = env("WHATSAPP_APP_SECRET", default="")
+WHATSAPP_API_VERSION = env("WHATSAPP_API_VERSION", default="v23.0")
 CF_DNS_API_TOKEN = env("CF_DNS_API_TOKEN", default="")
 STAY_SERVER_IP = env("STAY_SERVER_IP", default="")
 CLOUDFLARE_ZONE_STAY = env("CLOUDFLARE_ZONE_STAY", default="stay.hr")
@@ -41,6 +44,7 @@ INSTALLED_APPS = [
     "apps.integrations",
     "apps.communications",
     "apps.legacy_import",
+    "apps.tourist_tax",
     "apps.api",
 ]
 

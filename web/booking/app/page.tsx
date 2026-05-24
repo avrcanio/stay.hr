@@ -1,13 +1,35 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { BookingShell } from "@/app/_components/BookingShell";
+import { PlatformLanding } from "@/app/_components/PlatformLanding";
 import { getSiteContext, propertyBasePath } from "@/lib/site-context";
+import { isPlatformApexHost } from "@/lib/platform-host";
 import { requestHost } from "@/lib/utils";
+
+export async function generateMetadata(): Promise<Metadata> {
+  const host = await requestHost();
+  if (isPlatformApexHost(host)) {
+    const t = await getTranslations("platform");
+    return {
+      title: t("metaTitle"),
+      description: t("metaDescription"),
+    };
+  }
+  const t = await getTranslations("meta");
+  return {
+    title: t("title"),
+    description: t("description"),
+  };
+}
 
 export default async function HomePage() {
   const t = await getTranslations("home");
   const host = await requestHost();
+  if (isPlatformApexHost(host)) {
+    return <PlatformLanding />;
+  }
   let ctx;
   try {
     ctx = await getSiteContext(host);

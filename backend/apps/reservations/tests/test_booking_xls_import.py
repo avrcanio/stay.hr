@@ -1,19 +1,59 @@
 from datetime import date, timedelta
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import patch
 
 from django.test import TestCase
 from django.utils import timezone
 
 from apps.properties.models import Property
+from apps.reservations.booking_pdf_import import parse_booking_pdf_text
 from apps.reservations.booking_xls_import import (
     BookingXlsRow,
     import_booking_xls_rows,
     upsert_reservation_from_xls_row,
 )
-from apps.reservations.guest_slots import PLACEHOLDER_NAME
+from apps.reservations.guest_slots import PLACEHOLDER_FIRST, PLACEHOLDER_LAST, PLACEHOLDER_NAME
 from apps.reservations.models import Guest, Reservation
 from apps.tenants.models import Tenant
+
+IMPORTS = Path(__file__).resolve().parents[4] / ".imports"
+
+MULTI_ROOM_PDF_TEXT = """
+Luxury Room Uzorita B&B
+Check-in
+Sun, May 25, 2026
+Check-out
+Mon, May 26, 2026
+Total guests:
+4 adults
+Total units
+2
+Total price
+€ 201.65
+Guest name:
+Kris Meeus
+ be
+kmeeus.604082@guest.booking.com
+Booking number:
+5898434847
+Deluxe King Room (Luxury Room Uzorita - R2)
+€ 109.00
+Guest Name
+Kurt Meeus
+Booked occupancy
+2 adults
+Total room price
+€ 109.00
+Deluxe King Room (Luxury Room Uzorita - R1)
+€ 92.65
+Guest Name
+Kris Meeus
+Booked occupancy
+2 adults
+Total room price
+€ 92.65
+"""
 
 
 def _sample_row(**overrides) -> BookingXlsRow:
@@ -413,3 +453,190 @@ class BookingXlsImportSkipExistingTests(TestCase):
         self.assertEqual(reservation.import_source, "booking_pdf")
         self.assertIsNotNone(reservation.pdf_imported_at)
         self.assertIsNotNone(reservation.xls_imported_at)
+
+    def test_authoritative_pdf_overwrite_preserves_existing_contact(self):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="9998889",
+            booking_code="9998889",
+            check_in=date(2026, 7, 1),
+            check_out=date(2026, 7, 6),
+            booker_name="Smoobu Guest",
+            booker_phone="+31 31629557900",
+            booker_email="keep@example.com",
+            status=Reservation.Status.EXPECTED,
+            import_source="smoobu",
+        )
+        guest = Guest.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            first_name="Smoobu",
+            last_name="Guest",
+            email="keep@example.com",
+            is_primary=True,
+        )
+        row = _sample_row(
+            external_id="9998889",
+            booker_name="PDF, Winner",
+            guest_names=["PDF, Winner"],
+            booker_phone="",
+            booker_email="new@example.com",
+        )
+        result = upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+            existing_mode="overwrite",
+            authoritative_pdf=True,
+        )
+        self.assertFalse(result.skipped)
+        self.assertTrue(result.updated)
+        reservation.refresh_from_db()
+        guest.refresh_from_db()
+        self.assertEqual(reservation.booker_name, "PDF, Winner")
+        self.assertEqual(reservation.booker_phone, "+31 31629557900")
+        self.assertEqual(reservation.booker_email, "keep@example.com")
+        self.assertEqual(guest.email, "keep@example.com")
+
+    def test_authoritative_pdf_dedupes_smoobu_name_split(self):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="6950508284",
+            booking_code="6950508284",
+            check_in=date(2026, 6, 1),
+            check_out=date(2026, 6, 3),
+            booker_name="Francisco Caimaris Villalonga",
+            adults_count=2,
+            status=Reservation.Status.EXPECTED,
+            import_source="smoobu",
+        )
+        smoobu_guest = Guest.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            first_name="Francisco",
+            last_name="Caimaris Villalonga",
+            name="Francisco Caimaris Villalonga",
+            nationality="ES",
+            is_primary=True,
+        )
+        Guest.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            first_name=PLACEHOLDER_FIRST,
+            last_name=PLACEHOLDER_LAST,
+            name=PLACEHOLDER_NAME,
+            is_primary=False,
+        )
+
+        pdf_path = IMPORTS / "6950508284.pdf"
+        if not pdf_path.exists():
+            self.skipTest("Sample PDF not available")
+        row = parse_booking_pdf(pdf_path.read_bytes())
+
+        result = upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+            existing_mode="overwrite",
+            authoritative_pdf=True,
+        )
+
+        self.assertFalse(result.skipped)
+        self.assertTrue(result.updated)
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.booker_country, "ES")
+        self.assertEqual(reservation.import_source, "booking_pdf")
+
+        guests = list(reservation.guests.order_by("-is_primary", "id"))
+        self.assertEqual(len(guests), 2)
+        self.assertTrue(guests[0].is_primary)
+        self.assertEqual(guests[0].first_name, "Francisco Caimaris")
+        self.assertEqual(guests[0].last_name, "Villalonga")
+        self.assertEqual(guests[0].name, "Francisco Caimaris Villalonga")
+        self.assertEqual(guests[0].nationality, "ES")
+        self.assertEqual(guests[0].id, smoobu_guest.id)
+        self.assertFalse(guests[1].is_primary)
+        self.assertEqual(guests[1].name, PLACEHOLDER_NAME)
+        self.assertEqual(
+            Guest.objects.filter(
+                reservation=reservation,
+                name="Francisco Caimaris Villalonga",
+            ).count(),
+            1,
+        )
+
+    def test_authoritative_pdf_syncs_multi_room_guests(self):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="5898434847",
+            booking_code="5898434847",
+            check_in=date(2026, 5, 25),
+            check_out=date(2026, 5, 26),
+            booker_name="Kurt Meeus",
+            adults_count=4,
+            units_count=1,
+            status=Reservation.Status.EXPECTED,
+            import_source="smoobu",
+        )
+        kurt_guest = Guest.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            first_name="Kurt",
+            last_name="Meeus",
+            name="Kurt Meeus",
+            nationality="BE",
+            is_primary=True,
+        )
+
+        row = parse_booking_pdf_text(MULTI_ROOM_PDF_TEXT)
+        result = upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+            existing_mode="overwrite",
+            authoritative_pdf=True,
+        )
+
+        self.assertFalse(result.skipped)
+        self.assertTrue(result.updated)
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.booker_name, "Kris Meeus")
+        self.assertEqual(reservation.booker_country, "BE")
+        self.assertEqual(reservation.units_count, 2)
+        self.assertEqual(reservation.adults_count, 4)
+        self.assertEqual(reservation.import_source, "booking_pdf")
+
+        named_guests = [
+            guest
+            for guest in reservation.guests.order_by("-is_primary", "id")
+            if guest.name != PLACEHOLDER_NAME
+        ]
+        self.assertEqual(len(named_guests), 2)
+        self.assertEqual(named_guests[0].name, "Kris Meeus")
+        self.assertTrue(named_guests[0].is_primary)
+        self.assertEqual(named_guests[1].name, "Kurt Meeus")
+        self.assertFalse(named_guests[1].is_primary)
+        self.assertEqual(named_guests[1].id, kurt_guest.id)
+
+        units = list(reservation.units.order_by("sort_order"))
+        self.assertEqual(len(units), 2)
+        self.assertIn("R2", units[0].room_name)
+        self.assertIn("R1", units[1].room_name)
+        self.assertEqual(units[0].amount, Decimal("109.00"))
+        self.assertEqual(units[1].amount, Decimal("92.65"))
+
+        self.assertEqual(
+            Guest.objects.filter(reservation=reservation, name="Kurt Meeus").count(),
+            1,
+        )
+        self.assertEqual(
+            Guest.objects.filter(reservation=reservation, name="Kris Meeus").count(),
+            1,
+        )
+        self.assertEqual(
+            Guest.objects.filter(reservation=reservation, name=PLACEHOLDER_NAME).count(),
+            2,
+        )
