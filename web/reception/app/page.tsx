@@ -1,16 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
-import { BookingPdfImportForm } from "@/app/_components/BookingPdfImportForm";
 import { CountryFlag } from "@/app/_components/CountryFlag";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
 import { useMonthLabel, useReservationStatusLabel } from "@/lib/i18n-ui";
-import type { BookingPdfImportResult, Reservation } from "@/lib/types";
+import type { AppConfig, Reservation } from "@/lib/types";
 import { reservationStatusClass } from "@/lib/reservationUi";
-import { primaryPropertySlug } from "@/lib/app-config";
+import { singlePropertySlug } from "@/lib/app-config";
+import { useSyncVersionsPoll } from "@/lib/useSyncVersionsPoll";
 import {
   addDaysIso,
   addMonthsIso,
@@ -22,7 +21,6 @@ import {
 type OverviewMode = "today" | "week" | "month" | "all";
 
 export default function TimelinePage() {
-  const router = useRouter();
   const t = useTranslations("timeline");
   const tc = useTranslations("common");
   const tr = useTranslations("reservation");
@@ -30,15 +28,19 @@ export default function TimelinePage() {
   const monthLabel = useMonthLabel();
   const [tenantName, setTenantName] = useState("");
   const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const [overviewMode, setOverviewMode] = useState<OverviewMode>("today");
+  const [properties, setProperties] = useState<Array<{ slug: string; name: string }>>([]);
   const [propertySlug, setPropertySlug] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { background?: boolean }) => {
+    const background = Boolean(opts?.background);
+    if (!background) {
+      setInitialLoading(true);
+    }
     setError("");
     try {
       const session = await fetch("/api/auth/session");
@@ -49,11 +51,15 @@ export default function TimelinePage() {
 
       const configRes = await fetch("/api/stay/app/config");
       if (configRes.ok) {
-        const config = (await configRes.json()) as {
-          tenant?: { slug?: string };
-          properties?: Array<{ slug: string }>;
-        };
-        setPropertySlug(primaryPropertySlug(config));
+        const config = (await configRes.json()) as AppConfig;
+        const nextProperties = config.properties ?? [];
+        setProperties(nextProperties);
+        setPropertySlug((current) => {
+          if (current && nextProperties.some((property) => property.slug === current)) {
+            return current;
+          }
+          return singlePropertySlug(config);
+        });
       }
 
       const today = todayIso();
@@ -83,21 +89,21 @@ export default function TimelinePage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : tc("error"));
     } finally {
-      setLoading(false);
+      if (!background) {
+        setInitialLoading(false);
+      }
     }
   }, [overviewMode, search, status, t, tc]);
 
   useEffect(() => {
     void load();
-    const id = window.setInterval(() => {
-      void fetch("/api/stay/reception/sync-versions/")
-        .then((r) => {
-          if (r.status === 200) void load();
-        })
-        .catch(() => undefined);
-    }, 30000);
-    return () => window.clearInterval(id);
   }, [load]);
+
+  useSyncVersionsPoll({
+    onStale: () => {
+      void load({ background: true });
+    },
+  });
 
   const grouped = useMemo(() => {
     const map = new Map<string, Reservation[]>();
@@ -108,11 +114,6 @@ export default function TimelinePage() {
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [reservations]);
-
-  function handleImportSuccess(result: BookingPdfImportResult) {
-    void load();
-    router.push(`/reservations/${result.id}`);
-  }
 
   return (
     <div>
@@ -155,15 +156,32 @@ export default function TimelinePage() {
           <button type="button" className="btn" onClick={() => void load()}>
             {tc("refresh")}
           </button>
-          <BookingPdfImportForm propertySlug={propertySlug} onSuccess={handleImportSuccess} compact />
+          {properties.length > 1 ? (
+            <div>
+              <div className="label">{t("property")}</div>
+              <select
+                className="input mt-1 w-auto"
+                value={propertySlug}
+                onChange={(e) => setPropertySlug(e.target.value)}
+              >
+                <option value="">{t("propertyPlaceholder")}</option>
+                {properties.map((property) => (
+                  <option key={property.slug} value={property.slug}>
+                    {property.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
         </div>
 
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
-        {loading ? <p className="text-muted">{tc("loading")}</p> : null}
+        {initialLoading ? <p className="text-muted">{tc("loading")}</p> : null}
 
-        {!loading && grouped.length === 0 ? <p className="text-muted">{t("noReservations")}</p> : null}
+        {!initialLoading && grouped.length === 0 ? <p className="text-muted">{t("noReservations")}</p> : null}
 
-        {grouped.map(([day, items]) => (
+        {!initialLoading
+          ? grouped.map(([day, items]) => (
           <section key={day} className="space-y-2">
             <h2 className="label">
               {monthLabel(day)} · {t("arrivalOn", { date: day })}
@@ -193,7 +211,8 @@ export default function TimelinePage() {
               ))}
             </ul>
           </section>
-        ))}
+            ))
+          : null}
       </main>
     </div>
   );

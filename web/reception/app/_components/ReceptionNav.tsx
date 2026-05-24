@@ -2,16 +2,35 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { SessionLocaleSync } from "@/app/_components/SessionLocaleSync";
 import { StayLogo } from "@/app/_components/StayLogo";
+import type { AppConfig } from "@/lib/types";
 
-type Props = { tenantName?: string };
+type Props = {
+  tenantName?: string;
+  featureFlags?: AppConfig["feature_flags"];
+};
 
-export function ReceptionNav({ tenantName }: Props) {
+export function ReceptionNav({ tenantName, featureFlags: featureFlagsProp }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const t = useTranslations("nav");
+  const [featureFlags, setFeatureFlags] = useState(featureFlagsProp);
+
+  useEffect(() => {
+    if (featureFlagsProp) {
+      setFeatureFlags(featureFlagsProp);
+      return;
+    }
+    void fetch("/api/stay/app/config")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((config: AppConfig | null) => {
+        if (config?.feature_flags) setFeatureFlags(config.feature_flags);
+      })
+      .catch(() => undefined);
+  }, [featureFlagsProp]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -43,6 +62,11 @@ export function ReceptionNav({ tenantName }: Props) {
           <Link href="/calendar/rooms" className={linkClass("/calendar/rooms")}>
             {t("calendar")}
           </Link>
+          {featureFlags?.reception_create_reservation ? (
+            <Link href="/reservations/new" className={linkClass("/reservations/new")}>
+              {t("newReservation")}
+            </Link>
+          ) : null}
           <button type="button" onClick={logout} className="btn-ghost ml-2">
             {t("logout")}
           </button>

@@ -73,7 +73,10 @@
     "blockActionFailed": "Error al bloquear.",
     "blockPartialFailed": "Error parcial: {units}",
     "blockRangeUnavailable": "El rango seleccionado no está libre para todas las habitaciones.",
-    "noFreeUnits": "No hay habitaciones libres para esta noche."
+    "noFreeUnits": "No hay habitaciones libres para esta noche.",
+    "syncScroll": "Sincronizar scroll",
+    "syncScrollAria": "{code}, sincronizar scroll horizontal",
+    "channelRateDayAria": "{plan}, {date}, {rate}"
   },
   "reservation": {
     "notFound": "Reserva no encontrada",

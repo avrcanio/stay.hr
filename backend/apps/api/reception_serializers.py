@@ -20,6 +20,7 @@ from apps.reservations.models import (
     Reservation,
     ReservationUnit,
 )
+from apps.reservations.availability import validate_unit_available_for_booking
 from apps.reservations.reservation_units import joined_room_names
 
 
@@ -138,12 +139,16 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
     payment_status_key = serializers.SerializerMethodField()
     evisitor_summary = serializers.SerializerMethodField()
     confirmation_pdf_url = serializers.SerializerMethodField()
+    property_slug = serializers.CharField(source="property.slug", read_only=True)
+    property_name = serializers.CharField(source="property.name", read_only=True)
 
     class Meta:
         model = Reservation
         fields = (
             "id",
             "external_id",
+            "property_slug",
+            "property_name",
             "room_name",
             "units",
             "room_codes",
@@ -241,7 +246,53 @@ _ALLOWED_STATUS_TRANSITIONS = {
 class ReservationUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reservation
-        fields = ("status",)
+        fields = ("status", "check_in", "check_out")
+
+    def validate(self, attrs):
+        instance = self.instance
+        if instance is None:
+            return attrs
+
+        dates_in_payload = "check_in" in attrs or "check_out" in attrs
+        if not dates_in_payload:
+            return attrs
+
+        if instance.status != Reservation.Status.EXPECTED:
+            raise serializers.ValidationError(
+                {"detail": "Dates can only be changed for expected reservations."}
+            )
+
+        check_in = attrs.get("check_in", instance.check_in)
+        check_out = attrs.get("check_out", instance.check_out)
+        if check_out <= check_in:
+            raise serializers.ValidationError(
+                {"check_out": "Check-out must be after check-in."}
+            )
+
+        unit_link = (
+            instance.units.select_related("unit")
+            .order_by("sort_order", "id")
+            .first()
+        )
+        if unit_link is None or unit_link.unit_id is None:
+            raise serializers.ValidationError({"detail": "Reservation has no assigned unit."})
+
+        request = self.context.get("request")
+        tenant = getattr(request, "tenant", None) or instance.tenant
+        try:
+            validate_unit_available_for_booking(
+                tenant,
+                unit_link.unit,
+                check_in,
+                check_out,
+                exclude_reservation_id=instance.pk,
+            )
+        except ValueError as exc:
+            raise serializers.ValidationError({"check_in": str(exc)}) from exc
+
+        attrs["check_in"] = check_in
+        attrs["check_out"] = check_out
+        return attrs
 
     def update(self, instance, validated_data):
         new_status = validated_data.get("status", instance.status)

@@ -10,6 +10,17 @@ from apps.integrations.channex.exceptions import ChannexBookingIngestError
 logger = logging.getLogger(__name__)
 
 
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def sync_reservation_channex_availability_task(
+    self,
+    reservation_id: int,
+    action: str = "sync",
+) -> dict:
+    from apps.integrations.channel_manager.tasks import sync_reservation_outbound_task
+
+    return sync_reservation_outbound_task(reservation_id, action)
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def flush_channex_ari_outbox_task(self, tenant_slug: str = "demo") -> list[dict]:
     try:

@@ -36,6 +36,7 @@ from apps.integrations.evisitor.exceptions import (
 )
 from apps.integrations.evisitor.service import submit_guest_checkin
 from apps.properties.models import Property
+from apps.properties.resolution import PropertyResolutionError, resolve_property_for_tenant
 from apps.reservations.booking_pdf_import import parse_booking_pdf
 from apps.reservations.booking_xls_import import upsert_reservation_from_xls_row
 from apps.reservations.document_photo_storage import (
@@ -288,7 +289,6 @@ class ReservationDetailView(TenantAPIView, generics.RetrieveUpdateAPIView):
         if old_status != instance.status:
             from apps.communications.guest_email import queue_guest_booking_canceled_email
             from apps.core.tasks import notify_reservation_status_changed
-            from apps.integrations.smoobu.tasks import sync_reservation_smoobu_blocks_task
 
             notify_reservation_status_changed.delay(
                 instance.pk,
@@ -298,13 +298,6 @@ class ReservationDetailView(TenantAPIView, generics.RetrieveUpdateAPIView):
             )
             if instance.status == Reservation.Status.CANCELED:
                 queue_guest_booking_canceled_email(instance.pk, old_status=old_status)
-                sync_reservation_smoobu_blocks_task.delay(instance.pk, "remove")
-            elif instance.status in {
-                Reservation.Status.PENDING,
-                Reservation.Status.EXPECTED,
-                Reservation.Status.CHECKED_IN,
-            }:
-                sync_reservation_smoobu_blocks_task.delay(instance.pk, "sync")
         detail = self.get_queryset().get(pk=instance.pk)
         output = ReservationTimelineSerializer(detail, context=self.get_serializer_context())
         return Response(output.data)
@@ -910,15 +903,27 @@ class BookingPdfImportView(ReceptionWriteView, APIView):
         if not content.startswith(b"%PDF"):
             raise serializers.ValidationError({"file": "Datoteka nije valjani PDF."})
 
+        context_reservation = None
+        reservation_id = data.get("reservation_id")
+        if reservation_id is not None:
+            context_reservation = _get_reservation(request.tenant, reservation_id)
+
+        property_slug = (data.get("property_slug") or "").strip()
+        try:
+            prop = resolve_property_for_tenant(
+                request.tenant,
+                slug=property_slug or None,
+                reservation=context_reservation,
+            )
+        except PropertyResolutionError as exc:
+            raise serializers.ValidationError(exc.message_dict) from exc
+
         try:
             row = parse_booking_pdf(content)
         except ValueError as exc:
             raise serializers.ValidationError({"file": str(exc)}) from exc
 
-        context_reservation = None
-        reservation_id = data.get("reservation_id")
-        if reservation_id is not None:
-            context_reservation = _get_reservation(request.tenant, reservation_id)
+        if context_reservation is not None:
             context_booking_number = _reservation_booking_number(context_reservation)
             pdf_booking_number = (row.external_id or "").strip()
             if (
@@ -940,27 +945,6 @@ class BookingPdfImportView(ReceptionWriteView, APIView):
                     },
                     status=status.HTTP_409_CONFLICT,
                 )
-
-        property_slug = (data.get("property_slug") or "").strip()
-        prop = None
-        if property_slug:
-            prop = Property.objects.filter(
-                tenant=request.tenant,
-                slug=property_slug,
-            ).first()
-            if prop is None:
-                raise serializers.ValidationError(
-                    {"property_slug": f"Property slug={property_slug!r} nije pronađen."}
-                )
-        else:
-            prop = (
-                Property.objects.filter(tenant=request.tenant, slug=request.tenant.slug).first()
-                or Property.objects.filter(tenant=request.tenant).order_by("name").first()
-            )
-        if prop is None:
-            raise serializers.ValidationError(
-                {"property_slug": "Tenant nema definiran property."}
-            )
 
         result = upsert_reservation_from_xls_row(
             tenant=request.tenant,

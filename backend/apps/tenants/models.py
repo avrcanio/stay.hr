@@ -59,11 +59,23 @@ class Tenant(models.Model):
         return self.status == self.Status.ACTIVE
 
 
+class ChannelManager(models.TextChoices):
+    NONE = "none", "Manual"
+    SMOOBU = "smoobu", "Smoobu"
+    CHANNEX = "channex", "Channex"
+
+
 class TenantReceptionSettings(models.Model):
     tenant = models.OneToOneField(
         Tenant,
         on_delete=models.CASCADE,
         related_name="reception_settings",
+    )
+    channel_manager = models.CharField(
+        max_length=16,
+        choices=ChannelManager.choices,
+        default=ChannelManager.NONE,
+        help_text="Outbound channel connector for this tenant (Smoobu, Channex, or manual).",
     )
     auto_checkout_enabled = models.BooleanField(default=False)
     auto_checkout_time = models.TimeField(default=time(10, 0))
@@ -105,6 +117,20 @@ class TenantReceptionSettings(models.Model):
         if not self.guest_smtp_password_encrypted:
             return ""
         return decrypt_api_token(self.guest_smtp_password_encrypted)
+
+    def clean(self) -> None:
+        from django.core.exceptions import ValidationError
+
+        from apps.integrations.channel_manager.resolver import (
+            ChannelManagerConfigError,
+            validate_channel_manager_integration,
+        )
+
+        super().clean()
+        try:
+            validate_channel_manager_integration(self)
+        except ChannelManagerConfigError as exc:
+            raise ValidationError({"channel_manager": str(exc)}) from exc
 
 
 class TenantDomain(models.Model):

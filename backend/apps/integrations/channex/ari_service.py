@@ -34,12 +34,20 @@ logger = logging.getLogger(__name__)
 FULL_SYNC_DAYS = 500
 
 
-def certification_property(tenant: Tenant, config: ChannexRuntimeConfig) -> Property:
-    slug = config.certification_property_slug or certification_property_slug(tenant.slug)
+def sync_property(tenant: Tenant, config: ChannexRuntimeConfig) -> Property:
+    slug = (
+        config.sync_property_slug
+        or config.certification_property_slug
+        or certification_property_slug(tenant.slug)
+    )
     try:
         return Property.objects.get(tenant=tenant, slug=slug)
     except Property.DoesNotExist as exc:
         raise ChannexBookingIngestError(f"Property '{slug}' not found.") from exc
+
+
+def certification_property(tenant: Tenant, config: ChannexRuntimeConfig) -> Property:
+    return sync_property(tenant, config)
 
 
 def seed_channel_rate_plans_from_config(integration_row: IntegrationConfig) -> int:
@@ -59,22 +67,27 @@ def seed_channel_rate_plans_from_config(integration_row: IntegrationConfig) -> i
             code = str(rp.get("code") or "")
             if not code:
                 continue
-            _, was_created = ChannelRatePlan.objects.update_or_create(
+            defaults = {
+                "title": str(rp.get("title") or code),
+                "channex_room_type_id": room_type_id,
+                "channex_rate_plan_id": str(rp.get("channex_rate_plan_id") or ""),
+                "currency": "GBP",
+                "is_active": True,
+            }
+            plan, was_created = ChannelRatePlan.objects.get_or_create(
                 tenant=tenant,
                 property=prop,
                 unit=unit,
                 code=code,
                 defaults={
-                    "title": str(rp.get("title") or code),
-                    "channex_room_type_id": room_type_id,
-                    "channex_rate_plan_id": str(rp.get("channex_rate_plan_id") or ""),
+                    **defaults,
                     "default_rate": Decimal(str(rp.get("default_gbp") or "0")),
-                    "currency": "GBP",
-                    "is_active": True,
                 },
             )
             if was_created:
                 created += 1
+            else:
+                ChannelRatePlan.objects.filter(pk=plan.pk).update(**defaults)
     return created
 
 
@@ -274,6 +287,67 @@ def apply_rate_updates(
     return saved
 
 
+def build_clamped_availability_updates(
+    tenant: Tenant,
+    unit: Unit,
+    date_from: date,
+    date_to: date,
+    requested: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Build per-night availability updates that respect reservations and blocks.
+
+    Closing (requested=0) applies to all nights. Opening (requested=1) uses
+    compute_unit_availability so occupied nights stay at 0.
+    """
+    from apps.integrations.channex.reservation_availability_service import (
+        compute_unit_availability,
+    )
+
+    nightly: list[tuple[date, int]] = []
+    protected: list[str] = []
+    current = date_from
+    while current <= date_to:
+        if requested == 0:
+            effective = 0
+        else:
+            effective = compute_unit_availability(tenant, unit, current)
+            if effective == 0:
+                protected.append(current.isoformat())
+        nightly.append((current, effective))
+        current += timedelta(days=1)
+
+    if not nightly:
+        return [], protected
+
+    segments: list[dict[str, Any]] = []
+    segment_start, segment_avail = nightly[0]
+    segment_end = segment_start
+    for night, effective in nightly[1:]:
+        if effective == segment_avail and night == segment_end + timedelta(days=1):
+            segment_end = night
+            continue
+        segments.append(
+            {
+                "unit_code": unit.code,
+                "date_from": segment_start,
+                "date_to": segment_end,
+                "availability": segment_avail,
+            }
+        )
+        segment_start = night
+        segment_end = night
+        segment_avail = effective
+    segments.append(
+        {
+            "unit_code": unit.code,
+            "date_from": segment_start,
+            "date_to": segment_end,
+            "availability": segment_avail,
+        }
+    )
+    return segments, protected
+
+
 @transaction.atomic
 def apply_availability_updates(
     integration_row: IntegrationConfig,
@@ -337,6 +411,9 @@ def apply_availability_updates(
 
 def _room_type_id_for_unit(integration_row: IntegrationConfig, unit: Unit) -> str:
     config = ChannexRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+    room_type_id = config.room_type_id_for_unit_code(unit.code)
+    if room_type_id:
+        return room_type_id
     for room in integration_row.get_config_dict().get("booking_test_rooms") or []:
         if str(room.get("unit_code")) == unit.code:
             room_type_id = str(room.get("channex_room_type_id") or "")
@@ -383,6 +460,18 @@ def build_full_sync(
     start: date | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     config = ChannexRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+    if config.use_generated_ari:
+        return _build_full_sync_generated(integration_row, config, days=days, start=start)
+    return _build_full_sync_inventory(integration_row, config, days=days, start=start)
+
+
+def _build_full_sync_generated(
+    integration_row: IntegrationConfig,
+    config: ChannexRuntimeConfig,
+    *,
+    days: int,
+    start: date | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     tenant = integration_row.tenant
     prop = certification_property(tenant, config)
     property_id = config.property_id
@@ -472,6 +561,134 @@ def build_full_sync(
                         stop_sell=False,
                         closed_to_arrival=False,
                         closed_to_departure=False,
+                    )
+                )
+        if month_cursor.month == 12:
+            month_cursor = month_cursor.replace(year=month_cursor.year + 1, month=1)
+        else:
+            month_cursor = month_cursor.replace(month=month_cursor.month + 1)
+
+    enqueue_outbox_values(
+        tenant=tenant,
+        property=prop,
+        kind=ChannexAriOutbox.Kind.AVAILABILITY,
+        values=availability_values,
+    )
+    enqueue_outbox_values(
+        tenant=tenant,
+        property=prop,
+        kind=ChannexAriOutbox.Kind.RESTRICTIONS,
+        values=restriction_values,
+    )
+    return availability_values, restriction_values
+
+
+def _inventory_rate_for_day(plan: ChannelRatePlan, day: date) -> Decimal:
+    override = RatePlanDay.objects.filter(rate_plan=plan, date=day).first()
+    if override is not None:
+        return override.rate
+    return plan.default_rate
+
+
+def _inventory_restrictions_for_day(plan: ChannelRatePlan, day: date) -> dict[str, Any]:
+    override = RatePlanDay.objects.filter(rate_plan=plan, date=day).first()
+    if override is not None:
+        return {
+            "rate": override.rate,
+            "min_stay_arrival": override.min_stay_arrival or 1,
+            "min_stay_through": override.min_stay_through or 1,
+            "max_stay": override.max_stay or 30,
+            "stop_sell": override.stop_sell,
+            "closed_to_arrival": override.closed_to_arrival,
+            "closed_to_departure": override.closed_to_departure,
+        }
+    return {
+        "rate": plan.default_rate,
+        "min_stay_arrival": 1,
+        "min_stay_through": 1,
+        "max_stay": 30,
+        "stop_sell": False,
+        "closed_to_arrival": False,
+        "closed_to_departure": False,
+    }
+
+
+@transaction.atomic
+def _build_full_sync_inventory(
+    integration_row: IntegrationConfig,
+    config: ChannexRuntimeConfig,
+    *,
+    days: int,
+    start: date | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    from apps.integrations.channex.reservation_availability_service import compute_unit_availability
+
+    tenant = integration_row.tenant
+    prop = sync_property(tenant, config)
+    property_id = config.property_id
+    start_day = start or timezone.localdate()
+    end_day = start_day + timedelta(days=days - 1)
+
+    availability_values: list[dict[str, Any]] = []
+    restriction_values: list[dict[str, Any]] = []
+
+    units = Unit.objects.filter(tenant=tenant, property=prop, is_active=True)
+    rate_plans = ChannelRatePlan.objects.filter(
+        tenant=tenant, property=prop, is_active=True
+    ).select_related("unit")
+
+    current = start_day
+    while current <= end_day:
+        for unit in units:
+            availability = compute_unit_availability(tenant, unit, current)
+            UnitAvailabilityDay.objects.update_or_create(
+                tenant=tenant,
+                unit=unit,
+                date=current,
+                defaults={"availability": availability, "synced_at": None},
+            )
+        for plan in rate_plans:
+            restrictions = _inventory_restrictions_for_day(plan, current)
+            restrictions["rate"] = plan.default_rate
+            RatePlanDay.objects.update_or_create(
+                tenant=tenant,
+                rate_plan=plan,
+                date=current,
+                defaults={**restrictions, "synced_at": None},
+            )
+        current += timedelta(days=1)
+
+    for unit in units:
+        try:
+            room_type_id = _room_type_id_for_unit(integration_row, unit)
+        except ChannexBookingIngestError:
+            continue
+        availability_values.append(
+            build_availability_value(
+                property_id=property_id,
+                room_type_id=room_type_id,
+                availability=1,
+                date_from=start_day.isoformat(),
+                date_to=end_day.isoformat(),
+            )
+        )
+
+    month_cursor = start_day.replace(day=1)
+    while month_cursor <= end_day:
+        month_end = (month_cursor.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        range_from = max(start_day, month_cursor)
+        range_to = min(end_day, month_end)
+        if range_from <= range_to:
+            sample_day = range_from + timedelta(days=(range_to - range_from).days // 2)
+            for plan in rate_plans:
+                restrictions = _inventory_restrictions_for_day(plan, sample_day)
+                restriction_values.append(
+                    build_restriction_value(
+                        property_id=property_id,
+                        rate_plan_id=plan.channex_rate_plan_id,
+                        date_from=range_from.isoformat(),
+                        date_to=range_to.isoformat(),
+                        **restrictions,
                     )
                 )
         if month_cursor.month == 12:

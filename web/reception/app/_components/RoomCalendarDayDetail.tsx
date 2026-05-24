@@ -1,10 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { CountryFlag } from "@/app/_components/CountryFlag";
+import { ReservationDetailPanel } from "@/app/_components/ReservationDetailPanel";
 import { overlapsDay } from "@/lib/calendarLayout";
+import { formatChannelRateValue } from "@/lib/channelCalendarAri";
 import {
   freeUnitsForNight,
   isDayTappable,
@@ -17,8 +18,10 @@ import type {
   CalendarBlock,
   CalendarReservation,
   CalendarSelection,
+  ChannelRateDay,
   Room,
 } from "@/lib/types";
+import type { BulkWizardPrefill } from "@/app/_components/ChannelBulkWizardModal";
 import { addDaysIso } from "@/lib/utils";
 
 type Props = {
@@ -29,6 +32,11 @@ type Props = {
   byRoom: Record<number, CalendarReservation[]>;
   blocks: CalendarBlock[];
   onChanged: () => void | Promise<void>;
+  showCalendarBlocks?: boolean;
+  showChannelAri?: boolean;
+  channelAvailability?: Record<number, Record<string, number>>;
+  channelRates?: Record<number, Record<string, ChannelRateDay[]>>;
+  onOpenBulkWizard?: (prefill: BulkWizardPrefill) => void;
 };
 
 export function RoomCalendarDayDetail({
@@ -39,10 +47,16 @@ export function RoomCalendarDayDetail({
   byRoom,
   blocks,
   onChanged,
+  showCalendarBlocks = true,
+  showChannelAri = false,
+  channelAvailability = {},
+  channelRates = {},
+  onOpenBulkWizard,
 }: Props) {
   const t = useTranslations("calendar");
   const tc = useTranslations("common");
   const ts = useTranslations("source");
+  const locale = useLocale();
   const statusLabel = useReservationStatusLabel();
   const monthLabel = useMonthLabel();
 
@@ -52,6 +66,7 @@ export function RoomCalendarDayDetail({
   const [busy, setBusy] = useState(false);
   const [busyMessage, setBusyMessage] = useState("");
   const [actionError, setActionError] = useState("");
+  const [expandedReservationId, setExpandedReservationId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!selection?.date) return;
@@ -59,6 +74,7 @@ export function RoomCalendarDayDetail({
     setBlockCheckOut(addDaysIso(selection.date, 1));
     setSelectedUnitIds(new Set());
     setActionError("");
+    setExpandedReservationId(null);
   }, [selection?.date, selection?.roomId]);
 
   const anchorDate = selection?.date ?? "";
@@ -83,6 +99,12 @@ export function RoomCalendarDayDetail({
       (b) => b.unit_id === room.id && overlapsDay(b.check_in, b.check_out, selection.date),
     ),
   );
+
+  const dayAvailability = channelAvailability[room.id]?.[selection.date];
+  const dayRateRows = (channelRates[room.id]?.[selection.date] ?? []).slice().sort((a, b) =>
+    a.rate_plan_code.localeCompare(b.rate_plan_code),
+  );
+  const hasChannelData = dayAvailability !== undefined || dayRateRows.length > 0;
 
   const canBlock = isDayTappable(selection.date);
   const hasItems = dayReservations.length > 0 || dayBlocks.length > 0;
@@ -183,32 +205,54 @@ export function RoomCalendarDayDetail({
         </div>
       ) : (
         <ul className="space-y-2">
-          {dayReservations.map((r) => (
-            <li key={`r-${r.id}`}>
-              <Link
-                href={`/reservations/${r.id}`}
-                className="card card-hover flex items-center justify-between gap-3 px-4 py-3"
-              >
-                <div>
-                  <div className="flex items-center gap-2 font-semibold text-stay-navy">
-                    <CountryFlag iso2={r.primary_guest_nationality_iso2} />
-                    <span>{r.primary_guest_name || r.room_name}</span>
-                  </div>
-                  <div className="text-sm text-muted">
-                    {r.check_in_date} → {r.check_out_date}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  {reservationHasChannelBlock(r.id, blocks) ? (
-                    <span className="badge bg-slate-200 text-slate-800">{t("channelBlocked")}</span>
+          {dayReservations.map((r) => {
+            const expanded = expandedReservationId === r.id;
+            return (
+              <li key={`r-${r.id}`}>
+                <div className="card overflow-hidden">
+                  <button
+                    type="button"
+                    className="card-hover flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                    aria-expanded={expanded}
+                    aria-label={expanded ? t("reservationCollapse") : t("reservationExpand")}
+                    onClick={() =>
+                      setExpandedReservationId((current) => (current === r.id ? null : r.id))
+                    }
+                  >
+                    <div>
+                      <div className="flex items-center gap-2 font-semibold text-stay-navy">
+                        <CountryFlag iso2={r.primary_guest_nationality_iso2} />
+                        <span>{r.primary_guest_name || r.room_name}</span>
+                      </div>
+                      <div className="text-sm text-muted">
+                        {r.check_in_date} → {r.check_out_date}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {reservationHasChannelBlock(r.id, blocks) ? (
+                        <span className="badge bg-slate-200 text-slate-800">{t("channelBlocked")}</span>
+                      ) : null}
+                      <span className={`badge ${reservationStatusClass(r.status)}`}>
+                        {statusLabel(r.status)}
+                      </span>
+                      <span className="text-muted" aria-hidden>
+                        {expanded ? "▾" : "▸"}
+                      </span>
+                    </div>
+                  </button>
+                  {expanded ? (
+                    <div className="border-t border-stay-border px-4 pb-4 pt-3">
+                      <ReservationDetailPanel
+                        reservationId={r.id}
+                        embedded
+                        onUpdated={onChanged}
+                      />
+                    </div>
                   ) : null}
-                  <span className={`badge ${reservationStatusClass(r.status)}`}>
-                    {statusLabel(r.status)}
-                  </span>
                 </div>
-              </Link>
-            </li>
-          ))}
+              </li>
+            );
+          })}
 
           {dayBlocks.map((b) => (
             <li key={`b-${b.id ?? b.smoobu_booking_id}-${b.check_in}`}>
@@ -235,7 +279,74 @@ export function RoomCalendarDayDetail({
         </ul>
       )}
 
-      {canBlock ? (
+      {showChannelAri ? (
+        <div className="card space-y-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold text-stay-navy">{t("channelSyncTitle")}</h3>
+            {onOpenBulkWizard ? (
+              <button
+                type="button"
+                className="btn-ghost text-sm"
+                onClick={() =>
+                  onOpenBulkWizard({
+                    roomId: room.id,
+                    dateFrom: selection.date,
+                    initialStep: 3,
+                  })
+                }
+              >
+                {t("editChannelPeriod")}
+              </button>
+            ) : null}
+          </div>
+          {!hasChannelData ? (
+            <p className="text-sm text-muted">{t("channelNoData")}</p>
+          ) : (
+            <>
+              {dayAvailability !== undefined ? (
+                <p className="text-sm">
+                  <span className="text-muted">{t("channelAvailability")}: </span>
+                  <span
+                    className={`font-semibold ${
+                      dayAvailability === 0 ? "text-red-700" : "text-emerald-700"
+                    }`}
+                  >
+                    {dayAvailability === 0 ? t("channelSoldOut") : dayAvailability}
+                  </span>
+                </p>
+              ) : null}
+              {dayRateRows.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[420px] text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted">
+                        <th className="py-2 pr-3 font-medium">{t("channelRatePlan")}</th>
+                        <th className="py-2 pr-3 font-medium">{t("channelRate")}</th>
+                        <th className="py-2 pr-3 font-medium">{t("channelMinStay")}</th>
+                        <th className="py-2 font-medium">{t("channelStopSell")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dayRateRows.map((row) => (
+                        <tr key={row.rate_plan_code} className="border-b border-slate-100">
+                          <td className="py-2 pr-3">{row.rate_plan_title || row.rate_plan_code}</td>
+                          <td className="py-2 pr-3 font-medium">
+                            {formatChannelRateValue(row.rate, locale)} {row.currency}
+                          </td>
+                          <td className="py-2 pr-3">{row.min_stay_arrival}</td>
+                          <td className="py-2">{row.stop_sell ? t("yes") : t("no")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {showCalendarBlocks && canBlock ? (
         <div className="card space-y-3 p-4">
           <h3 className="font-semibold text-stay-navy">{t("blockUnitTitle")}</h3>
           <div className="flex flex-wrap gap-2">

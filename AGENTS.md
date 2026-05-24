@@ -2,9 +2,11 @@
 
 Guidance for AI agents and developers working in this repository.
 
-## Current mode: development
+## Current mode: production
 
-**The project is running in Next.js development mode.** Frontend changes hot-reload without rebuilding Docker images.
+**Frontends are running Next.js production builds** (`stay-hr-web-*:latest`, `node server.js`). Dev override is disabled (`docker-compose.override.yml.bak`).
+
+To return to development mode, see [README.md — Frontend: production vs development mode](README.md#frontend-production-vs-development-mode).
 
 ### What this means
 
@@ -41,12 +43,22 @@ Python/API changes still require a Django container restart or deploy:
 docker compose restart django
 ```
 
-### Switch back to production frontends
+### Switch to production frontends
 
 Remove or rename `docker-compose.override.yml`, then rebuild and start:
 
 ```bash
 mv docker-compose.override.yml docker-compose.override.yml.bak
+docker compose build web-booking web-reception
+docker compose up -d web-booking web-reception
+```
+
+### Switch back to development mode
+
+Restore the override file, then rebuild and start:
+
+```bash
+mv docker-compose.override.yml.bak docker-compose.override.yml
 docker compose build web-booking web-reception
 docker compose up -d web-booking web-reception
 ```

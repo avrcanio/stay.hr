@@ -135,7 +135,7 @@ export function BookingPdfImportForm({
         onChange={handleFileChange}
       />
 
-      <button type="button" className="btn" disabled={uploading} onClick={openFilePicker}>
+      <button type="button" className="btn btn-sm" disabled={uploading} onClick={openFilePicker}>
         {uploading ? t("importPdfUploading") : t("importPdf")}
       </button>
 

@@ -53,6 +53,27 @@ class SiteContextViewTests(TestCase):
         response = SiteContextView.as_view()(request)
         self.assertEqual(response.status_code, 404)
 
+    def test_site_context_hub_domain_without_property_has_empty_branding(self):
+        hub_domain = TenantDomain.objects.create(
+            tenant=self.tenant,
+            property=None,
+            domain="uzorita.stay.hr",
+            domain_type=TenantDomain.DomainType.STAY_SUBDOMAIN,
+            is_verified=True,
+        )
+        request = self.factory.get(
+            "/api/v1/public/site-context/",
+            HTTP_HOST="uzorita.stay.hr",
+        )
+        request.tenant = self.tenant
+        request.tenant_domain = hub_domain
+
+        response = SiteContextView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data["property"])
+        self.assertEqual(response.data["branding"], {})
+
     def test_middleware_resolves_host_from_x_forwarded_on_internal_bff(self):
         request = self.factory.get(
             "/api/v1/public/site-context/",

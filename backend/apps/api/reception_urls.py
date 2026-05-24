@@ -1,9 +1,20 @@
 from django.urls import path
 
+from apps.api.reception_availability_views import ReceptionUnitAvailabilityView
 from apps.api.reception_calendar_block_views import (
     ReceptionCalendarBlocksView,
     ReceptionUnitBlockCreateView,
     ReceptionUnitBlockDeleteView,
+)
+from apps.api.reception_channex_views import (
+    ReceptionChannelAvailabilityView,
+    ReceptionChannelBulkApplyView,
+    ReceptionChannelCalendarAriView,
+    ReceptionChannelFullSyncView,
+    ReceptionChannelRatePlansView,
+    ReceptionChannelRatesView,
+    ReceptionChannelStatusView,
+    ReceptionReservationCreateView,
 )
 from apps.api.reception_views import (
     BookingPdfImportView,
@@ -38,6 +49,11 @@ urlpatterns = [
         "reservations/",
         ReservationTimelineListView.as_view(),
         name="reception-reservations-list",
+    ),
+    path(
+        "reservations/create/",
+        ReceptionReservationCreateView.as_view(),
+        name="reception-reservation-create",
     ),
     path(
         "reservations/import-pdf/",
@@ -95,6 +111,16 @@ urlpatterns = [
         name="reception-calendar-blocks",
     ),
     path(
+        "calendar/channel-ari/",
+        ReceptionChannelCalendarAriView.as_view(),
+        name="reception-calendar-channel-ari",
+    ),
+    path(
+        "units/<int:unit_id>/availability/",
+        ReceptionUnitAvailabilityView.as_view(),
+        name="reception-unit-availability",
+    ),
+    path(
         "units/<int:unit_id>/block/",
         ReceptionUnitBlockCreateView.as_view(),
         name="reception-unit-block-create",
@@ -103,5 +129,35 @@ urlpatterns = [
         "blocks/<int:block_id>/",
         ReceptionUnitBlockDeleteView.as_view(),
         name="reception-unit-block-delete",
+    ),
+    path(
+        "channel/status/",
+        ReceptionChannelStatusView.as_view(),
+        name="reception-channel-status",
+    ),
+    path(
+        "channel/bulk-apply/",
+        ReceptionChannelBulkApplyView.as_view(),
+        name="reception-channel-bulk-apply",
+    ),
+    path(
+        "channel/full-sync/",
+        ReceptionChannelFullSyncView.as_view(),
+        name="reception-channel-full-sync",
+    ),
+    path(
+        "channel/rates/",
+        ReceptionChannelRatesView.as_view(),
+        name="reception-channel-rates",
+    ),
+    path(
+        "channel/rate-plans/",
+        ReceptionChannelRatePlansView.as_view(),
+        name="reception-channel-rate-plans",
+    ),
+    path(
+        "channel/availability/",
+        ReceptionChannelAvailabilityView.as_view(),
+        name="reception-channel-availability",
     ),
 ]

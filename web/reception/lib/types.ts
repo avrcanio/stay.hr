@@ -9,9 +9,19 @@ export type TenantOption = {
 
 export type ReservationStatus = "expected" | "checked_in" | "checked_out" | "canceled" | "pending" | "refused";
 
+export type ReservationUnit = {
+  id: number;
+  sort_order: number;
+  room_name: string;
+  room: number | null;
+  room_code?: string;
+};
+
 export type Reservation = {
   id: number;
   external_id: string;
+  property_slug?: string;
+  property_name?: string;
   room_name: string;
   room_codes?: string[];
   check_in_date: string;
@@ -35,6 +45,8 @@ export type Room = {
 export type AppConfig = {
   tenant: { name: string; slug: string };
   properties: Array<{ name: string; slug: string }>;
+  units?: Array<{ id: number; code: string; property_slug?: string; name?: string }>;
+  channel_manager?: string;
   feature_flags: Record<string, boolean>;
   branding: Record<string, unknown>;
 };
@@ -62,9 +74,11 @@ export type GuestLite = {
 };
 
 export type ReservationDetail = Reservation & {
+  units?: ReservationUnit[];
   guests: GuestLite[];
   booker_name: string;
   booker_phone: string;
+  booking_code?: string;
   notes: string;
   source: string;
   import_source: string;
@@ -104,4 +118,27 @@ export type CalendarBlock = {
 export type CalendarSelection = {
   roomId: number;
   date: string;
+};
+
+export type ChannelAvailabilityDay = {
+  unit_id: number;
+  date: string;
+  availability: number;
+};
+
+export type ChannelRateDay = {
+  unit_id: number;
+  unit_code: string;
+  rate_plan_code: string;
+  rate_plan_title: string;
+  currency: string;
+  date: string;
+  rate: string;
+  stop_sell: boolean;
+  min_stay_arrival: number;
+};
+
+export type ChannelCalendarAri = {
+  availability: ChannelAvailabilityDay[];
+  rates: ChannelRateDay[];
 };

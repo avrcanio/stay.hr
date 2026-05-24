@@ -1,0 +1,246 @@
+from django.contrib import admin
+from django.utils.html import format_html
+
+from apps.core.admin import TenantScopedAdminMixin
+from apps.integrations.admin.forms import IntegrationConfigAdminForm
+from apps.integrations.config_secrets import (
+    credentials_complete,
+    credentials_status_summary,
+)
+from apps.integrations.models import (
+    ChannelRatePlan,
+    ChannexAriOutbox,
+    ChannexBookingRevision,
+    IntegrationConfig,
+    RatePlanDay,
+    UnitAvailabilityDay,
+)
+
+CHANNEL_MANAGER_HELP = (
+    "For outbound reservation sync, set Tenant → Reception settings → "
+    "channel_manager (smoobu / channex / none). "
+    "Credentials are stored per tenant in Integration configs (this form), not on the tenant page."
+)
+
+ADD_PROVIDER_HELP = (
+    "Select a provider above — the form reloads automatically and shows credential fields. "
+    "You can also save once, then reopen the record to edit credentials."
+)
+
+
+@admin.register(IntegrationConfig)
+class IntegrationConfigAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    form = IntegrationConfigAdminForm
+    class Media:
+        js = ("integrations/admin/integration_config_provider.js",)
+
+    list_display = (
+        "provider",
+        "tenant",
+        "property",
+        "routing_key",
+        "credentials_status_short",
+        "is_active",
+        "updated_at",
+    )
+    list_filter = ("provider", "is_active", "tenant")
+    search_fields = ("tenant__name", "tenant__slug", "property__slug", "routing_key")
+    raw_id_fields = ("tenant", "property")
+    readonly_fields = (
+        "credentials_status_display",
+        "created_at",
+        "updated_at",
+    )
+
+    def get_form(self, request, obj=None, **kwargs):
+        # Fieldsets list custom credential fields; only pass model fields to
+        # modelform_factory so it does not raise FieldError before __init__ runs.
+        kwargs["fields"] = IntegrationConfigAdminForm.Meta.fields
+        base_form = super().get_form(request, obj, **kwargs)
+        admin_request = request
+
+        class RequestAwareIntegrationConfigForm(base_form):
+            def __init__(self, *args, **form_kwargs):
+                form_kwargs["admin_request"] = admin_request
+                super().__init__(*args, **form_kwargs)
+
+        RequestAwareIntegrationConfigForm.__name__ = base_form.__name__
+        RequestAwareIntegrationConfigForm.__module__ = base_form.__module__
+        return RequestAwareIntegrationConfigForm
+
+    def get_fieldsets(self, request, obj=None):
+        provider = self._resolve_provider_for_fieldsets(request, obj)
+        base_description = CHANNEL_MANAGER_HELP
+        if obj is None and not provider:
+            base_description = f"{CHANNEL_MANAGER_HELP} {ADD_PROVIDER_HELP}"
+        base = (
+            None,
+            {
+                "fields": ("tenant", "property", "provider", "routing_key", "is_active"),
+                "description": base_description,
+            },
+        )
+        credentials = (
+            "Credentials",
+            {
+                "fields": self._credential_field_names(provider),
+            },
+        )
+        settings = (
+            "Settings",
+            {
+                "fields": self._settings_field_names(provider),
+            },
+        )
+        mapping = (
+            "Mapping (JSON)",
+            {
+                "fields": self._mapping_field_names(provider),
+                "classes": ("collapse",),
+            },
+        )
+        meta_fields: list[str] = ["credentials_status_display"]
+        if obj is not None:
+            meta_fields.extend(["created_at", "updated_at"])
+        meta = (
+            "Meta",
+            {
+                "fields": tuple(meta_fields),
+            },
+        )
+        fieldsets = [base]
+        if provider:
+            if self._credential_field_names(provider):
+                fieldsets.append(credentials)
+            if self._settings_field_names(provider):
+                fieldsets.append(settings)
+            if self._mapping_field_names(provider):
+                fieldsets.append(mapping)
+        fieldsets.append(meta)
+        return fieldsets
+
+    def _resolve_provider_for_fieldsets(self, request, obj: IntegrationConfig | None) -> str:
+        if obj and obj.provider:
+            return obj.provider
+        post_provider = str(request.POST.get("provider") or "")
+        if post_provider:
+            return post_provider
+        return str(request.GET.get("provider") or "")
+
+    def _credential_field_names(self, provider: str) -> tuple[str, ...]:
+        if not provider:
+            return ()
+        mapping = {
+            IntegrationConfig.Provider.SMOOBU: ("api_key", "webhook_secret", "skip_verify"),
+            IntegrationConfig.Provider.CHANNEX: ("api_key", "webhook_secret"),
+            IntegrationConfig.Provider.WHATSAPP: ("access_token",),
+            IntegrationConfig.Provider.EVISITOR: ("password", "api_key"),
+        }
+        return mapping.get(provider, ())
+
+    def _settings_field_names(self, provider: str) -> tuple[str, ...]:
+        if not provider:
+            return ()
+        mapping = {
+            IntegrationConfig.Provider.SMOOBU: (
+                "api_base",
+                "settings_channel_id",
+                "push_rates_enabled",
+                "default_channel_id_for_create",
+            ),
+            IntegrationConfig.Provider.CHANNEX: (
+                "environment",
+                "base_url",
+                "property_id",
+                "sync_property_slug",
+                "certification_property_slug",
+                "use_generated_ari",
+            ),
+            IntegrationConfig.Provider.WHATSAPP: (
+                "phone_number_id",
+                "display_phone_number",
+                "waba_id",
+                "auto_reply",
+            ),
+            IntegrationConfig.Provider.EVISITOR: (
+                "enabled",
+                "env",
+                "base_url",
+                "username",
+                "facility_code",
+                "default_arrival_organisation",
+                "default_offered_service_type",
+                "default_payment_category",
+                "default_stay_time_from",
+                "default_stay_time_until",
+            ),
+        }
+        return mapping.get(provider, ())
+
+    def _mapping_field_names(self, provider: str) -> tuple[str, ...]:
+        if not provider:
+            return ()
+        mapping = {
+            IntegrationConfig.Provider.SMOOBU: ("apartments_json",),
+            IntegrationConfig.Provider.CHANNEX: (
+                "room_types_json",
+                "booking_test_rooms_json",
+            ),
+        }
+        return mapping.get(provider, ())
+
+    @admin.display(description="Credentials", boolean=True)
+    def credentials_status_short(self, obj: IntegrationConfig) -> bool:
+        if not obj.pk:
+            return False
+        return credentials_complete(obj.provider, obj.get_config_dict())
+
+    @admin.display(description="Credentials status")
+    def credentials_status_display(self, obj: IntegrationConfig | None) -> str:
+        if obj is None or not obj.pk:
+            return "—"
+        summary = credentials_status_summary(obj.provider, obj.get_config_dict())
+        if credentials_complete(obj.provider, obj.get_config_dict()):
+            return format_html('<span style="color:#2e7d32">{}</span>', summary)
+        return format_html('<span style="color:#b00020">{}</span>', summary)
+
+
+@admin.register(ChannelRatePlan)
+class ChannelRatePlanAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    list_display = ("unit", "code", "title", "default_rate", "currency", "is_active")
+    list_filter = ("property", "is_active")
+    search_fields = ("unit__code", "code", "channex_rate_plan_id")
+
+
+@admin.register(UnitAvailabilityDay)
+class UnitAvailabilityDayAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    list_display = ("unit", "date", "availability", "synced_at")
+    list_filter = ("unit__property",)
+    date_hierarchy = "date"
+
+
+@admin.register(RatePlanDay)
+class RatePlanDayAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    list_display = (
+        "rate_plan",
+        "date",
+        "rate",
+        "min_stay_arrival",
+        "stop_sell",
+        "synced_at",
+    )
+    list_filter = ("rate_plan__property", "stop_sell")
+    date_hierarchy = "date"
+
+
+@admin.register(ChannexAriOutbox)
+class ChannexAriOutboxAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    list_display = ("property", "kind", "status", "sent_at", "created_at")
+    list_filter = ("kind", "status", "property")
+    readonly_fields = ("values", "channex_task_ids", "error_message")
+
+
+@admin.register(ChannexBookingRevision)
+class ChannexBookingRevisionAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    list_display = ("revision_id", "booking_id", "channex_status", "reservation", "acknowledged_at")
+    search_fields = ("revision_id", "booking_id")

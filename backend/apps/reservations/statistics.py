@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from apps.properties.models import Property
 from apps.reservations.models import MonthlyStatisticsOverride, Reservation
 
 DEFAULT_CURRENCY = "EUR"
@@ -22,10 +21,6 @@ _RESERVED_STATUSES = [
 
 
 def _property_label(tenant) -> str:
-    properties = Property.objects.for_tenant(tenant).order_by("name")
-    primary = properties.filter(slug=tenant.slug).first() or properties.first()
-    if primary is not None:
-        return primary.name
     return tenant.name
 
 

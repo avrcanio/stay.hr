@@ -5,11 +5,15 @@ export type BarSpan = {
   spanDays: number;
 };
 
+export const ROLLING_WINDOW_DAYS = 30;
+
 export type CalendarDay = {
   iso: string;
   dayOfMonth: number;
   weekday: number;
   isWeekend: boolean;
+  monthKey: string;
+  showMonthLabel: boolean;
 };
 
 function compareIso(a: string, b: string): number {
@@ -34,20 +38,44 @@ export function monthEndExclusive(monthStart: string): string {
   return addMonthsIso(monthStart, 1);
 }
 
+function calendarDayFromIso(iso: string, showMonthLabel: boolean): CalendarDay {
+  const d = new Date(`${iso}T12:00:00Z`);
+  const weekday = d.getUTCDay();
+  return {
+    iso,
+    dayOfMonth: d.getUTCDate(),
+    weekday,
+    isWeekend: weekday === 0 || weekday === 6,
+    monthKey: iso.slice(0, 7),
+    showMonthLabel,
+  };
+}
+
 export function daysInMonth(monthStart: string): CalendarDay[] {
   const end = monthEndExclusive(monthStart);
   const days: CalendarDay[] = [];
   let cursor = monthStart;
   while (cursor < end) {
-    const d = new Date(`${cursor}T12:00:00Z`);
-    const weekday = d.getUTCDay();
-    days.push({
-      iso: cursor,
-      dayOfMonth: d.getUTCDate(),
-      weekday,
-      isWeekend: weekday === 0 || weekday === 6,
-    });
+    const monthKey = cursor.slice(0, 7);
+    const prevMonthKey = days.length > 0 ? days[days.length - 1].monthKey : null;
+    const showMonthLabel =
+      days.length === 0 ? cursor.endsWith("-01") : monthKey !== prevMonthKey;
+    days.push(calendarDayFromIso(cursor, showMonthLabel));
     cursor = addDaysIso(cursor, 1);
+  }
+  return days;
+}
+
+export function daysInRange(fromIso: string, count: number): CalendarDay[] {
+  const days: CalendarDay[] = [];
+  for (let i = 0; i < count; i++) {
+    const cursor = addDaysIso(fromIso, i);
+    const monthKey = cursor.slice(0, 7);
+    const prevMonthKey = i > 0 ? days[i - 1].monthKey : null;
+    const showMonthLabel =
+      (i > 0 && monthKey !== prevMonthKey) ||
+      (i === 0 && cursor.endsWith("-01"));
+    days.push(calendarDayFromIso(cursor, showMonthLabel));
   }
   return days;
 }

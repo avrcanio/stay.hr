@@ -1,13 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import {
+  ChannelBulkWizardModal,
+  type BulkWizardPrefill,
+  type ChannelRatePlanRow,
+} from "@/app/_components/ChannelBulkWizardModal";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
 import { RoomCalendarDayDetail } from "@/app/_components/RoomCalendarDayDetail";
 import { RoomCalendarGrid } from "@/app/_components/RoomCalendarGrid";
-import { useMonthLabel } from "@/lib/i18n-ui";
-import type { CalendarBlock, CalendarReservation, CalendarSelection, Room } from "@/lib/types";
-import { addMonthsIso, startOfMonthIso, todayIso } from "@/lib/utils";
+import { maxDate, ROLLING_WINDOW_DAYS } from "@/lib/calendarLayout";
+import { formatDateRangeLabel } from "@/lib/locale-format";
+import type { AppConfig, CalendarBlock, CalendarReservation, CalendarSelection, ChannelCalendarAri, ChannelRateDay, Room } from "@/lib/types";
+import { normalizeChannelCalendarAri } from "@/lib/channelCalendarAri";
+import { useSyncVersionsPoll } from "@/lib/useSyncVersionsPoll";
+import { addDaysIso, todayIso } from "@/lib/utils";
 
 function CalendarSkeleton() {
   return (
@@ -25,18 +33,38 @@ function CalendarSkeleton() {
 export default function RoomCalendarPage() {
   const t = useTranslations("calendar");
   const tc = useTranslations("common");
-  const monthLabel = useMonthLabel();
+  const locale = useLocale();
   const [tenantName, setTenantName] = useState("");
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [month, setMonth] = useState(startOfMonthIso(todayIso()));
+  const [rangeStart, setRangeStart] = useState(() => todayIso());
   const [byRoom, setByRoom] = useState<Record<number, CalendarReservation[]>>({});
   const [blocks, setBlocks] = useState<CalendarBlock[]>([]);
   const [selection, setSelection] = useState<CalendarSelection | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showCalendarBlocks, setShowCalendarBlocks] = useState(true);
+  const [showChannelAri, setShowChannelAri] = useState(false);
+  const [channelAvailabilityByUnitDate, setChannelAvailabilityByUnitDate] = useState<
+    Record<number, Record<string, number>>
+  >({});
+  const [channelRatesByUnitDate, setChannelRatesByUnitDate] = useState<
+    Record<number, Record<string, ChannelRateDay[]>>
+  >({});
+  const [ratePlans, setRatePlans] = useState<ChannelRatePlanRow[]>([]);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardPrefill, setWizardPrefill] = useState<BulkWizardPrefill>({});
+  const [featureFlags, setFeatureFlags] = useState<AppConfig["feature_flags"]>();
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const rangeEnd = addDaysIso(rangeStart, ROLLING_WINDOW_DAYS);
+  const today = todayIso();
+  const canGoPrev = rangeStart > today;
+  const rangeLabel = formatDateRangeLabel(locale, rangeStart, rangeEnd);
+
+  const load = useCallback(async (opts?: { background?: boolean }) => {
+    const background = Boolean(opts?.background);
+    if (!background) {
+      setInitialLoading(true);
+    }
     setError("");
     try {
       const session = await fetch("/api/auth/session");
@@ -45,17 +73,38 @@ export default function RoomCalendarPage() {
         setTenantName(s.tenant || "");
       }
 
+      const configRes = await fetch("/api/stay/app/config");
+      let channelPanel = false;
+      if (configRes.ok) {
+        const config = (await configRes.json()) as AppConfig;
+        setFeatureFlags(config.feature_flags);
+        setShowCalendarBlocks(Boolean(config.feature_flags?.smoobu_calendar_blocks));
+        channelPanel = Boolean(config.feature_flags?.channel_panel);
+        setShowChannelAri(channelPanel);
+      } else {
+        setShowChannelAri(false);
+      }
+
       const roomsRes = await fetch("/api/stay/rooms/rooms/");
       if (!roomsRes.ok) throw new Error(t("loadRoomsFailed"));
       const roomList = (await roomsRes.json()) as Room[];
       setRooms(roomList);
 
-      const to = addMonthsIso(month, 1);
-      const [blockRes, ...roomResults] = await Promise.all([
-        fetch(`/api/stay/reception/calendar/blocks/?from=${month}&to=${to}`),
+      const to = rangeEnd;
+      const channelAriPromise = channelPanel
+        ? fetch(`/api/stay/reception/calendar/channel-ari/?from=${rangeStart}&to=${to}`)
+        : Promise.resolve(null);
+      const ratePlansPromise = channelPanel
+        ? fetch("/api/stay/reception/channel/rate-plans/")
+        : Promise.resolve(null);
+
+      const [blockRes, channelAriRes, ratePlansRes, ...roomResults] = await Promise.all([
+        fetch(`/api/stay/reception/calendar/blocks/?from=${rangeStart}&to=${to}`),
+        channelAriPromise,
+        ratePlansPromise,
         ...roomList.map(async (room) => {
           const res = await fetch(
-            `/api/stay/rooms/rooms/${room.id}/calendar/?from=${month}&to=${to}`,
+            `/api/stay/rooms/rooms/${room.id}/calendar/?from=${rangeStart}&to=${to}`,
           );
           if (!res.ok) throw new Error(t("loadRoomFailed", { code: room.code }));
           const data = (await res.json()) as CalendarReservation[];
@@ -67,28 +116,44 @@ export default function RoomCalendarPage() {
       const blockList = (await blockRes.json()) as CalendarBlock[];
       setBlocks(blockList);
       setByRoom(Object.fromEntries(roomResults));
+
+      if (channelAriRes?.ok) {
+        const channelAri = normalizeChannelCalendarAri((await channelAriRes.json()) as ChannelCalendarAri);
+        setChannelAvailabilityByUnitDate(channelAri.availabilityByUnitDate);
+        setChannelRatesByUnitDate(channelAri.ratesByUnitDate);
+      } else {
+        setChannelAvailabilityByUnitDate({});
+        setChannelRatesByUnitDate({});
+      }
+
+      if (ratePlansRes?.ok) {
+        const data = (await ratePlansRes.json()) as { results?: ChannelRatePlanRow[] };
+        setRatePlans(data.results ?? []);
+      } else {
+        setRatePlans([]);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : tc("error"));
     } finally {
-      setLoading(false);
+      if (!background) {
+        setInitialLoading(false);
+      }
     }
-  }, [month, t, tc]);
+  }, [rangeEnd, rangeStart, t, tc]);
 
   useEffect(() => {
     void load();
-    const id = window.setInterval(() => {
-      void fetch("/api/stay/reception/sync-versions/")
-        .then((r) => {
-          if (r.status === 200) void load();
-        })
-        .catch(() => undefined);
-    }, 30000);
-    return () => window.clearInterval(id);
   }, [load]);
+
+  useSyncVersionsPoll({
+    onStale: () => {
+      void load({ background: true });
+    },
+  });
 
   useEffect(() => {
     setSelection(null);
-  }, [month]);
+  }, [rangeStart]);
 
   const selectedRoom = useMemo(
     () => (selection ? rooms.find((r) => r.id === selection.roomId) ?? null : null),
@@ -97,61 +162,80 @@ export default function RoomCalendarPage() {
 
   const selectedReservations = selection ? byRoom[selection.roomId] || [] : [];
 
-  function shiftMonth(delta: number) {
-    setMonth((current) => addMonthsIso(current, delta));
+  function shiftRange(deltaDays: number) {
+    setRangeStart((current) => maxDate(todayIso(), addDaysIso(current, deltaDays)));
+  }
+
+  function goToday() {
+    setRangeStart(todayIso());
+  }
+
+  function openBulkWizard(prefill: BulkWizardPrefill = {}) {
+    setWizardPrefill(prefill);
+    setWizardOpen(true);
   }
 
   return (
     <div>
-      <ReceptionNav tenantName={tenantName} />
+      <ReceptionNav tenantName={tenantName} featureFlags={featureFlags} />
       <main className="mx-auto max-w-6xl space-y-4 px-4 py-6">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-bold">{t("title")}</h1>
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className="btn-ghost px-2.5"
-              aria-label={t("prevMonth")}
-              onClick={() => shiftMonth(-1)}
+              className="btn-ghost px-2.5 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label={t("prevPeriod")}
+              disabled={!canGoPrev}
+              onClick={() => shiftRange(-ROLLING_WINDOW_DAYS)}
             >
               ‹
             </button>
-            <span className="min-w-[9rem] text-center text-sm font-semibold text-stay-navy">
-              {monthLabel(month)}
+            <span className="min-w-[12rem] text-center text-sm font-semibold text-stay-navy">
+              {rangeLabel}
             </span>
             <button
               type="button"
               className="btn-ghost px-2.5"
-              aria-label={t("nextMonth")}
-              onClick={() => shiftMonth(1)}
+              aria-label={t("nextPeriod")}
+              onClick={() => shiftRange(ROLLING_WINDOW_DAYS)}
             >
               ›
             </button>
           </div>
-          <input
-            type="month"
-            className="input w-auto"
-            value={month.slice(0, 7)}
-            onChange={(e) => setMonth(`${e.target.value}-01`)}
-          />
+          <button
+            type="button"
+            className="btn-ghost"
+            disabled={rangeStart === today}
+            onClick={goToday}
+          >
+            {t("today")}
+          </button>
           <button type="button" className="btn" onClick={() => void load()}>
             {tc("refresh")}
           </button>
+          {showChannelAri ? (
+            <button type="button" className="btn" onClick={() => openBulkWizard()}>
+              {t("bulkUpdateButton")}
+            </button>
+          ) : null}
         </div>
 
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-        {loading ? <CalendarSkeleton /> : null}
+        {initialLoading ? <CalendarSkeleton /> : null}
 
-        {!loading ? (
+        {!initialLoading ? (
           <>
             <RoomCalendarGrid
-              monthStart={month}
+              rangeStart={rangeStart}
               rooms={rooms}
               byRoom={byRoom}
               blocks={blocks}
               selection={selection}
               onSelect={setSelection}
+              channelAvailability={showChannelAri ? channelAvailabilityByUnitDate : undefined}
+              channelRates={showChannelAri ? channelRatesByUnitDate : undefined}
             />
             <RoomCalendarDayDetail
               selection={selection}
@@ -160,11 +244,29 @@ export default function RoomCalendarPage() {
               reservations={selectedReservations}
               byRoom={byRoom}
               blocks={blocks}
-              onChanged={load}
+              onChanged={() => void load({ background: true })}
+              showCalendarBlocks={showCalendarBlocks}
+              showChannelAri={showChannelAri}
+              channelAvailability={channelAvailabilityByUnitDate}
+              channelRates={channelRatesByUnitDate}
+              onOpenBulkWizard={showChannelAri ? openBulkWizard : undefined}
             />
           </>
         ) : null}
       </main>
+      {showChannelAri ? (
+        <ChannelBulkWizardModal
+          open={wizardOpen}
+          onClose={() => setWizardOpen(false)}
+          onApplied={() => void load({ background: true })}
+          rooms={rooms}
+          ratePlans={ratePlans}
+          initialUnitId={wizardPrefill.roomId}
+          initialDateFrom={wizardPrefill.dateFrom}
+          initialStep={wizardPrefill.initialStep}
+          channelRatesByUnitDate={channelRatesByUnitDate}
+        />
+      ) : null}
     </div>
   );
 }

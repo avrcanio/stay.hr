@@ -1,4 +1,4 @@
-"""Web booking lifecycle: pending → expected/refused after Smoobu block sync."""
+"""Web booking lifecycle: pending → expected/refused after channel outbound sync."""
 
 from __future__ import annotations
 
@@ -6,7 +6,9 @@ import logging
 
 from django.utils import timezone
 
+from apps.integrations.channel_manager.resolver import get_channel_manager
 from apps.reservations.models import Reservation
+from apps.tenants.models import ChannelManager
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ def is_web_pending_booking(reservation: Reservation) -> bool:
 
 
 def confirm_web_booking(reservation_id: int) -> bool:
-    """Promote pending web booking to expected after Smoobu block success."""
+    """Promote pending web booking to expected after outbound channel sync success."""
     reservation = Reservation.objects.filter(pk=reservation_id).first()
     if reservation is None or not is_web_pending_booking(reservation):
         return False
@@ -52,17 +54,17 @@ def refuse_web_booking(reservation_id: int, *, reason: str = "") -> bool:
     if reservation is None or not is_web_pending_booking(reservation):
         return False
 
-    from apps.integrations.smoobu.reservation_blocking_service import (
-        remove_reservation_smoobu_blocks,
-    )
+    manager = get_channel_manager(reservation.tenant)
+    if manager != ChannelManager.NONE:
+        try:
+            from apps.integrations.channel_manager.dispatch import remove_reservation_outbound
 
-    try:
-        remove_reservation_smoobu_blocks(reservation)
-    except Exception:
-        logger.exception(
-            "failed to cleanup blocks while refusing web booking",
-            extra={"reservation_id": reservation_id},
-        )
+            remove_reservation_outbound(reservation)
+        except Exception:
+            logger.exception(
+                "failed to cleanup outbound blocks while refusing web booking",
+                extra={"reservation_id": reservation_id},
+            )
 
     now = timezone.now()
     Reservation.objects.filter(pk=reservation_id).update(

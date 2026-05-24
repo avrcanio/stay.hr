@@ -170,7 +170,7 @@ class SmoobuReservationBlockingSignalTests(TestCase):
         )
         self.integration.save()
 
-    @patch("apps.integrations.smoobu.tasks.sync_reservation_smoobu_blocks_task")
+    @patch("apps.integrations.channel_manager.tasks.sync_reservation_outbound_task")
     def test_signal_schedules_sync_on_create(self, mock_task):
         with self.captureOnCommitCallbacks(execute=True):
             with transaction.atomic():

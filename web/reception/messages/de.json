@@ -73,7 +73,10 @@
     "blockActionFailed": "Blockierung fehlgeschlagen.",
     "blockPartialFailed": "Teilweise fehlgeschlagen: {units}",
     "blockRangeUnavailable": "Der gewählte Zeitraum ist nicht für alle Zimmer frei.",
-    "noFreeUnits": "Keine freien Zimmer für diese Nacht."
+    "noFreeUnits": "Keine freien Zimmer für diese Nacht.",
+    "syncScroll": "Scroll synchronisieren",
+    "syncScrollAria": "{code}, horizontalen Scroll synchronisieren",
+    "channelRateDayAria": "{plan}, {date}, {rate}"
   },
   "reservation": {
     "notFound": "Reservierung nicht gefunden",

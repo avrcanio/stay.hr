@@ -131,6 +131,32 @@ Web frontends (Traefik labels already in `docker-compose.yml`):
 | `*.stay.hr` (tenant booking) | `web-booking` |
 | Custom (e.g. `booking.uzorita.hr`) | `web-booking` + explicit Traefik `Host()` rule |
 
+### Frontend: production vs development mode
+
+By default, `docker-compose.yml` builds and runs **production** Next.js (`node server.js`).
+
+**Development mode** (hot reload, no image rebuild for UI edits) is enabled when [`docker-compose.override.yml`](docker-compose.override.yml) is present — it runs `next dev` with bind-mounted source. See also [AGENTS.md](AGENTS.md) and [web/README.md](web/README.md).
+
+**Switch to production** (e.g. before sending a staging link to partners):
+
+```bash
+cd /opt/stacks/stay.hr
+mv docker-compose.override.yml docker-compose.override.yml.bak
+docker compose build web-booking web-reception
+docker compose up -d web-booking web-reception
+```
+
+**Return to development mode:**
+
+```bash
+cd /opt/stacks/stay.hr
+mv docker-compose.override.yml.bak docker-compose.override.yml
+docker compose build web-booking web-reception
+docker compose up -d web-booking web-reception
+```
+
+After switching to dev: edit files under `web/booking/` or `web/reception/`, save, refresh the browser. Rebuild frontends only when `package.json` changes.
+
 Uzorita one-shot rollout: `docker compose run --rm django python manage.py rollout_uzorita_domains` (see operations doc).
 
 ## Django admin

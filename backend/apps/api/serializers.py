@@ -85,6 +85,7 @@ class AppConfigSerializer(serializers.Serializer):
     tenant = TenantSummarySerializer()
     properties = PropertySummarySerializer(many=True)
     units = UnitSummarySerializer(many=True)
+    channel_manager = serializers.CharField()
     feature_flags = serializers.DictField()
 
 

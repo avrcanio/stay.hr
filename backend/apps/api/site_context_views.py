@@ -5,7 +5,6 @@ from rest_framework.views import APIView
 
 from apps.api.serializers import PropertySummarySerializer, TenantSummarySerializer
 from apps.core.languages import SUPPORTED_LANGUAGES, normalize_language
-from apps.properties.models import Property
 from apps.tenants.models import TenantDomain
 
 
@@ -30,10 +29,7 @@ class SiteContextView(APIView):
         if property_obj is not None:
             branding = property_obj.branding or {}
         else:
-            properties = Property.objects.for_tenant(tenant).order_by("name")
-            primary = properties.filter(slug=tenant.slug).first() or properties.first()
-            if primary is not None:
-                branding = primary.branding or {}
+            branding = {}
 
         return Response(
             {

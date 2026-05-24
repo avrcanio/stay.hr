@@ -49,6 +49,8 @@ class ChannexRuntimeConfig:
     api_key: str
     webhook_secret: str = ""
     certification_property_slug: str = ""
+    sync_property_slug: str = ""
+    use_generated_ari: bool = False
     room_types: tuple[ChannexRoomTypeLink, ...] = field(default_factory=tuple)
     booking_test_rooms: tuple[ChannexBookingTestRoomLink, ...] = field(default_factory=tuple)
 
@@ -77,6 +79,8 @@ class ChannexRuntimeConfig:
             api_key=api_key,
             webhook_secret=webhook_secret,
             certification_property_slug=str(data.get("certification_property_slug") or "").strip(),
+            sync_property_slug=str(data.get("sync_property_slug") or "").strip(),
+            use_generated_ari=bool(data.get("use_generated_ari")),
             room_types=room_types,
             booking_test_rooms=booking_test_rooms,
         )

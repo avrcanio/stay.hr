@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from rest_framework import status
 from rest_framework.exceptions import NotFound
@@ -17,10 +17,31 @@ from apps.api.serializers import (
     PublicReservationStatusSerializer,
     PublicUnitSerializer,
 )
-from apps.integrations.models import UnitAvailabilityBlock
+from apps.integrations.models import UnitAvailabilityBlock, UnitAvailabilityDay
 from apps.properties.models import Property, Unit, UnitBed, UnitBathroom
 from apps.reservations.availability import BLOCKING_RESERVATION_STATUSES
 from apps.reservations.models import Reservation, ReservationUnit
+from apps.tenants.models import ChannelManager
+
+
+def _feature_flags_for_channel_manager(channel_manager: str) -> dict[str, bool]:
+    return {
+        "public_booking": True,
+        "availability_api": True,
+        "channel_panel": channel_manager == ChannelManager.CHANNEX,
+        "smoobu_calendar_blocks": channel_manager == ChannelManager.SMOOBU,
+        "manual_import": True,
+        "reception_create_reservation": channel_manager in {
+            ChannelManager.CHANNEX,
+            ChannelManager.NONE,
+        },
+    }
+
+
+def _channel_manager_for_tenant(tenant) -> str:
+    from apps.integrations.channel_manager.resolver import get_channel_manager
+
+    return get_channel_manager(tenant)
 
 
 class TenantAPIView(APIView):
@@ -57,22 +78,16 @@ class AppConfigView(TenantAPIView):
             .filter(is_active=True)
             .order_by("property__name", "code")
         )
-        primary = properties.filter(slug=tenant.slug).first() or properties.first()
-        branding = {}
-        if primary is not None:
-            branding = primary.branding or {}
-
+        channel_manager = _channel_manager_for_tenant(tenant)
         payload = {
             "tenant": tenant,
             "properties": properties,
             "units": units,
-            "feature_flags": {
-                "public_booking": True,
-                "availability_api": True,
-            },
+            "channel_manager": channel_manager,
+            "feature_flags": _feature_flags_for_channel_manager(channel_manager),
         }
         data = AppConfigSerializer(payload).data
-        data["branding"] = branding
+        data["branding"] = {}
         return Response(data)
 
 
@@ -179,6 +194,24 @@ class PublicAvailabilityView(TenantAPIView):
                         "check_in": block.check_in.isoformat(),
                         "check_out": block.check_out.isoformat(),
                         "status": "blocked",
+                    }
+                )
+
+            closed_ari_days = UnitAvailabilityDay.objects.filter(
+                tenant=request.tenant,
+                unit_id__in=unit_ids,
+                date__gte=from_date,
+                date__lt=to_date,
+                availability__lte=0,
+            ).order_by("unit_id", "date")
+            for row in closed_ari_days:
+                night_end = row.date + timedelta(days=1)
+                blocked_by_unit[row.unit_id].append(
+                    {
+                        "booking_code": "",
+                        "check_in": row.date.isoformat(),
+                        "check_out": night_end.isoformat(),
+                        "status": "closed",
                     }
                 )
 

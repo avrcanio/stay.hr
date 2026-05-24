@@ -106,6 +106,75 @@ class ReceptionAPITests(TestCase):
             "tablet-a-uuid",
         )
 
+    def test_patch_reservation_dates_expected(self):
+        response = self.client.patch(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            {"check_in": "2026-05-20", "check_out": "2026-05-25"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["check_in_date"], "2026-05-20")
+        self.assertEqual(response.json()["check_out_date"], "2026-05-25")
+        self.reservation.refresh_from_db()
+        self.assertEqual(self.reservation.check_in, date(2026, 5, 20))
+        self.assertEqual(self.reservation.check_out, date(2026, 5, 25))
+
+    def test_patch_reservation_dates_checked_in_rejected(self):
+        self.reservation.status = Reservation.Status.CHECKED_IN
+        self.reservation.save(update_fields=["status", "updated_at"])
+
+        response = self.client.patch(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            {"check_in": "2026-05-20", "check_out": "2026-05-25"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_patch_reservation_dates_overlap_rejected(self):
+        Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            check_in=date(2026, 5, 22),
+            check_out=date(2026, 5, 24),
+            status=Reservation.Status.EXPECTED,
+        )
+        other = Reservation.objects.latest("id")
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=other,
+            unit=self.unit,
+        )
+
+        response = self.client.patch(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            {"check_in": "2026-05-20", "check_out": "2026-05-25"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_unit_availability_exclude_reservation_id(self):
+        response = self.client.get(
+            f"/api/v1/reception/units/{self.unit.id}/availability/"
+            f"?from=2026-05-10&to=2026-05-20&exclude_reservation_id={self.reservation.id}",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["blocked_nights"], [])
+
+        response_without_exclude = self.client.get(
+            f"/api/v1/reception/units/{self.unit.id}/availability/"
+            f"?from=2026-05-10&to=2026-05-20",
+            **self.auth,
+        )
+        self.assertEqual(response_without_exclude.status_code, 200)
+        self.assertEqual(
+            response_without_exclude.json()["blocked_nights"],
+            ["2026-05-10", "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14"],
+        )
+
     @patch("apps.core.tasks.notify_reservation_status_changed.delay")
     @patch("apps.reservations.checkout.checkout_reservation_guests_in_evisitor")
     def test_patch_checkout_checked_in_to_checked_out(
@@ -531,3 +600,62 @@ class ReceptionAPITests(TestCase):
         data = response.json()
         self.assertEqual(data["external_id"], "5145601516")
         self.assertNotEqual(data["id"], other.id)
+
+    def test_import_booking_pdf_requires_property_slug_for_multi_property_tenant(self):
+        Property.objects.create(
+            tenant=self.tenant,
+            name="Second Property",
+            slug="second-property",
+        )
+
+        response = self.client.post(
+            "/api/v1/reception/reservations/import-pdf/",
+            {"file": SimpleUploadedFile("empty.pdf", b"%PDF-1.4", content_type="application/pdf")},
+            format="multipart",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("property_slug", response.json())
+
+    def test_import_booking_pdf_uses_reservation_property_over_form_slug(self):
+        pdf_path = Path(__file__).resolve().parents[4] / ".imports" / "5145601516.pdf"
+        if not pdf_path.is_file():
+            self.skipTest("Sample PDF not available")
+
+        other_property = Property.objects.create(
+            tenant=self.tenant,
+            name="Other Property",
+            slug="other-property",
+        )
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=other_property,
+            external_id="5145601516",
+            booking_code="5145601516",
+            check_in=date(2026, 5, 23),
+            check_out=date(2026, 5, 24),
+            status=Reservation.Status.EXPECTED,
+            booker_name="Peter Boogaart",
+        )
+
+        with pdf_path.open("rb") as handle:
+            upload = SimpleUploadedFile(
+                "5145601516.pdf",
+                handle.read(),
+                content_type="application/pdf",
+            )
+
+        response = self.client.post(
+            "/api/v1/reception/reservations/import-pdf/",
+            {
+                "file": upload,
+                "property_slug": "uzorita",
+                "reservation_id": str(reservation.id),
+            },
+            format="multipart",
+            **self.auth,
+        )
+        self.assertIn(response.status_code, {200, 201})
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.property_id, other_property.id)
+

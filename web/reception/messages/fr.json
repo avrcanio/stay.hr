@@ -73,7 +73,10 @@
     "blockActionFailed": "Échec du blocage.",
     "blockPartialFailed": "Échec partiel : {units}",
     "blockRangeUnavailable": "La plage sélectionnée n'est pas libre pour toutes les chambres.",
-    "noFreeUnits": "Aucune chambre libre pour cette nuit."
+    "noFreeUnits": "Aucune chambre libre pour cette nuit.",
+    "syncScroll": "Synchroniser le défilement",
+    "syncScrollAria": "{code}, synchroniser le défilement horizontal",
+    "channelRateDayAria": "{plan}, {date}, {rate}"
   },
   "reservation": {
     "notFound": "Réservation introuvable",

@@ -14,6 +14,7 @@ from apps.integrations.channex.booking_test import (
 )
 from apps.integrations.channex.demo_property import (
     CHANNEX_CERT_TENANT_SLUG,
+    CHANNEX_CERT_TENANT_ID,
     CHANNEX_DEMO_PROPERTY_ID,
     CHANNEX_DEMO_PROPERTY_TITLE,
 )
@@ -26,7 +27,7 @@ from apps.tenants.models import Tenant
 class Command(BaseCommand):
     help = (
         "Create stay.hr Channex certification property + units and IntegrationConfig. "
-        f"Default tenant: {CHANNEX_CERT_TENANT_SLUG} (id=1)."
+        f"Default tenant: {CHANNEX_CERT_TENANT_SLUG} (id={CHANNEX_CERT_TENANT_ID})."
     )
 
     def add_arguments(self, parser):
@@ -145,6 +146,8 @@ class Command(BaseCommand):
             "channel_id": CHANNEX_BOOKING_TEST_CHANNEL_ID,
             "booking_hotel_id": BOOKING_COM_TEST_HOTEL_ID,
             "certification_property_slug": prop.slug,
+            "sync_property_slug": prop.slug,
+            "use_generated_ari": False,
             "room_types": booking_test_room_types_config_payload(tenant.slug, prop.slug),
             "booking_test_rooms": booking_rooms,
             "physical_room_types": physical_rooms,

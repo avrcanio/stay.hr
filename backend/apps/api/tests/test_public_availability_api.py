@@ -3,7 +3,7 @@ from datetime import date
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from apps.integrations.models import UnitAvailabilityBlock
+from apps.integrations.models import UnitAvailabilityBlock, UnitAvailabilityDay
 from apps.properties.models import Property, Unit
 from apps.reservations.models import Reservation, ReservationUnit
 from apps.tenants.models import PUBLIC_BOOKING_SCOPES, ApiApplication, Tenant
@@ -144,3 +144,20 @@ class PublicAvailabilityAPITests(TestCase):
 
         response = self._availability("2026-05-27", "2026-05-28")
         self.assertEqual(self._unit_blocks(response, self.unit_r1.id), [])
+
+    def test_closed_ari_day_included(self):
+        UnitAvailabilityDay.objects.create(
+            tenant=self.tenant,
+            unit=self.unit_r2,
+            date=date(2026, 6, 10),
+            availability=0,
+        )
+
+        response = self._availability("2026-06-10", "2026-06-11")
+        self.assertEqual(response.status_code, 200)
+
+        r2_blocks = self._unit_blocks(response, self.unit_r2.id)
+        self.assertEqual(len(r2_blocks), 1)
+        self.assertEqual(r2_blocks[0]["check_in"], "2026-06-10")
+        self.assertEqual(r2_blocks[0]["check_out"], "2026-06-11")
+        self.assertEqual(r2_blocks[0]["status"], "closed")

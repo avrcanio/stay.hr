@@ -73,7 +73,10 @@
     "blockActionFailed": "Azione di blocco non riuscita.",
     "blockPartialFailed": "Errore parziale: {units}",
     "blockRangeUnavailable": "L'intervallo selezionato non è libero per tutte le camere.",
-    "noFreeUnits": "Nessuna camera libera per questa notte."
+    "noFreeUnits": "Nessuna camera libera per questa notte.",
+    "syncScroll": "Sincronizza scroll",
+    "syncScrollAria": "{code}, sincronizza scroll orizzontale",
+    "channelRateDayAria": "{plan}, {date}, {rate}"
   },
   "reservation": {
     "notFound": "Prenotazione non trovata",

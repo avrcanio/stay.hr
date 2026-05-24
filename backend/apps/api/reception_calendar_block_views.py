@@ -1,22 +1,24 @@
 from __future__ import annotations
 
-from django.utils.dateparse import parse_date
 from rest_framework import serializers, status
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.api.reception_views import ReceptionReadView, ReceptionWriteView
-from apps.integrations.models import UnitAvailabilityBlock
-from apps.integrations.smoobu.blocking_service import block_apartment_dates, unblock_apartment_dates
 from apps.integrations.smoobu.calendar_blocks_service import list_calendar_blocks, validate_block_request
 from apps.integrations.smoobu.exceptions import SmoobuApiError, SmoobuConfigError, SmoobuRatesError
-from apps.integrations.smoobu.resolver import get_active_smoobu_integration
+from apps.integrations.channel_manager.dispatch import create_calendar_block, delete_calendar_block
+from apps.integrations.channel_manager.resolver import get_channel_manager
+from apps.integrations.models import UnitAvailabilityBlock
 from apps.properties.models import Unit
+from apps.tenants.models import ChannelManager
 
 
 class ReceptionCalendarBlocksView(ReceptionReadView, APIView):
     def get(self, request):
+        from django.utils.dateparse import parse_date
+
         date_from = parse_date((request.query_params.get("from") or "").strip())
         date_to = parse_date((request.query_params.get("to") or "").strip())
         if date_from is None or date_to is None:
@@ -39,6 +41,9 @@ class UnitBlockCreateSerializer(serializers.Serializer):
 
 class ReceptionUnitBlockCreateView(ReceptionWriteView, APIView):
     def post(self, request, unit_id: int):
+        if get_channel_manager(request.tenant) not in {ChannelManager.SMOOBU, ChannelManager.CHANNEX, ChannelManager.NONE}:
+            raise PermissionDenied("Calendar blocks are not enabled for this tenant.")
+
         unit = Unit.objects.for_tenant(request.tenant).filter(pk=unit_id, is_active=True).first()
         if unit is None:
             raise NotFound("Soba nije pronađena.")
@@ -48,20 +53,23 @@ class ReceptionUnitBlockCreateView(ReceptionWriteView, APIView):
         check_in = serializer.validated_data["check_in"]
         check_out = serializer.validated_data["check_out"]
 
+        manager = get_channel_manager(request.tenant)
         try:
-            validate_block_request(request.tenant, unit, check_in, check_out)
-            integration = get_active_smoobu_integration(request.tenant.slug)
-            result = block_apartment_dates(
-                integration,
-                unit_code=unit.code,
-                check_in=check_in,
-                check_out=check_out,
+            if manager == ChannelManager.SMOOBU:
+                validate_block_request(request.tenant, unit, check_in, check_out)
+            result = create_calendar_block(
+                request.tenant,
+                unit,
+                check_in,
+                check_out,
             )
         except SmoobuConfigError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
         except SmoobuRatesError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
         except SmoobuApiError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        except ValueError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
 
         return Response(result, status=status.HTTP_201_CREATED)
@@ -96,7 +104,7 @@ class ReceptionUnitBlockDeleteView(ReceptionWriteView, APIView):
             )
 
         try:
-            unblock_apartment_dates(block_row)
+            delete_calendar_block(block_row)
         except SmoobuRatesError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
         except SmoobuApiError as exc:

@@ -99,6 +99,7 @@ class ChannexAriServiceTests(TestCase):
                 "base_url": "https://staging.channex.io/api/v1",
                 "property_id": "e00e6034-c154-4754-b5d9-9fff73ad12f6",
                 "certification_property_slug": CHANNEX_DEMO_PROPERTY_SLUG,
+                "use_generated_ari": True,
                 "booking_test_rooms": [
                     {
                         "unit_code": "BCOM-STUDIO",

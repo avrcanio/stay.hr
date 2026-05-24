@@ -113,6 +113,7 @@ services:
       STAY_API_INTERNAL_URL: http://stay-django:8000
       STAY_RECEPTION_HOST: app.stay.hr
       PORT: "3000"
+      HOSTNAME: "0.0.0.0"
     networks:
       - proxy
       - stay_internal
