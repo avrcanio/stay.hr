@@ -85,7 +85,7 @@ class ChannexClient:
         return self._request(
             "POST",
             f"/bookings/{booking_id}/messages",
-            json={"message": message},
+            json={"message": {"message": message}},
         )
 
     def list_message_thread_messages(self, thread_id: str) -> dict[str, Any]:

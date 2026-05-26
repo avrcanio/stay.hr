@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Deploy stay.hr: rebuild + up when migrations are pending, migration files,
-# or backend source changed since the image was built; otherwise restart only.
+# backend source, or frontend source changed since the image was built;
+# otherwise restart only.
 #
 # Usage:
 #   ./scripts/deploy.sh
@@ -27,13 +28,15 @@ done
 
 log() { printf '==> %s\n' "$*"; }
 
-django_image_id() {
-  docker compose images -q django 2>/dev/null | head -n1
+service_image_id() {
+  local service="$1"
+  docker compose images -q "$service" 2>/dev/null | head -n1
 }
 
-image_created_epoch() {
+service_image_created_epoch() {
+  local service="$1"
   local image_id created_ts
-  image_id="$(django_image_id)"
+  image_id="$(service_image_id "$service")"
   [[ -n "$image_id" ]] || return 1
 
   created_ts="$(docker inspect -f '{{.Created}}' "$image_id" 2>/dev/null || true)"
@@ -44,9 +47,9 @@ image_created_epoch() {
     || return 1
 }
 
-files_newer_than_image() {
+files_newer_than_epoch() {
   local image_ts file_ts
-  image_ts="$(image_created_epoch)" || return 0
+  image_ts="$1"
 
   while IFS= read -r -d '' f; do
     [[ -f "$f" ]] || continue
@@ -59,16 +62,35 @@ files_newer_than_image() {
   return 1
 }
 
+files_newer_than_service_image() {
+  local service="$1"
+  local image_ts
+  image_ts="$(service_image_created_epoch "$service")" || return 0
+  files_newer_than_epoch "$image_ts"
+}
+
 migration_files_newer_than_image() {
-  files_newer_than_image < <(
+  files_newer_than_service_image django < <(
     find backend/apps -path '*/migrations/*.py' ! -name '__init__.py' -print0 2>/dev/null
   )
 }
 
 backend_source_newer_than_image() {
-  files_newer_than_image < <(
+  files_newer_than_service_image django < <(
     find backend -name '*.py' -print0 2>/dev/null
     printf '%s\0' requirements.txt Dockerfile docker-entrypoint.sh
+  )
+}
+
+frontend_source_newer_than_image() {
+  files_newer_than_service_image web-reception < <(
+    find web/booking web/reception \
+      \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \
+         -o -name '*.json' -o -name '*.css' -o -name 'Dockerfile' \) \
+      ! -path '*/node_modules/*' ! -path '*/.next/*' -print0 2>/dev/null
+    printf '%s\0' \
+      web/booking/package.json web/booking/package-lock.json \
+      web/reception/package.json web/reception/package-lock.json
   )
 }
 
@@ -84,25 +106,40 @@ pending_migrations_in_db() {
   ! docker compose exec -T django python manage.py migrate --check >/dev/null 2>&1
 }
 
-needs_rebuild=false
-reason=""
+needs_backend_rebuild=false
+needs_frontend_rebuild=false
+backend_reason=""
+frontend_reason=""
 
 if migration_files_newer_than_image; then
-  needs_rebuild=true
-  reason="migration files changed since last image build"
+  needs_backend_rebuild=true
+  backend_reason="migration files changed since last image build"
 elif backend_source_newer_than_image; then
-  needs_rebuild=true
-  reason="backend source changed since last image build"
+  needs_backend_rebuild=true
+  backend_reason="backend source changed since last image build"
 elif pending_migrations_in_db; then
-  needs_rebuild=true
-  reason="unapplied database migrations"
+  needs_backend_rebuild=true
+  backend_reason="unapplied database migrations"
 fi
 
-if $needs_rebuild; then
-  log "Rebuild required ($reason)"
-  docker compose build
-  docker compose up -d
-else
+if frontend_source_newer_than_image; then
+  needs_frontend_rebuild=true
+  frontend_reason="frontend source changed since last image build"
+fi
+
+if $needs_backend_rebuild; then
+  log "Backend rebuild required ($backend_reason)"
+  docker compose build django celery-worker celery-beat
+  docker compose up -d django celery-worker celery-beat
+fi
+
+if $needs_frontend_rebuild; then
+  log "Frontend rebuild required ($frontend_reason)"
+  docker compose build web-booking web-reception
+  docker compose up -d web-booking web-reception
+fi
+
+if ! $needs_backend_rebuild && ! $needs_frontend_rebuild; then
   log "No rebuild needed; restarting services"
   docker compose restart
 fi

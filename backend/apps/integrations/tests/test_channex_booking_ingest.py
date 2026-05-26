@@ -281,3 +281,45 @@ class ChannexBookingIngestTests(TestCase):
         self.assertEqual(processed[0].external_id, channex_external_id(other_booking_id))
         mock_client.get_booking_revision.assert_called_once_with(other_revision_id)
         mock_client.acknowledge_booking_revision.assert_called_once_with(other_revision_id)
+
+    @patch("apps.core.notifications.send_tenant_reception_push")
+    @patch(
+        "apps.integrations.channex.reservation_availability_service.push_channex_inventory_after_ingest"
+    )
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_ingest_flags_overbooking_when_unit_already_occupied(
+        self,
+        mock_client_cls,
+        mock_push_inventory,
+        mock_reception_push,
+    ):
+        incumbent = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="6931685558",
+            booking_code="6931685558",
+            booker_name="Sladjana SKORIC",
+            check_in=date(2026, 5, 19),
+            check_out=date(2026, 5, 23),
+            status=Reservation.Status.EXPECTED,
+        )
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=incumbent,
+            unit=self.unit,
+            room_name="Studio",
+        )
+
+        mock_client = MagicMock()
+        mock_client.get_booking_revision.return_value = self.revision_payload
+        mock_client_cls.return_value = mock_client
+
+        reservation = process_channex_booking_revision(
+            self.integration,
+            "overbooking-revision-id",
+        )
+
+        reservation.refresh_from_db()
+        self.assertIn("OVERBOOKING:", reservation.notes)
+        self.assertIn("6931685558", reservation.notes)
+        mock_reception_push.assert_called_once()

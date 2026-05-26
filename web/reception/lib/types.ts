@@ -70,8 +70,11 @@ export type GuestLite = {
   personal_id_number: string;
   evisitor_status: string;
   evisitor_error: string;
+  evisitor_required?: boolean;
   face_photo_url: string;
 };
+
+export type EvisitorSummary = "none" | "incomplete" | "complete" | "checked_out";
 
 export type ReservationDetail = Reservation & {
   units?: ReservationUnit[];
@@ -85,6 +88,9 @@ export type ReservationDetail = Reservation & {
   pdf_imported_at: string | null;
   xls_imported_at: string | null;
   confirmation_pdf_url: string;
+  evisitor_summary?: EvisitorSummary;
+  check_in_allowed?: boolean;
+  check_in_blocked_code?: "wrong_date" | "room_occupied" | "no_unit" | null;
 };
 
 export type BookingPdfImportResult = ReservationDetail & {

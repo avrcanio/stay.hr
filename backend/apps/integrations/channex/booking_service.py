@@ -17,6 +17,7 @@ from apps.integrations.models import ChannexBookingRevision, IntegrationConfig
 from apps.properties.models import Property, Unit
 from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
+from apps.reservations.overbooking import flag_ingest_overbooking
 from apps.tenants.models import Tenant
 
 logger = logging.getLogger(__name__)
@@ -277,6 +278,9 @@ def _upsert_reservation_from_revision(
             reservation=reservation,
             adults_count=reservation.adults_count,
         )
+
+    if reservation.status != Reservation.Status.CANCELED and units_count:
+        flag_ingest_overbooking(reservation)
 
     return reservation, created
 

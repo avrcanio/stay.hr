@@ -3,6 +3,7 @@ from django.test import TestCase
 from apps.integrations.evisitor.messages import (
     format_evisitor_user_message,
     parse_existing_registration_id,
+    resolve_evisitor_error_message,
 )
 
 SAMPLE = (
@@ -26,3 +27,26 @@ class EvisitorMessagesTests(TestCase):
 
     def test_parse_returns_none_for_other_errors(self):
         self.assertIsNone(parse_existing_registration_id("Nepoznata greška"))
+
+    def test_resolve_from_system_message_json(self):
+        system = (
+            '{"UserMessage":"[[[Zadana kategorija BP nije dozvoljena '
+            'za osobe mla\\u0111e od 18 godina.]]]","SystemMessage":null}'
+        )
+        msg = resolve_evisitor_error_message(
+            user_message="eVisitor CheckInTourist HTTP 400",
+            system_message=system,
+            fallback="eVisitor CheckInTourist HTTP 400",
+        )
+        self.assertEqual(
+            msg,
+            "Zadana kategorija BP nije dozvoljena za osobe mlađe od 18 godina.",
+        )
+
+    def test_resolve_prefers_user_message_when_readable(self):
+        msg = resolve_evisitor_error_message(
+            user_message="[[[Test greška.]]]",
+            system_message='{"UserMessage":"[[[Druga greška.]]]"}',
+            fallback="fallback",
+        )
+        self.assertEqual(msg, "Test greška.")

@@ -79,7 +79,10 @@ def run_auto_checkouts() -> dict:
         ).prefetch_related("guests")
 
         for reservation in reservations:
-            summary = evisitor_summary_for_guests(guests_for_checkout(reservation))
+            summary = evisitor_summary_for_guests(
+                guests_for_checkout(reservation),
+                reference_date=reservation.check_in,
+            )
             if summary != "complete":
                 skipped.append(
                     _skipped_entry(reservation, _skip_reason_for_summary(summary))

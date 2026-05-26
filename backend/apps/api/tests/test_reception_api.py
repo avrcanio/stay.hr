@@ -82,8 +82,15 @@ class ReceptionAPITests(TestCase):
         self.assertEqual(row["room_name"], "Soba 101")
         self.assertEqual(len(row["guests"]), 1)
 
+    @patch("apps.reservations.checkin.tenant_local_now")
     @patch("apps.core.tasks.notify_reservation_status_changed.delay")
-    def test_reservation_detail_and_patch_status(self, mock_notify_status):
+    def test_reservation_detail_and_patch_status(self, mock_notify_status, mock_local_now):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        mock_local_now.return_value = datetime(
+            2026, 5, 10, 10, 0, tzinfo=ZoneInfo("Europe/Zagreb")
+        )
         detail = self.client.get(
             f"/api/v1/reception/reservations/{self.reservation.id}/",
             **self.auth,
@@ -105,6 +112,151 @@ class ReceptionAPITests(TestCase):
             Reservation.Status.CHECKED_IN,
             "tablet-a-uuid",
         )
+
+    @patch("apps.reservations.checkin.tenant_local_now")
+    def test_check_in_rejected_before_arrival_date(self, mock_local_now):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        mock_local_now.return_value = datetime(
+            2026, 5, 9, 10, 0, tzinfo=ZoneInfo("Europe/Zagreb")
+        )
+        response = self.client.patch(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            {"status": Reservation.Status.CHECKED_IN},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        error_text = body["status"] if isinstance(body["status"], str) else str(body["status"])
+        self.assertIn("dan dolaska", error_text)
+
+    @patch("apps.reservations.checkin.tenant_local_now")
+    def test_check_in_rejected_when_room_occupied(self, mock_local_now):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        mock_local_now.return_value = datetime(
+            2026, 5, 10, 10, 0, tzinfo=ZoneInfo("Europe/Zagreb")
+        )
+        other = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            check_in=date(2026, 5, 8),
+            check_out=date(2026, 5, 12),
+            status=Reservation.Status.CHECKED_IN,
+            booker_name="Petra Petrić",
+            amount=Decimal("90.00"),
+        )
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=other,
+            unit=self.unit,
+            room_name="Soba 101",
+            sort_order=0,
+        )
+
+        response = self.client.patch(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            {"status": Reservation.Status.CHECKED_IN},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        error_text = body["status"] if isinstance(body["status"], str) else str(body["status"])
+        self.assertIn("zauzeta", error_text)
+
+    @patch("apps.reservations.checkin.tenant_local_now")
+    @patch("apps.core.tasks.notify_reservation_status_changed.delay")
+    def test_check_in_allowed_on_arrival_date_when_room_free(
+        self,
+        mock_notify_status,
+        mock_local_now,
+    ):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        mock_local_now.return_value = datetime(
+            2026, 5, 10, 10, 0, tzinfo=ZoneInfo("Europe/Zagreb")
+        )
+        response = self.client.patch(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            {"status": Reservation.Status.CHECKED_IN},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], Reservation.Status.CHECKED_IN)
+        mock_notify_status.assert_called_once()
+
+    @patch("apps.reservations.checkin.tenant_local_now")
+    def test_detail_includes_check_in_allowed_on_arrival_date(self, mock_local_now):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        mock_local_now.return_value = datetime(
+            2026, 5, 10, 10, 0, tzinfo=ZoneInfo("Europe/Zagreb")
+        )
+        response = self.client.get(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["check_in_allowed"])
+        self.assertIsNone(data["check_in_blocked_code"])
+
+    @patch("apps.reservations.checkin.tenant_local_now")
+    def test_detail_check_in_blocked_wrong_date(self, mock_local_now):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        mock_local_now.return_value = datetime(
+            2026, 5, 9, 10, 0, tzinfo=ZoneInfo("Europe/Zagreb")
+        )
+        response = self.client.get(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["check_in_allowed"])
+        self.assertEqual(data["check_in_blocked_code"], "wrong_date")
+
+    @patch("apps.reservations.checkin.tenant_local_now")
+    def test_detail_check_in_blocked_room_occupied(self, mock_local_now):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        mock_local_now.return_value = datetime(
+            2026, 5, 10, 10, 0, tzinfo=ZoneInfo("Europe/Zagreb")
+        )
+        other = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            check_in=date(2026, 5, 8),
+            check_out=date(2026, 5, 12),
+            status=Reservation.Status.CHECKED_IN,
+            booker_name="Petra Petrić",
+            amount=Decimal("90.00"),
+        )
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=other,
+            unit=self.unit,
+            room_name="Soba 101",
+            sort_order=0,
+        )
+        response = self.client.get(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["check_in_allowed"])
+        self.assertEqual(data["check_in_blocked_code"], "room_occupied")
 
     def test_patch_reservation_dates_expected(self):
         response = self.client.patch(

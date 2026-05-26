@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { CountryFlag } from "@/app/_components/CountryFlag";
 import { GuestAvatar } from "@/app/_components/GuestAvatar";
-import type { GuestLite } from "@/lib/types";
+import type { GuestLite, ReservationStatus } from "@/lib/types";
 
 type DetailRow = {
   label: string;
@@ -13,23 +13,99 @@ type DetailRow = {
   isError?: boolean;
 };
 
+type EvisitorSubmitResponse = {
+  status?: string;
+  message?: string;
+  user_message?: string;
+  recovered?: boolean;
+};
+
 type Props = {
   reservationId: number;
   guests: GuestLite[];
+  reservationStatus?: ReservationStatus;
+  onGuestUpdated?: () => void | Promise<void>;
 };
 
-export function GuestList({ reservationId, guests }: Props) {
+const EVISITOR_SUBMITTABLE_STATUSES = new Set<ReservationStatus>(["expected", "checked_in"]);
+const EVISITOR_DONE_STATUSES = new Set(["sent", "checked_out"]);
+
+export function GuestList({
+  reservationId,
+  guests,
+  reservationStatus,
+  onGuestUpdated,
+}: Props) {
   const t = useTranslations("guest");
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [submittingGuestId, setSubmittingGuestId] = useState<number | null>(null);
+  const [guestMessages, setGuestMessages] = useState<
+    Record<number, { type: "success" | "error"; text: string }>
+  >({});
 
   function evisitorStatusLabel(status: string): string {
     const map: Record<string, string> = {
+      not_sent: t("evisitorNotSent"),
       pending: t("evisitorPending"),
-      submitted: t("evisitorSubmitted"),
+      sent: t("evisitorSent"),
+      checked_out: t("evisitorCheckedOut"),
       failed: t("evisitorFailed"),
-      complete: t("evisitorComplete"),
+      submitted: t("evisitorSent"),
+      complete: t("evisitorSent"),
     };
     return map[status] || status || "—";
+  }
+
+  function guestRequiresEvisitor(guest: GuestLite): boolean {
+    return guest.evisitor_required !== false;
+  }
+
+  function evisitorDisplayStatus(guest: GuestLite, status: string): string {
+    if (!guestRequiresEvisitor(guest)) {
+      return t("evisitorNotRequired");
+    }
+    return evisitorStatusLabel(status);
+  }
+
+  function canShowEvisitorSubmit(guest: GuestLite, status: string): boolean {
+    if (!guestRequiresEvisitor(guest)) {
+      return false;
+    }
+    if (!reservationStatus || !EVISITOR_SUBMITTABLE_STATUSES.has(reservationStatus)) {
+      return false;
+    }
+    return !EVISITOR_DONE_STATUSES.has(status);
+  }
+
+  function showEvisitorBadge(guest: GuestLite, status: string): boolean {
+    if (!guestRequiresEvisitor(guest)) {
+      return true;
+    }
+    return status === "sent" || status === "failed" || status === "checked_out";
+  }
+
+  function evisitorStatusBadgeClass(guest: GuestLite, status: string): string {
+    if (!guestRequiresEvisitor(guest)) {
+      return "badge text-xs bg-slate-100 text-slate-600";
+    }
+    if (status === "sent" || status === "checked_out") {
+      return "badge badge-checked_in text-xs";
+    }
+    if (status === "failed") {
+      return "badge badge-canceled text-xs";
+    }
+    if (status === "pending") {
+      return "badge badge-expected text-xs";
+    }
+    return "";
+  }
+
+  function formatEvisitorSubmitError(reason: string | undefined): string {
+    const detail = reason?.trim();
+    if (!detail || detail === "failed") {
+      return t("evisitorSubmitFailed");
+    }
+    return t("evisitorSubmitFailedWithReason", { reason: detail });
   }
 
   function sexLabel(sex: string): string {
@@ -52,10 +128,10 @@ export function GuestList({ reservationId, guests }: Props) {
       { label: t("issuingAuthority"), value: guest.issuing_authority },
       { label: t("personalId"), value: guest.personal_id_number },
       { label: t("address"), value: guest.address, fullWidth: true },
-      { label: t("evisitor"), value: evisitorStatusLabel(guest.evisitor_status) },
+      { label: t("evisitor"), value: evisitorDisplayStatus(guest, guest.evisitor_status) },
     ];
 
-    if (guest.evisitor_error) {
+    if (guestRequiresEvisitor(guest) && guest.evisitor_error) {
       rows.push({
         label: t("evisitorError"),
         value: guest.evisitor_error,
@@ -71,6 +147,53 @@ export function GuestList({ reservationId, guests }: Props) {
     setExpandedId((current) => (current === id ? null : id));
   }
 
+  async function handleEvisitorSubmit(guest: GuestLite) {
+    const forceRetry = guest.evisitor_status === "failed";
+    setSubmittingGuestId(guest.id);
+    setGuestMessages((current) => {
+      const next = { ...current };
+      delete next[guest.id];
+      return next;
+    });
+
+    try {
+      const res = await fetch(
+        `/api/stay/reception/reservations/${reservationId}/guests/${guest.id}/evisitor-submit/`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(forceRetry ? { force_retry: true } : {}),
+        },
+      );
+
+      const data = (await res.json().catch(() => null)) as EvisitorSubmitResponse | null;
+
+      if (res.ok && data?.status === "sent") {
+        setGuestMessages({
+          [guest.id]: {
+            type: "success",
+            text: data.recovered
+              ? data.message || t("evisitorRecovered")
+              : data.message || t("evisitorSubmitSuccess"),
+          },
+        });
+        await onGuestUpdated?.();
+        return;
+      }
+
+      const reason = data?.user_message || data?.message || "";
+      setGuestMessages({
+        [guest.id]: { type: "error", text: formatEvisitorSubmitError(reason) },
+      });
+    } catch {
+      setGuestMessages({
+        [guest.id]: { type: "error", text: t("evisitorSubmitFailed") },
+      });
+    } finally {
+      setSubmittingGuestId(null);
+    }
+  }
+
   return (
     <ul className="divide-y divide-stay-border rounded-xl border border-stay-border">
       {guests.map((guest) => {
@@ -78,6 +201,11 @@ export function GuestList({ reservationId, guests }: Props) {
         const panelId = `guest-details-${guest.id}`;
         const fullName = `${guest.first_name} ${guest.last_name}`.trim();
         const detailRows = guestDetailRows(guest);
+        const evisitorStatus = guest.evisitor_status || "not_sent";
+        const showSubmit = canShowEvisitorSubmit(guest, evisitorStatus);
+        const showBadge = showEvisitorBadge(guest, evisitorStatus);
+        const isSubmitting = submittingGuestId === guest.id;
+        const guestMessage = guestMessages[guest.id];
 
         return (
           <li key={guest.id}>
@@ -101,6 +229,11 @@ export function GuestList({ reservationId, guests }: Props) {
                   {fullName}
                   {guest.is_primary ? <span className="text-muted"> · {t("primary")}</span> : null}
                 </span>
+                {showBadge ? (
+                  <span className={evisitorStatusBadgeClass(guest, evisitorStatus)}>
+                    {evisitorDisplayStatus(guest, evisitorStatus)}
+                  </span>
+                ) : null}
               </span>
               <span className="shrink-0 text-muted" aria-hidden="true">
                 {expanded ? "▾" : "▸"}
@@ -140,6 +273,36 @@ export function GuestList({ reservationId, guests }: Props) {
                 ) : (
                   <p className="text-sm text-muted">{t("noExtraData")}</p>
                 )}
+
+                {guestMessage ? (
+                  <p
+                    className={`mt-3 text-sm ${
+                      guestMessage.type === "success" ? "text-emerald-700" : "text-red-600"
+                    }`}
+                  >
+                    {guestMessage.text}
+                  </p>
+                ) : null}
+
+                {showSubmit ? (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={isSubmitting}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleEvisitorSubmit(guest);
+                      }}
+                    >
+                      {isSubmitting
+                        ? t("evisitorSubmitting")
+                        : evisitorStatus === "failed"
+                          ? t("evisitorRetry")
+                          : t("evisitorSubmit")}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </li>

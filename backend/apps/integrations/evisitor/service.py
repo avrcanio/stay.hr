@@ -19,7 +19,9 @@ from apps.integrations.evisitor.mapper import (
 from apps.integrations.evisitor.messages import (
     format_evisitor_user_message,
     parse_existing_registration_id,
+    resolve_evisitor_error_message,
 )
+from apps.integrations.evisitor.eligibility import guest_requires_evisitor
 from apps.integrations.evisitor.resolver import resolve_evisitor_config
 from apps.reservations.models import EvisitorGuestStatus, EvisitorSubmission, Guest
 
@@ -34,6 +36,11 @@ def _resolve_for_guest(guest: Guest):
 def submit_guest_checkin(guest: Guest, *, force_retry: bool = False) -> EvisitorSubmission:
     config = _resolve_for_guest(guest)
     guest = Guest.objects.select_related("reservation").get(pk=guest.pk)
+
+    if not guest_requires_evisitor(guest):
+        raise EvisitorValidationError(
+            "eVisitor prijava nije potrebna za goste mlađe od 18 godina."
+        )
 
     if guest.evisitor_status == EvisitorGuestStatus.SENT and not force_retry:
         return (
@@ -111,8 +118,11 @@ def submit_guest_checkin(guest: Guest, *, force_retry: bool = False) -> Evisitor
             return submission
 
         submission.status = EvisitorGuestStatus.FAILED
-        submission.error_user_message = format_evisitor_user_message(user_msg) or user_msg
-        submission.error_user_message = submission.error_user_message[:2000]
+        submission.error_user_message = resolve_evisitor_error_message(
+            user_message=user_msg,
+            system_message=system_msg,
+            fallback=str(exc),
+        )[:2000]
         submission.error_system_message = system_msg[:2000]
         submission.response_payload = {
             "error": user_msg,

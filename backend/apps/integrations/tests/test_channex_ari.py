@@ -12,6 +12,7 @@ from apps.integrations.channex.ari_payload import (
 from apps.integrations.channex.ari_service import (
     apply_rate_updates,
     build_full_sync,
+    compress_availability_days_to_values,
     enqueue_outbox_values,
 )
 from apps.integrations.channex.demo_property import CHANNEX_DEMO_PROPERTY_SLUG
@@ -20,8 +21,10 @@ from apps.integrations.models import (
     ChannexAriOutbox,
     IntegrationConfig,
     RatePlanDay,
+    UnitAvailabilityDay,
 )
 from apps.properties.models import Property, Unit
+from apps.reservations.models import Reservation, ReservationUnit
 from apps.tenants.models import Tenant
 
 FULL_SYNC_RESTRICTION_KEYS = frozenset(
@@ -245,3 +248,120 @@ class ChannexAriServiceTests(TestCase):
         results = flush_channex_ari_outbox(self.integration, client=mock_client)
         self.assertEqual(results[0]["task_ids"], ["task-1"])
         mock_client.update_restrictions.assert_called_once()
+
+
+class CompressAvailabilityDaysTests(TestCase):
+    def test_groups_consecutive_days_with_same_availability(self):
+        values = compress_availability_days_to_values(
+            property_id="prop",
+            room_type_id="room",
+            days=[
+                (date(2026, 5, 26), 1),
+                (date(2026, 5, 27), 0),
+                (date(2026, 5, 28), 0),
+                (date(2026, 5, 29), 1),
+            ],
+        )
+        self.assertEqual(len(values), 3)
+        self.assertEqual(values[0]["availability"], 1)
+        self.assertEqual(values[0]["date_from"], "2026-05-26")
+        self.assertEqual(values[1]["availability"], 0)
+        self.assertEqual(values[1]["date_from"], "2026-05-27")
+        self.assertEqual(values[1]["date_to"], "2026-05-28")
+        self.assertEqual(values[2]["availability"], 1)
+        self.assertEqual(values[2]["date_from"], "2026-05-29")
+
+
+class ChannexInventoryFullSyncTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(slug="uzorita", name="Uzorita")
+        self.property = Property.objects.create(
+            tenant=self.tenant,
+            slug="uzorita",
+            name="Uzorita",
+            timezone="Europe/Zagreb",
+        )
+        self.unit = Unit.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            code="R1",
+            name="R1",
+        )
+        self.integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
+        self.integration.set_config_dict(
+            {
+                "environment": "production",
+                "base_url": "https://app.channex.io/api/v1",
+                "property_id": "bca8473d-7c36-4986-bcdb-b5760b633283",
+                "sync_property_slug": "uzorita",
+                "use_generated_ari": False,
+                "room_types": [
+                    {
+                        "unit_code": "R1",
+                        "unit_id": self.unit.id,
+                        "channex_room_type_id": "room-r1",
+                        "channex_title": "Luxury Room Uzorita - R1",
+                    }
+                ],
+            }
+        )
+        self.integration.save()
+        self.rate_plan = ChannelRatePlan.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            unit=self.unit,
+            code="standard",
+            title="Standard",
+            channex_room_type_id="room-r1",
+            channex_rate_plan_id="rate-r1",
+            default_rate=Decimal("95"),
+        )
+
+    def test_full_sync_pushes_zero_availability_for_blocked_nights(self):
+        incumbent = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="6931685558",
+            booking_code="6931685558",
+            booker_name="Sladjana SKORIC",
+            check_in=date(2026, 5, 27),
+            check_out=date(2026, 5, 29),
+            status=Reservation.Status.EXPECTED,
+        )
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=incumbent,
+            unit=self.unit,
+            room_name="Luxury Room Uzorita - R1",
+        )
+
+        availability_values, _ = build_full_sync(
+            self.integration,
+            days=5,
+            start=date(2026, 5, 26),
+        )
+
+        blocked = [row for row in availability_values if row["availability"] == 0]
+        self.assertTrue(blocked)
+        self.assertTrue(
+            any(
+                row["date_from"] <= "2026-05-27" <= row["date_to"]
+                for row in blocked
+            )
+        )
+        self.assertFalse(
+            any(
+                row["availability"] == 1
+                and row["date_from"] == "2026-05-26"
+                and row["date_to"] == "2026-05-30"
+                for row in availability_values
+            )
+        )
+        self.assertEqual(
+            UnitAvailabilityDay.objects.get(unit=self.unit, date=date(2026, 5, 27)).availability,
+            0,
+        )

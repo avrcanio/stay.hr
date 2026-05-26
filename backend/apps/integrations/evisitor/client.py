@@ -10,6 +10,7 @@ import httpx
 
 from apps.integrations.evisitor.config import EvisitorRuntimeConfig
 from apps.integrations.evisitor.exceptions import EvisitorApiError, EvisitorConfigError
+from apps.integrations.evisitor.messages import resolve_evisitor_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +102,33 @@ class EvisitorClient:
         except httpx.HTTPError:
             logger.debug("eVisitor logout failed", exc_info=True)
 
+    def _extract_error_messages(self, response: httpx.Response) -> tuple[str, str]:
+        text = (response.text or "")[:500]
+        user_message = ""
+        try:
+            payload = response.json()
+            if isinstance(payload, dict):
+                user_message = str(payload.get("UserMessage") or "")
+                system_message = str(payload.get("SystemMessage") or "") or text
+                return user_message, system_message
+        except json.JSONDecodeError:
+            pass
+        return user_message, text
+
     def execute_action(self, action: str, data: dict[str, Any]) -> None:
         url = f"{self._rest_url}{action.strip('/')}/"
         response = self._session.post(url, json=data)
         if response.status_code != 200:
+            user_message, system_message = self._extract_error_messages(response)
+            resolved = resolve_evisitor_error_message(
+                user_message=user_message,
+                system_message=system_message,
+                fallback=f"eVisitor {action} HTTP {response.status_code}",
+            )
             raise EvisitorApiError(
-                f"eVisitor {action} HTTP {response.status_code}",
-                system_message=response.text[:500],
+                resolved,
+                user_message=user_message,
+                system_message=system_message,
                 status_code=response.status_code,
             )
         text = (response.text or "").strip()

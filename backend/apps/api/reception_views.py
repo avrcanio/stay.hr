@@ -29,6 +29,7 @@ from apps.api.reception_serializers import (
 )
 from apps.api.request_context import installation_id_from_request
 from apps.api.views import TenantAPIView
+from apps.integrations.evisitor.eligibility import guest_requires_evisitor
 from apps.integrations.evisitor.exceptions import (
     EvisitorApiError,
     EvisitorConfigError,
@@ -813,6 +814,15 @@ class EvisitorSubmitView(ReceptionWriteView, APIView):
                 }
             )
 
+        if not guest_requires_evisitor(guest):
+            return Response(
+                {
+                    "status": "not_required",
+                    "message": "eVisitor prijava nije potrebna za goste mlađe od 18 godina.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
             submission = submit_guest_checkin(guest, force_retry=force_retry)
         except EvisitorValidationError as exc:
@@ -834,16 +844,17 @@ class EvisitorSubmitView(ReceptionWriteView, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except EvisitorApiError as exc:
-            from apps.integrations.evisitor.messages import format_evisitor_user_message
+            from apps.integrations.evisitor.messages import resolve_evisitor_error_message
 
+            user_message = resolve_evisitor_error_message(
+                user_message=exc.user_message or "",
+                system_message=exc.system_message or "",
+                fallback=str(exc),
+            )
             return Response(
                 {
                     "status": EvisitorGuestStatus.FAILED,
-                    "user_message": format_evisitor_user_message(
-                        exc.user_message or ""
-                    )
-                    or exc.user_message
-                    or str(exc),
+                    "user_message": user_message,
                     "system_message": exc.system_message,
                 },
                 status=status.HTTP_502_BAD_GATEWAY,

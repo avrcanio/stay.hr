@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 _UUID_RE = re.compile(
@@ -37,6 +38,51 @@ def format_evisitor_user_message(raw: str) -> str:
     # Strip Rhetos template wrappers if present
     text = text.removeprefix("[[[").removesuffix("]]]").strip()
     return text
+
+
+def _user_message_from_system_payload(system_message: str) -> str:
+    text = (system_message or "").strip()
+    if not text:
+        return ""
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("UserMessage") or "")
+
+
+_GENERIC_HTTP_ERROR_RE = re.compile(r"^eVisitor .+ HTTP \d+$", re.IGNORECASE)
+
+
+def _is_generic_http_error(text: str) -> bool:
+    return bool(_GENERIC_HTTP_ERROR_RE.match((text or "").strip()))
+
+
+def resolve_evisitor_error_message(
+    *,
+    user_message: str = "",
+    system_message: str = "",
+    fallback: str = "",
+) -> str:
+    """Return the best human-readable eVisitor error for UI/API."""
+    sources: list[str] = []
+    user_text = (user_message or "").strip()
+    system_user_message = _user_message_from_system_payload(system_message)
+
+    if user_text and not _is_generic_http_error(user_text):
+        sources.append(user_text)
+    if system_user_message and system_user_message not in sources:
+        sources.append(system_user_message)
+    if user_text and user_text not in sources:
+        sources.append(user_text)
+
+    for raw in sources:
+        formatted = format_evisitor_user_message(raw)
+        if formatted:
+            return formatted
+    return (fallback or "").strip()
 
 
 def parse_existing_registration_id(user_message: str) -> str | None:

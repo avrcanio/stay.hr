@@ -5,11 +5,14 @@ from apps.integrations.evisitor.exceptions import (
     EvisitorConfigError,
     EvisitorValidationError,
 )
+from apps.integrations.evisitor.eligibility import guest_requires_evisitor
 from apps.integrations.evisitor.summary import (
     evisitor_status_for_guest,
     evisitor_summary_for_guests,
     evisitor_summary_for_reservation,
 )
+from apps.integrations.evisitor.messages import resolve_evisitor_error_message
+from apps.reservations.checkin import CheckInBlockedError, get_check_in_block_reason, validate_reservation_check_in
 from apps.reservations.checkout import CheckoutBlockedError, perform_reservation_checkout
 from apps.reservations.confirmation_pdf import reservation_confirmation_pdf_url
 from apps.reservations.face_photo import guest_face_photo_url
@@ -44,6 +47,7 @@ def payment_status_key(raw: str) -> str:
 class GuestLiteSerializer(serializers.ModelSerializer):
     evisitor_status = serializers.SerializerMethodField()
     evisitor_error = serializers.SerializerMethodField()
+    evisitor_required = serializers.SerializerMethodField()
     face_photo_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -67,13 +71,19 @@ class GuestLiteSerializer(serializers.ModelSerializer):
             "personal_id_number",
             "evisitor_status",
             "evisitor_error",
+            "evisitor_required",
             "face_photo_url",
         )
 
     def get_evisitor_status(self, obj) -> str:
         return evisitor_status_for_guest(obj)
 
+    def get_evisitor_required(self, obj) -> bool:
+        return guest_requires_evisitor(obj)
+
     def get_evisitor_error(self, obj) -> str:
+        if not guest_requires_evisitor(obj):
+            return ""
         if evisitor_status_for_guest(obj) != EvisitorGuestStatus.FAILED:
             return ""
         submission = (
@@ -82,7 +92,11 @@ class GuestLiteSerializer(serializers.ModelSerializer):
             .first()
         )
         if submission:
-            return submission.error_user_message or submission.error_system_message or ""
+            return resolve_evisitor_error_message(
+                user_message=submission.error_user_message or "",
+                system_message=submission.error_system_message or "",
+                fallback=submission.error_user_message or submission.error_system_message or "",
+            )
         return ""
 
     def get_face_photo_url(self, obj) -> str:
@@ -138,6 +152,8 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
     effective_units_count = serializers.SerializerMethodField()
     payment_status_key = serializers.SerializerMethodField()
     evisitor_summary = serializers.SerializerMethodField()
+    check_in_allowed = serializers.SerializerMethodField()
+    check_in_blocked_code = serializers.SerializerMethodField()
     confirmation_pdf_url = serializers.SerializerMethodField()
     property_slug = serializers.CharField(source="property.slug", read_only=True)
     property_name = serializers.CharField(source="property.name", read_only=True)
@@ -189,6 +205,8 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
             "primary_guest_nationality_iso2",
             "guests",
             "evisitor_summary",
+            "check_in_allowed",
+            "check_in_blocked_code",
         )
 
     def get_primary_guest_name(self, obj):
@@ -224,6 +242,23 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
 
     def get_evisitor_summary(self, obj) -> str:
         return evisitor_summary_for_reservation(obj)
+
+    def _tenant_for_check_in(self, obj):
+        request = self.context.get("request")
+        return getattr(request, "tenant", None) or obj.tenant
+
+    def get_check_in_blocked_code(self, obj) -> str | None:
+        if obj.status != Reservation.Status.EXPECTED:
+            return None
+        block = get_check_in_block_reason(obj, tenant=self._tenant_for_check_in(obj))
+        if block is None:
+            return None
+        return block.code
+
+    def get_check_in_allowed(self, obj) -> bool:
+        if obj.status != Reservation.Status.EXPECTED:
+            return False
+        return get_check_in_block_reason(obj, tenant=self._tenant_for_check_in(obj)) is None
 
     def get_confirmation_pdf_url(self, obj) -> str:
         request = self.context.get("request")
@@ -354,13 +389,26 @@ class ReservationUpdateSerializer(serializers.ModelSerializer):
                     "Nedozvoljen prijelaz statusa rezervacije."
                 )
             if (
+                current == Reservation.Status.EXPECTED
+                and value == Reservation.Status.CHECKED_IN
+            ):
+                request = self.context.get("request")
+                tenant = getattr(request, "tenant", None) or instance.tenant
+                try:
+                    validate_reservation_check_in(instance, tenant=tenant)
+                except CheckInBlockedError as exc:
+                    raise serializers.ValidationError({"status": exc.message}) from exc
+            if (
                 current == Reservation.Status.CHECKED_IN
                 and value == Reservation.Status.CHECKED_OUT
-                and evisitor_summary_for_guests(guests_for_checkout(instance))
+                and evisitor_summary_for_guests(
+                    guests_for_checkout(instance),
+                    reference_date=instance.check_in,
+                )
                 != "complete"
             ):
                 raise serializers.ValidationError(
-                    "Odjava nije moguća dok svi gosti nisu prijavljeni u eVisitor."
+                    "Odjava nije moguća dok svi punoljetni gosti nisu prijavljeni u eVisitor."
                 )
         return value
 

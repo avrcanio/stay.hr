@@ -8,8 +8,19 @@ import { CountryFlag } from "@/app/_components/CountryFlag";
 import { GuestList } from "@/app/_components/GuestList";
 import { ReservationMoveDatesModal } from "@/app/_components/ReservationMoveDatesModal";
 import { useImportSourceLabel, useReservationStatusLabel } from "@/lib/i18n-ui";
+import {
+  checkInBlockedMessageKey,
+  isCheckInActionDisabled,
+  showCheckInBlockedHint,
+} from "@/lib/checkInEligibility";
 import { reservationConfirmationPdfPath } from "@/lib/stay-client";
-import type { BookingPdfImportResult, ReservationDetail } from "@/lib/types";
+import {
+  allowedNextStatuses,
+  statusActionKey,
+  statusConfirmKey,
+  statusSuccessKey,
+} from "@/lib/reservationStatusTransitions";
+import type { BookingPdfImportResult, ReservationDetail, ReservationStatus } from "@/lib/types";
 import { reservationStatusClass } from "@/lib/reservationUi";
 
 type Props = {
@@ -28,7 +39,7 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [canceling, setCanceling] = useState(false);
+  const [statusChanging, setStatusChanging] = useState(false);
   const [moveDatesOpen, setMoveDatesOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -54,6 +65,16 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
 
   const primaryUnitId = reservation?.units?.find((unit) => unit.room)?.room ?? null;
   const canMoveDates = reservation?.status === "expected" && primaryUnitId !== null;
+  const nextStatuses = reservation ? allowedNextStatuses(reservation.status) : [];
+  const showCheckoutHint =
+    reservation?.status === "checked_in" &&
+    reservation.evisitor_summary != null &&
+    reservation.evisitor_summary !== "complete" &&
+    reservation.evisitor_summary !== "checked_out";
+  const showCheckInHint = reservation ? showCheckInBlockedHint(reservation) : false;
+  const checkInHintKey = reservation
+    ? checkInBlockedMessageKey(reservation.check_in_blocked_code)
+    : null;
 
   async function handleMoveDatesSuccess(updated: ReservationDetail) {
     setReservation(updated);
@@ -72,30 +93,42 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
     void onUpdated?.();
   }
 
-  async function handleCancel() {
-    if (!reservation || reservation.status !== "expected") return;
-    if (!window.confirm(t("cancelConfirm"))) return;
+  async function patchStatus(newStatus: ReservationStatus) {
+    if (!reservation) return;
 
-    setCanceling(true);
+    const confirmKey = statusConfirmKey(newStatus);
+    if (confirmKey && !window.confirm(t(confirmKey))) return;
+
+    setStatusChanging(true);
     setActionMessage("");
     setError("");
     try {
       const res = await fetch(`/api/stay/reception/reservations/${reservation.id}/`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "canceled" }),
+        body: JSON.stringify({ status: newStatus }),
       });
       if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { status?: string[]; detail?: string } | null;
-        throw new Error(data?.status?.[0] || data?.detail || t("cancelFailed"));
+        const data = (await res.json().catch(() => null)) as {
+          status?: string | string[];
+          detail?: string;
+        } | null;
+        const statusError = data?.status;
+        const statusMessage = Array.isArray(statusError)
+          ? statusError[0]
+          : typeof statusError === "string"
+            ? statusError
+            : undefined;
+        throw new Error(statusMessage || data?.detail || t("statusChangeFailed"));
       }
       setReservation((await res.json()) as ReservationDetail);
-      setActionMessage(t("cancelSuccess"));
+      const successKey = statusSuccessKey(newStatus);
+      setActionMessage(successKey ? t(successKey) : t("statusChangeFailed"));
       await onUpdated?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("cancelFailed"));
+      setError(err instanceof Error ? err.message : t("statusChangeFailed"));
     } finally {
-      setCanceling(false);
+      setStatusChanging(false);
     }
   }
 
@@ -180,29 +213,46 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
         </p>
       ) : null}
 
-      {canMoveDates || reservation.status === "expected" ? (
-        <div className="flex flex-wrap gap-2">
-          {canMoveDates ? (
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => {
-                setMoveDatesOpen(true);
-                setActionMessage("");
-              }}
-            >
-              {t("moveDates")}
-            </button>
+      {canMoveDates || nextStatuses.length > 0 ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {canMoveDates ? (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => {
+                  setMoveDatesOpen(true);
+                  setActionMessage("");
+                }}
+              >
+                {t("moveDates")}
+              </button>
+            ) : null}
+            {nextStatuses.map((nextStatus) => {
+              const actionKey = statusActionKey(nextStatus);
+              if (!actionKey) return null;
+              const isCancel = nextStatus === "canceled";
+              const isCheckIn = nextStatus === "checked_in";
+              const disabled =
+                statusChanging || (isCheckIn && isCheckInActionDisabled(reservation));
+              return (
+                <button
+                  key={nextStatus}
+                  type="button"
+                  className={isCancel ? "btn-danger" : "btn btn-sm"}
+                  disabled={disabled}
+                  onClick={() => void patchStatus(nextStatus)}
+                >
+                  {t(actionKey)}
+                </button>
+              );
+            })}
+          </div>
+          {showCheckInHint && checkInHintKey ? (
+            <p className="text-sm text-amber-800">{t(checkInHintKey)}</p>
           ) : null}
-          {reservation.status === "expected" ? (
-            <button
-              type="button"
-              className="btn-danger"
-              disabled={canceling}
-              onClick={() => void handleCancel()}
-            >
-              {t("cancel")}
-            </button>
+          {showCheckoutHint ? (
+            <p className="text-sm text-amber-800">{t("checkoutEvisitorHint")}</p>
           ) : null}
         </div>
       ) : null}
@@ -211,7 +261,12 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
         <h2 className="mb-2 font-semibold">
           {t("guestsTitle", { count: reservation.guests?.length || 0 })}
         </h2>
-        <GuestList reservationId={reservation.id} guests={reservation.guests || []} />
+        <GuestList
+          reservationId={reservation.id}
+          guests={reservation.guests || []}
+          reservationStatus={reservation.status}
+          onGuestUpdated={load}
+        />
       </div>
 
       {reservation.notes ? (

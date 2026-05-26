@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+from datetime import date
+
+from apps.integrations.evisitor.eligibility import guest_requires_evisitor
 from apps.reservations.models import EvisitorGuestStatus, Guest, Reservation
 
 
@@ -8,11 +13,28 @@ def evisitor_status_for_guest(guest: Guest) -> str:
     return EvisitorGuestStatus.NOT_SENT
 
 
-def evisitor_summary_for_guests(guests) -> str:
+def guests_requiring_evisitor(guests, *, reference_date: date) -> list[Guest]:
+    return [
+        guest
+        for guest in guests
+        if guest_requires_evisitor(guest, reference_date=reference_date)
+    ]
+
+
+def evisitor_summary_for_guests(guests, *, reference_date: date | None = None) -> str:
     guest_list = list(guests)
     if not guest_list:
         return "none"
-    statuses = [evisitor_status_for_guest(g) for g in guest_list]
+
+    ref = reference_date
+    if ref is None:
+        ref = guest_list[0].reservation.check_in
+
+    required_guests = guests_requiring_evisitor(guest_list, reference_date=ref)
+    if not required_guests:
+        return "complete"
+
+    statuses = [evisitor_status_for_guest(g) for g in required_guests]
     if all(s == EvisitorGuestStatus.CHECKED_OUT for s in statuses):
         return "checked_out"
     if all(s in (EvisitorGuestStatus.SENT, EvisitorGuestStatus.CHECKED_OUT) for s in statuses):
@@ -26,7 +48,11 @@ def evisitor_summary_for_reservation(reservation: Reservation) -> str:
     if hasattr(reservation, "_prefetched_objects_cache") and "guests" in getattr(
         reservation, "_prefetched_objects_cache", {}
     ):
-        return evisitor_summary_for_guests(reservation.guests.all())
+        return evisitor_summary_for_guests(
+            reservation.guests.all(),
+            reference_date=reservation.check_in,
+        )
     return evisitor_summary_for_guests(
-        Guest.objects.filter(reservation_id=reservation.pk)
+        Guest.objects.filter(reservation_id=reservation.pk).select_related("reservation"),
+        reference_date=reservation.check_in,
     )

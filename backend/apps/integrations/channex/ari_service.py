@@ -34,6 +34,50 @@ logger = logging.getLogger(__name__)
 FULL_SYNC_DAYS = 500
 
 
+def compress_availability_days_to_values(
+    *,
+    property_id: str,
+    room_type_id: str,
+    days: list[tuple[date, int]],
+) -> list[dict[str, Any]]:
+    """Group consecutive days with the same availability into Channex date ranges."""
+    if not days:
+        return []
+
+    values: list[dict[str, Any]] = []
+    range_start, range_availability = days[0]
+    range_end = range_start
+
+    for day, availability in days[1:]:
+        if availability == range_availability and day == range_end + timedelta(days=1):
+            range_end = day
+            continue
+
+        values.append(
+            build_availability_value(
+                property_id=property_id,
+                room_type_id=room_type_id,
+                availability=range_availability,
+                date_from=range_start.isoformat(),
+                date_to=range_end.isoformat(),
+            )
+        )
+        range_start = day
+        range_end = day
+        range_availability = availability
+
+    values.append(
+        build_availability_value(
+            property_id=property_id,
+            room_type_id=room_type_id,
+            availability=range_availability,
+            date_from=range_start.isoformat(),
+            date_to=range_end.isoformat(),
+        )
+    )
+    return values
+
+
 def sync_property(tenant: Tenant, config: ChannexRuntimeConfig) -> Property:
     slug = (
         config.sync_property_slug
@@ -663,13 +707,18 @@ def _build_full_sync_inventory(
             room_type_id = _room_type_id_for_unit(integration_row, unit)
         except ChannexBookingIngestError:
             continue
-        availability_values.append(
-            build_availability_value(
+        unit_days = [
+            (current, compute_unit_availability(tenant, unit, current))
+            for current in (
+                start_day + timedelta(days=offset)
+                for offset in range((end_day - start_day).days + 1)
+            )
+        ]
+        availability_values.extend(
+            compress_availability_days_to_values(
                 property_id=property_id,
                 room_type_id=room_type_id,
-                availability=1,
-                date_from=start_day.isoformat(),
-                date_to=end_day.isoformat(),
+                days=unit_days,
             )
         )
 
