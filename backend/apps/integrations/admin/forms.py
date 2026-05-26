@@ -7,8 +7,6 @@ from django import forms
 
 from apps.integrations.config_secrets import PROVIDER_SECRET_KEYS
 from apps.integrations.models import IntegrationConfig
-from apps.integrations.smoobu.mapping import SMOOBU_API_BASE
-from apps.integrations.smoobu.verify import SmoobuKeyVerificationError, verify_smoobu_api_key
 
 SECRET_KEEP_HELP = "Leave blank to keep the current value."
 
@@ -127,50 +125,12 @@ class IntegrationConfigAdminForm(forms.ModelForm):
 
     def _build_provider_fields(self, provider: str) -> None:
         config = self._existing_config()
-        if provider == IntegrationConfig.Provider.SMOOBU:
-            self._build_smoobu_fields(config)
-        elif provider == IntegrationConfig.Provider.CHANNEX:
+        if provider == IntegrationConfig.Provider.CHANNEX:
             self._build_channex_fields(config)
         elif provider == IntegrationConfig.Provider.WHATSAPP:
             self._build_whatsapp_fields(config)
         elif provider == IntegrationConfig.Provider.EVISITOR:
             self._build_evisitor_fields(config)
-
-    def _build_smoobu_fields(self, config: dict[str, Any]) -> None:
-        self._secret_field("api_key", label="Smoobu API key")
-        self._secret_field("webhook_secret", label="Smoobu webhook secret")
-        self._config_bool_field(
-            "skip_verify",
-            label="Skip Smoobu key verification",
-            initial=False,
-            help_text="Only for offline/dev. Do not use in production.",
-        )
-        self._config_char_field(
-            "api_base",
-            label="API base URL",
-            initial=str(config.get("api_base") or SMOOBU_API_BASE),
-        )
-        self._config_char_field(
-            "settings_channel_id",
-            label="Settings channel ID",
-            initial=str(config.get("settings_channel_id") or ""),
-        )
-        self._config_bool_field(
-            "push_rates_enabled",
-            label="Push rates enabled",
-            initial=bool(config.get("push_rates_enabled", True)),
-        )
-        self._config_char_field(
-            "default_channel_id_for_create",
-            label="Default channel ID for create",
-            initial=str(config.get("default_channel_id_for_create") or "70"),
-        )
-        self._config_json_field(
-            "apartments_json",
-            label="Apartments mapping (JSON)",
-            config_key="apartments",
-            initial_value=config.get("apartments") or [],
-        )
 
     def _build_channex_fields(self, config: dict[str, Any]) -> None:
         self._secret_field("api_key", label="Channex API key")
@@ -302,30 +262,7 @@ class IntegrationConfigAdminForm(forms.ModelForm):
         cleaned = super().clean()
         provider = cleaned.get("provider") or self._resolved_provider()
 
-        if provider == IntegrationConfig.Provider.SMOOBU:
-            apartments_raw = cleaned.get("apartments_json")
-            if apartments_raw is not None and "apartments_json" in self.fields:
-                try:
-                    parsed = _parse_json_field(apartments_raw, "Apartments mapping")
-                except forms.ValidationError as exc:
-                    raise forms.ValidationError({"apartments_json": exc.messages}) from exc
-                if parsed is not None and not isinstance(parsed, list):
-                    raise forms.ValidationError(
-                        {"apartments_json": "Apartments mapping must be a JSON array."}
-                    )
-
-            api_key = (cleaned.get("api_key") or "").strip()
-            if not api_key and self.instance.pk:
-                api_key = str(self._existing_config().get("api_key") or "").strip()
-
-            if api_key and not cleaned.get("skip_verify"):
-                api_base = (cleaned.get("api_base") or SMOOBU_API_BASE).strip()
-                try:
-                    verify_smoobu_api_key(api_key, api_base=api_base)
-                except SmoobuKeyVerificationError as exc:
-                    raise forms.ValidationError({"api_key": str(exc)}) from exc
-
-        elif provider == IntegrationConfig.Provider.CHANNEX:
+        if provider == IntegrationConfig.Provider.CHANNEX:
             for field_name, label in (
                 ("room_types_json", "Room types mapping"),
                 ("booking_test_rooms_json", "Booking test rooms"),
@@ -348,7 +285,6 @@ class IntegrationConfigAdminForm(forms.ModelForm):
         config = self._existing_config()
 
         json_field_map = {
-            "apartments_json": "apartments",
             "room_types_json": "room_types",
             "booking_test_rooms_json": "booking_test_rooms",
         }
@@ -366,12 +302,6 @@ class IntegrationConfigAdminForm(forms.ModelForm):
                 continue
             if isinstance(self.fields[field_name], forms.BooleanField):
                 config[field_name] = bool(value)
-            elif field_name == "settings_channel_id":
-                text = str(value or "").strip()
-                config[field_name] = int(text) if text else None
-            elif field_name == "default_channel_id_for_create":
-                text = str(value or "").strip()
-                config[field_name] = int(text) if text else 70
             else:
                 config[field_name] = value if value is not None else ""
 

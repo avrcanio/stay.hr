@@ -66,6 +66,10 @@ def refuse_web_booking(reservation_id: int, *, reason: str = "") -> bool:
                 extra={"reservation_id": reservation_id},
             )
 
+    from apps.integrations.models import UnitAvailabilityBlock
+
+    UnitAvailabilityBlock.objects.filter(reservation=reservation).delete()
+
     now = timezone.now()
     Reservation.objects.filter(pk=reservation_id).update(
         status=Reservation.Status.REFUSED,

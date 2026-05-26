@@ -67,11 +67,12 @@ def seed_channel_rate_plans_from_config(integration_row: IntegrationConfig) -> i
             code = str(rp.get("code") or "")
             if not code:
                 continue
+            currency = str(rp.get("currency") or "GBP").strip()[:3] or "GBP"
             defaults = {
                 "title": str(rp.get("title") or code),
                 "channex_room_type_id": room_type_id,
                 "channex_rate_plan_id": str(rp.get("channex_rate_plan_id") or ""),
-                "currency": "GBP",
+                "currency": currency,
                 "is_active": True,
             }
             plan, was_created = ChannelRatePlan.objects.get_or_create(
@@ -649,7 +650,6 @@ def _build_full_sync_inventory(
             )
         for plan in rate_plans:
             restrictions = _inventory_restrictions_for_day(plan, current)
-            restrictions["rate"] = plan.default_rate
             RatePlanDay.objects.update_or_create(
                 tenant=tenant,
                 rate_plan=plan,

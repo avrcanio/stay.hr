@@ -91,7 +91,7 @@ class PublicAvailabilityAPITests(TestCase):
             unit=self.unit_r2,
             check_in=date(2026, 6, 1),
             check_out=date(2026, 6, 5),
-            smoobu_booking_id="smoobu-block-1",
+            block_ref="smoobu-block-1",
         )
 
         response = self._availability("2026-06-01", "2026-06-03")

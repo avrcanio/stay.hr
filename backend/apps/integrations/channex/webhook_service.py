@@ -6,6 +6,7 @@ from typing import Any
 from apps.integrations.channex.booking_service import process_channex_booking_webhook
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
+from apps.integrations.channex.message_service import process_channex_message_webhook
 from apps.integrations.channex.webhook_auth import webhook_secret_from_env
 from apps.integrations.models import IntegrationConfig
 from apps.tenants.models import Tenant
@@ -41,11 +42,13 @@ def find_channex_integration_for_property(
             if cfg.property_id == property_id:
                 secret = str(row.get_config_dict().get("webhook_secret") or "")
                 return row, secret
-
-    row = rows.first()
-    if row is None:
+        logger.error(
+            "channex webhook property_id has no IntegrationConfig",
+            extra={"property_id": property_id},
+        )
         return None, ""
-    return row, str(row.get_config_dict().get("webhook_secret") or "")
+
+    return None, ""
 
 
 def record_channex_webhook(
@@ -73,6 +76,27 @@ def record_channex_webhook(
             "revision_id": revision_id,
         },
     )
+
+    if event == "message":
+        if integration_row is None:
+            logger.error(
+                "channex message webhook without matching IntegrationConfig",
+                extra={"property_id": property_id},
+            )
+            raise ChannexBookingIngestError("No Channex IntegrationConfig for property.")
+        try:
+            process_channex_message_webhook(
+                integration_row,
+                property_id=property_id,
+                body=body,
+            )
+        except ChannexBookingIngestError:
+            logger.exception(
+                "channex message ingest failed",
+                extra={"property_id": property_id, "booking_id": booking_id},
+            )
+            raise
+        return
 
     if not event.startswith("booking"):
         return

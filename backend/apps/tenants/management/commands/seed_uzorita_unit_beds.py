@@ -79,5 +79,5 @@ class Command(BaseCommand):
             )
         )
         self.stdout.write(
-            "Note: R6 = Booking/Smoobu R6 (formerly D1). Override with --unit-codes if needed."
+            "Note: R6 = Booking listing R6 (formerly D1). Override with --unit-codes if needed."
         )

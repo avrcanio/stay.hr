@@ -7,7 +7,7 @@ from apps.properties.models import Property
 from apps.reservations.channel_sync import (
     IMPORT_SOURCE_BOOKING_PDF,
     IMPORT_SOURCE_BOOKING_XLS,
-    IMPORT_SOURCE_SMOOBU,
+    IMPORT_SOURCE_CHANNEX,
     incoming_wins,
     is_cancellation_status,
     is_pdf_authoritative,
@@ -42,36 +42,36 @@ class ChannelSyncTests(TestCase):
         reservation = self._reservation()
         now = timezone.now()
         self.assertTrue(
-            incoming_wins(reservation, source=IMPORT_SOURCE_SMOOBU, incoming_at=now)
+            incoming_wins(reservation, source=IMPORT_SOURCE_CHANNEX, incoming_at=now)
         )
         self.assertTrue(
             incoming_wins(reservation, source=IMPORT_SOURCE_BOOKING_XLS, incoming_at=now)
         )
 
-    def test_smoobu_wins_when_newer_than_xls(self):
+    def test_channex_wins_when_newer_than_xls(self):
         older = timezone.now() - timedelta(hours=2)
         newer = timezone.now()
         reservation = self._reservation(xls_imported_at=older)
         self.assertTrue(
-            incoming_wins(reservation, source=IMPORT_SOURCE_SMOOBU, incoming_at=newer)
+            incoming_wins(reservation, source=IMPORT_SOURCE_CHANNEX, incoming_at=newer)
         )
 
-    def test_smoobu_loses_when_older_than_xls(self):
+    def test_channex_loses_when_older_than_xls(self):
         older = timezone.now() - timedelta(hours=2)
         newer = timezone.now()
         reservation = self._reservation(xls_imported_at=newer)
         self.assertFalse(
-            incoming_wins(reservation, source=IMPORT_SOURCE_SMOOBU, incoming_at=older)
+            incoming_wins(reservation, source=IMPORT_SOURCE_CHANNEX, incoming_at=older)
         )
 
     def test_equal_timestamp_incoming_wins(self):
         ts = timezone.make_aware(datetime(2026, 6, 1, 12, 0), dt_timezone.utc)
         reservation = self._reservation(xls_imported_at=ts)
         self.assertTrue(
-            incoming_wins(reservation, source=IMPORT_SOURCE_SMOOBU, incoming_at=ts)
+            incoming_wins(reservation, source=IMPORT_SOURCE_CHANNEX, incoming_at=ts)
         )
 
-    def test_pdf_authoritative_blocks_smoobu_update(self):
+    def test_pdf_authoritative_blocks_channex_update(self):
         pdf_at = timezone.now()
         reservation = self._reservation(
             pdf_imported_at=pdf_at,
@@ -81,13 +81,13 @@ class ChannelSyncTests(TestCase):
         self.assertFalse(
             incoming_wins(
                 reservation,
-                source=IMPORT_SOURCE_SMOOBU,
+                source=IMPORT_SOURCE_CHANNEX,
                 incoming_at=timezone.now() + timedelta(days=1),
                 incoming_status=Reservation.Status.EXPECTED,
             )
         )
 
-    def test_pdf_authoritative_allows_smoobu_cancellation(self):
+    def test_pdf_authoritative_allows_channex_cancellation(self):
         pdf_at = timezone.now()
         reservation = self._reservation(
             pdf_imported_at=pdf_at,
@@ -96,7 +96,7 @@ class ChannelSyncTests(TestCase):
         self.assertTrue(
             incoming_wins(
                 reservation,
-                source=IMPORT_SOURCE_SMOOBU,
+                source=IMPORT_SOURCE_CHANNEX,
                 incoming_at=timezone.now() + timedelta(days=1),
                 incoming_status=Reservation.Status.CANCELED,
             )
@@ -108,7 +108,7 @@ class ChannelSyncTests(TestCase):
         reservation = self._reservation(
             pdf_imported_at=pdf_at,
             import_source=IMPORT_SOURCE_BOOKING_PDF,
-            smoobu_modified_at=timezone.now(),
+            channel_modified_at=timezone.now(),
         )
         self.assertTrue(
             incoming_wins(

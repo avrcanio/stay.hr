@@ -1,6 +1,5 @@
 from django.urls import path
 
-from apps.integrations.calendar_views import CalendarRatesView
 from apps.integrations.channex.ari_views import (
     ChannexAriAvailabilityView,
     ChannexAriFlushView,
@@ -8,24 +7,13 @@ from apps.integrations.channex.ari_views import (
     ChannexAriRatesView,
 )
 from apps.integrations.channex.webhook_views import ChannexWebhookView
-from apps.integrations.smoobu.webhook_views import SmoobuWebhookView
 from apps.integrations.whatsapp.webhook_views import WhatsAppWebhookView
 
 urlpatterns = [
     path(
-        "calendar/rates/",
-        CalendarRatesView.as_view(),
-        name="calendar-rates",
-    ),
-    path(
         "channex/webhook/",
         ChannexWebhookView.as_view(),
         name="channex-webhook",
-    ),
-    path(
-        "smoobu/webhook/",
-        SmoobuWebhookView.as_view(),
-        name="smoobu-webhook",
     ),
     path(
         "whatsapp/webhook/",

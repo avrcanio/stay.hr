@@ -36,6 +36,11 @@ export function BookingPdfImportForm({
   const [message, setMessage] = useState("");
 
   async function uploadFile(file: File) {
+    if (!reservationId && !(propertySlug || "").trim()) {
+      setError(t("importPdfPropertyRequired"));
+      return;
+    }
+
     setUploading(true);
     setActiveFilename(file.name);
     setError("");

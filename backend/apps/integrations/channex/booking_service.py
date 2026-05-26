@@ -31,6 +31,14 @@ def channex_external_id(booking_id: str) -> str:
     return f"{CHANNEX_EXTERNAL_ID_PREFIX}{booking_id}"
 
 
+def parse_channex_booking_id(external_id: str) -> str | None:
+    external_id = (external_id or "").strip()
+    if not external_id.startswith(CHANNEX_EXTERNAL_ID_PREFIX):
+        return None
+    booking_id = external_id[len(CHANNEX_EXTERNAL_ID_PREFIX) :].strip()
+    return booking_id or None
+
+
 def _parse_decimal(value: Any) -> Decimal | None:
     if value is None or value == "":
         return None
@@ -67,6 +75,10 @@ def _customer_name(customer: dict[str, Any]) -> str:
     return full or str(customer.get("mail") or "Channex guest")
 
 
+def _customer_country_iso2(customer: dict[str, Any]) -> str:
+    return str(customer.get("country") or "").strip().upper()[:2]
+
+
 def _map_reservation_status(channex_status: str) -> str:
     status = (channex_status or "").strip().lower()
     if status == "cancelled":
@@ -74,17 +86,29 @@ def _map_reservation_status(channex_status: str) -> str:
     return Reservation.Status.EXPECTED
 
 
-def resolve_certification_property(
+def resolve_ingest_property(
     tenant: Tenant,
     config: ChannexRuntimeConfig,
 ) -> Property:
-    slug = config.certification_property_slug or certification_property_slug(tenant.slug)
+    """Property for booking ingest — production uses sync_property_slug."""
+    slug = (
+        config.sync_property_slug
+        or config.certification_property_slug
+        or certification_property_slug(tenant.slug)
+    )
     try:
         return Property.objects.get(tenant=tenant, slug=slug)
     except Property.DoesNotExist as exc:
         raise ChannexBookingIngestError(
-            f"Certification property '{slug}' not found for tenant {tenant.slug}."
+            f"Ingest property '{slug}' not found for tenant {tenant.slug}."
         ) from exc
+
+
+def resolve_certification_property(
+    tenant: Tenant,
+    config: ChannexRuntimeConfig,
+) -> Property:
+    return resolve_ingest_property(tenant, config)
 
 
 def _unit_for_room_link(
@@ -93,12 +117,13 @@ def _unit_for_room_link(
     room_link: ChannexBookingTestRoomLink,
 ) -> Unit | None:
     if room_link.unit_id:
-        return Unit.objects.filter(
+        unit = Unit.objects.filter(
             tenant=tenant,
-            property=property,
             id=room_link.unit_id,
             is_active=True,
         ).first()
+        if unit is not None and unit.property_id == property.id:
+            return unit
     return Unit.objects.filter(
         tenant=tenant,
         property=property,
@@ -156,7 +181,7 @@ def _upsert_reservation_from_revision(
         "booker_name": _customer_name(customer),
         "booker_email": str(customer.get("mail") or "").strip(),
         "booker_phone": str(customer.get("phone") or "").strip(),
-        "booker_country": str(customer.get("country") or "").strip()[:8],
+        "booker_country": _customer_country_iso2(customer),
         "booker_address": str(customer.get("address") or "").strip(),
         "amount": _parse_decimal(attrs.get("amount")),
         "currency": str(attrs.get("currency") or "GBP").strip()[:3] or "GBP",
@@ -192,8 +217,19 @@ def _upsert_reservation_from_revision(
         if not isinstance(room, dict):
             continue
         room_type_id = str(room.get("room_type_id") or "").strip()
-        room_link = config.booking_test_room_for_channex_room_type_id(room_type_id)
+        room_link = config.room_link_for_channex_room_type_id(room_type_id)
         unit = _unit_for_room_link(tenant, property, room_link) if room_link else None
+        if unit is None and room_link is not None:
+            logger.warning(
+                "channex booking room not mapped to stay unit",
+                extra={
+                    "tenant_slug": tenant.slug,
+                    "property_slug": property.slug,
+                    "room_type_id": room_type_id,
+                    "unit_code": room_link.unit_code,
+                    "booking_id": booking_id,
+                },
+            )
         room_name = (
             (room_link.channex_title if room_link else "")
             or str(room.get("room_type_name") or "")
@@ -226,6 +262,10 @@ def _upsert_reservation_from_revision(
             "address": str(customer.get("address") or "").strip(),
             "is_primary": True,
         }
+        country = _customer_country_iso2(customer)
+        if country:
+            guest_defaults["nationality"] = country
+            guest_defaults["document_country_iso2"] = country
         Guest.objects.update_or_create(
             tenant=tenant,
             reservation=reservation,
@@ -263,7 +303,7 @@ def process_channex_booking_revision(
 
     config = ChannexRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
     tenant = integration_row.tenant
-    property = resolve_certification_property(tenant, config)
+    property = resolve_ingest_property(tenant, config)
 
     owns_client = client is None
     if owns_client:
@@ -301,7 +341,18 @@ def process_channex_booking_revision(
                 "reservation_id": reservation.id,
                 "reservation_created": created,
                 "reservation_status": reservation.status,
+                "property_slug": property.slug,
             },
+        )
+
+        from apps.integrations.channex.reservation_availability_service import (
+            push_channex_inventory_after_ingest,
+        )
+
+        transaction.on_commit(
+            lambda reservation_id=reservation.pk: push_channex_inventory_after_ingest(
+                reservation_id
+            )
         )
         return reservation
     finally:

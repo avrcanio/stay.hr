@@ -119,12 +119,12 @@ class Command(BaseCommand):
         elif options["allow_update"]:
             existing_mode = "overwrite"
             self.stdout.write(
-                "Mode: overwrite existing reservations from XLS when import is newer than Smoobu."
+                "Mode: overwrite existing reservations from XLS when import is newer than channel."
             )
         else:
             existing_mode = "sync"
             self.stdout.write(
-                "Mode: sync existing reservations from XLS when import is newer than Smoobu."
+                "Mode: sync existing reservations from XLS when import is newer than channel."
             )
 
         stats = import_booking_xls_file(

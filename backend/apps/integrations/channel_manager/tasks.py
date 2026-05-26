@@ -8,12 +8,6 @@ from apps.integrations.channel_manager.dispatch import (
     confirm_web_booking_if_ready,
     sync_reservation_outbound,
 )
-from apps.integrations.smoobu.error_classification import is_smoobu_block_conflict
-from apps.integrations.smoobu.exceptions import (
-    SmoobuApiError,
-    SmoobuConfigError,
-    SmoobuRatesError,
-)
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
 from apps.integrations.channel_manager.resolver import get_channel_manager
 from apps.reservations.booking_lifecycle import is_web_pending_booking, refuse_web_booking
@@ -59,24 +53,6 @@ def sync_reservation_outbound_task(
             },
         )
         return result
-    except (SmoobuConfigError, SmoobuRatesError) as exc:
-        if web_pending and manager == ChannelManager.SMOOBU and is_smoobu_block_conflict(exc):
-            refuse_web_booking(reservation_id, reason=str(exc))
-            return {"refused": True, "reason": str(exc), "reservation_id": reservation_id}
-        logger.warning(
-            "outbound reservation sync skipped",
-            extra={"reservation_id": reservation_id, "action": action, "reason": str(exc)},
-        )
-        return {"skipped": True, "reason": str(exc), "reservation_id": reservation_id}
-    except SmoobuApiError as exc:
-        if web_pending and manager == ChannelManager.SMOOBU and is_smoobu_block_conflict(exc):
-            refuse_web_booking(reservation_id, reason=str(exc))
-            return {"refused": True, "reason": str(exc), "reservation_id": reservation_id}
-        logger.warning(
-            "outbound reservation sync api error",
-            extra={"reservation_id": reservation_id, "action": action, "error": str(exc)},
-        )
-        raise self.retry(exc=exc) from exc
     except (ChannexApiError, ChannexBookingIngestError) as exc:
         if web_pending and manager == ChannelManager.CHANNEX:
             refuse_web_booking(reservation_id, reason=str(exc))

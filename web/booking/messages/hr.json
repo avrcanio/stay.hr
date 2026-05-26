@@ -117,7 +117,7 @@
       },
       "recipients": {
         "title": "5. Primatelji i procesori",
-        "body": "Podatke dijelimo samo kada je to nužno, s:\n\n• pružateljima hostinga i infrastrukture (Hetzner);\n• Cloudflare (CDN, TLS, zaštita);\n• integracijama koje objekt koristi: Smoobu, Channex, WhatsApp (Meta), sustav eVisitor, Firebase (push obavijesti za Hospira);\n• nadležnim tijelima, kada to zakon zahtijeva.\n\nS primateljima sklapamo ugovore o obradi podataka ili koristimo usluge u skladu s primjenjivim propisima."
+        "body": "Podatke dijelimo samo kada je to nužno, s:\n\n• pružateljima hostinga i infrastrukture (Hetzner);\n• Cloudflare (CDN, TLS, zaštita);\n• integracijama koje objekt koristi: Channex, WhatsApp (Meta), sustav eVisitor, Firebase (push obavijesti za Hospira);\n• nadležnim tijelima, kada to zakon zahtijeva.\n\nS primateljima sklapamo ugovore o obradi podataka ili koristimo usluge u skladu s primjenjivim propisima."
       },
       "cookies": {
         "title": "6. Kolačići",

@@ -6,8 +6,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.api.reception_views import ReceptionReadView, ReceptionWriteView
-from apps.integrations.smoobu.calendar_blocks_service import list_calendar_blocks, validate_block_request
-from apps.integrations.smoobu.exceptions import SmoobuApiError, SmoobuConfigError, SmoobuRatesError
+from apps.integrations.calendar_blocks_service import (
+    CalendarBlockError,
+    list_calendar_blocks,
+    validate_block_request,
+)
 from apps.integrations.channel_manager.dispatch import create_calendar_block, delete_calendar_block
 from apps.integrations.channel_manager.resolver import get_channel_manager
 from apps.integrations.models import UnitAvailabilityBlock
@@ -41,7 +44,7 @@ class UnitBlockCreateSerializer(serializers.Serializer):
 
 class ReceptionUnitBlockCreateView(ReceptionWriteView, APIView):
     def post(self, request, unit_id: int):
-        if get_channel_manager(request.tenant) not in {ChannelManager.SMOOBU, ChannelManager.CHANNEX, ChannelManager.NONE}:
+        if get_channel_manager(request.tenant) not in {ChannelManager.CHANNEX, ChannelManager.NONE}:
             raise PermissionDenied("Calendar blocks are not enabled for this tenant.")
 
         unit = Unit.objects.for_tenant(request.tenant).filter(pk=unit_id, is_active=True).first()
@@ -53,21 +56,15 @@ class ReceptionUnitBlockCreateView(ReceptionWriteView, APIView):
         check_in = serializer.validated_data["check_in"]
         check_out = serializer.validated_data["check_out"]
 
-        manager = get_channel_manager(request.tenant)
         try:
-            if manager == ChannelManager.SMOOBU:
-                validate_block_request(request.tenant, unit, check_in, check_out)
+            validate_block_request(request.tenant, unit, check_in, check_out)
             result = create_calendar_block(
                 request.tenant,
                 unit,
                 check_in,
                 check_out,
             )
-        except SmoobuConfigError as exc:
-            raise ValidationError({"detail": str(exc)}) from exc
-        except SmoobuRatesError as exc:
-            raise ValidationError({"detail": str(exc)}) from exc
-        except SmoobuApiError as exc:
+        except CalendarBlockError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
         except ValueError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
@@ -86,9 +83,9 @@ class ReceptionUnitBlockDeleteView(ReceptionWriteView, APIView):
         if block_row is None:
             raise NotFound("Blok nije pronađen.")
 
-        if block_row.created_via != UnitAvailabilityBlock.CreatedVia.HOSPIRA:
+        if block_row.created_via != UnitAvailabilityBlock.CreatedVia.STAY:
             return Response(
-                {"detail": "Only Hospira-created blocks can be unblocked."},
+                {"detail": "Only stay.hr-created blocks can be unblocked."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -97,17 +94,11 @@ class ReceptionUnitBlockDeleteView(ReceptionWriteView, APIView):
                 {
                     "detail": (
                         "Blok je vezan uz rezervaciju i ne može se ručno ukloniti. "
-                        "Otkažite rezervaciju da se ukloni blok na Booking.com."
+                        "Otkažite rezervaciju da se ukloni blok na kanalu."
                     )
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        try:
-            delete_calendar_block(block_row)
-        except SmoobuRatesError as exc:
-            raise ValidationError({"detail": str(exc)}) from exc
-        except SmoobuApiError as exc:
-            raise ValidationError({"detail": str(exc)}) from exc
-
+        delete_calendar_block(block_row)
         return Response(status=status.HTTP_204_NO_CONTENT)

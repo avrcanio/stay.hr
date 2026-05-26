@@ -183,6 +183,37 @@ def _parse_units_count(text: str, room_blocks: list[PdfRoomBlock]) -> int:
     return 1
 
 
+def _is_truncated_guest_name(candidate_key: str, existing_key: str) -> bool:
+    """Room-block names are sometimes clipped; skip if a prefix of a longer name."""
+    if not candidate_key or not existing_key or candidate_key == existing_key:
+        return False
+    if len(candidate_key) >= len(existing_key):
+        return False
+    if not existing_key.startswith(candidate_key):
+        return False
+    return existing_key[len(candidate_key)] in " \t"
+
+
+def _drop_truncated_guest_names(names: list[str]) -> list[str]:
+    if len(names) <= 1:
+        return names
+    keys = [_normalize_guest_name_key(name) for name in names]
+    keep = [True] * len(names)
+    for i, key_i in enumerate(keys):
+        if not key_i:
+            keep[i] = False
+            continue
+        for j, key_j in enumerate(keys):
+            if i == j or not key_j:
+                continue
+            if _is_truncated_guest_name(key_i, key_j):
+                keep[i] = False
+                break
+            if _is_truncated_guest_name(key_j, key_i):
+                keep[j] = False
+    return [name for name, ok in zip(names, keep) if ok]
+
+
 def _parse_all_guest_names(booker_name: str, room_blocks: list[PdfRoomBlock]) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()
@@ -194,13 +225,20 @@ def _parse_all_guest_names(booker_name: str, room_blocks: list[PdfRoomBlock]) ->
         key = _normalize_guest_name_key(cleaned)
         if key in seen:
             return
+        for existing in names:
+            if _is_truncated_guest_name(key, _normalize_guest_name_key(existing)):
+                return
+            if _is_truncated_guest_name(_normalize_guest_name_key(existing), key):
+                seen.discard(_normalize_guest_name_key(existing))
+                names[:] = [n for n in names if _normalize_guest_name_key(n) != _normalize_guest_name_key(existing)]
+                break
         seen.add(key)
         names.append(cleaned)
 
     add_name(booker_name)
     for block in room_blocks:
         add_name(block.guest_name)
-    return names
+    return _drop_truncated_guest_names(names)
 
 
 def _parse_adults_count(text: str, room_blocks: list[PdfRoomBlock]) -> int | None:

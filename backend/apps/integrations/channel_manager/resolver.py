@@ -24,10 +24,6 @@ def _require_manager(tenant: Tenant, expected: str) -> None:
         )
 
 
-def require_smoobu(tenant: Tenant) -> None:
-    _require_manager(tenant, ChannelManager.SMOOBU)
-
-
 def require_channex(tenant: Tenant) -> None:
     _require_manager(tenant, ChannelManager.CHANNEX)
 
@@ -36,17 +32,7 @@ def validate_channel_manager_integration(settings_row: TenantReceptionSettings) 
     """Ensure active IntegrationConfig exists when channel_manager requires it."""
     manager = settings_row.channel_manager
     tenant = settings_row.tenant
-    if manager == ChannelManager.SMOOBU:
-        has_config = IntegrationConfig.objects.filter(
-            tenant=tenant,
-            provider=IntegrationConfig.Provider.SMOOBU,
-            is_active=True,
-        ).exists()
-        if not has_config:
-            raise ChannelManagerConfigError(
-                "channel_manager=smoobu requires an active Smoobu IntegrationConfig."
-            )
-    elif manager == ChannelManager.CHANNEX:
+    if manager == ChannelManager.CHANNEX:
         has_config = IntegrationConfig.objects.filter(
             tenant=tenant,
             provider=IntegrationConfig.Provider.CHANNEX,

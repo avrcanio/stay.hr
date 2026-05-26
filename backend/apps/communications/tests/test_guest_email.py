@@ -21,7 +21,7 @@ TEST_FERNET_KEY = Fernet.generate_key().decode()
 @override_settings(STAY_INTEGRATION_FERNET_KEY=TEST_FERNET_KEY)
 class SmtpHostForEmailTests(TestCase):
     def test_derives_mail_subdomain(self):
-        self.assertEqual(smtp_host_for_email("booking@uzorita.hr"), "mail.uzorita.hr")
+        self.assertEqual(smtp_host_for_email("room_reservations@uzorita.hr"), "mail.uzorita.hr")
 
     def test_empty_for_invalid(self):
         self.assertEqual(smtp_host_for_email(""), "")
@@ -57,7 +57,7 @@ class GuestEmailSmtpConnectionTests(TestCase):
     def setUp(self):
         notify_patcher = patch("apps.core.tasks.notify_new_reservation.delay")
         block_patcher = patch(
-            "apps.integrations.smoobu.tasks.sync_reservation_smoobu_blocks_task.delay"
+            "apps.integrations.channel_manager.tasks.sync_reservation_outbound_task.delay"
         )
         self.addCleanup(notify_patcher.stop)
         self.addCleanup(block_patcher.stop)
@@ -71,7 +71,7 @@ class GuestEmailSmtpConnectionTests(TestCase):
         )
         self.settings_row = TenantReceptionSettings.objects.create(
             tenant=self.tenant,
-            guest_contact_email="booking@uzorita.hr",
+            guest_contact_email="room_reservations@uzorita.hr",
             guest_contact_name="Uzorita Luxury b&b",
         )
         self.settings_row.set_guest_smtp_password("Uzorita.2026")
@@ -99,7 +99,7 @@ class GuestEmailSmtpConnectionTests(TestCase):
         mock_get_connection.assert_called_once_with(
             host="mail.uzorita.hr",
             port=587,
-            username="booking@uzorita.hr",
+            username="room_reservations@uzorita.hr",
             password="Uzorita.2026",
             use_tls=True,
             use_ssl=False,
@@ -127,7 +127,7 @@ class GuestEmailCanceledTemplateTests(TestCase):
     def setUp(self):
         notify_patcher = patch("apps.core.tasks.notify_new_reservation.delay")
         block_patcher = patch(
-            "apps.integrations.smoobu.tasks.sync_reservation_smoobu_blocks_task.delay"
+            "apps.integrations.channel_manager.tasks.sync_reservation_outbound_task.delay"
         )
         self.addCleanup(notify_patcher.stop)
         self.addCleanup(block_patcher.stop)
@@ -142,7 +142,7 @@ class GuestEmailCanceledTemplateTests(TestCase):
         )
         self.settings_row = TenantReceptionSettings.objects.create(
             tenant=self.tenant,
-            guest_contact_email="booking@uzorita.hr",
+            guest_contact_email="room_reservations@uzorita.hr",
             guest_contact_name="Uzorita Luxury b&b",
         )
         self.settings_row.set_guest_smtp_password("Uzorita.2026")

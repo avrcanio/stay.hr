@@ -3,10 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
+import { BookingPdfImportForm } from "@/app/_components/BookingPdfImportForm";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
 import { UnitAvailabilityDatePicker } from "@/app/_components/UnitAvailabilityDatePicker";
 import { singlePropertySlug } from "@/lib/app-config";
-import type { AppConfig } from "@/lib/types";
+import type { AppConfig, BookingPdfImportResult } from "@/lib/types";
 import {
   fetchUnitBlockedNights,
   isCheckInAllowed,
@@ -51,7 +52,13 @@ export default function NewReservationPage() {
       const appConfig = (await configRes.json()) as AppConfig;
       setConfig(appConfig);
       setFeatureFlags(appConfig.feature_flags);
-      setPropertySlug((current) => current || singlePropertySlug(appConfig));
+      setPropertySlug((current) => {
+        if (current) return current;
+        const single = singlePropertySlug(appConfig);
+        if (single) return single;
+        const uzorita = appConfig.properties?.find((property) => property.slug === "uzorita");
+        return uzorita?.slug ?? "";
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : tc("error"));
     } finally {
@@ -169,6 +176,17 @@ export default function NewReservationPage() {
         <h1 className="text-xl font-bold text-stay-navy">{t("title")}</h1>
         {loading ? <p className="text-muted">{tc("loading")}</p> : null}
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+        {!loading ? (
+          <div className="card p-4">
+            <BookingPdfImportForm
+              propertySlug={propertySlug || undefined}
+              onSuccess={(result: BookingPdfImportResult) => {
+                router.push(`/reservations/${result.id}`);
+              }}
+            />
+          </div>
+        ) : null}
 
         <form className="card space-y-4 p-4" onSubmit={(e) => void handleSubmit(e)}>
           {properties.length > 1 ? (

@@ -121,7 +121,7 @@ class BookingXlsImportSkipExistingTests(TestCase):
             check_out=date(2026, 5, 19),
             booker_name="Original Booker",
             status=Reservation.Status.CHECKED_IN,
-            smoobu_modified_at=smoobu_at,
+            channel_modified_at=smoobu_at,
             imported_at=smoobu_at,
         )
         guest = Guest.objects.create(
@@ -166,9 +166,9 @@ class BookingXlsImportSkipExistingTests(TestCase):
             check_out=date(2026, 5, 19),
             booker_name="Smoobu Guest",
             status=Reservation.Status.EXPECTED,
-            smoobu_modified_at=smoobu_at,
+            channel_modified_at=smoobu_at,
             imported_at=smoobu_at,
-            import_source="smoobu",
+            import_source="channex",
         )
 
         row = _sample_row(
@@ -292,7 +292,7 @@ class BookingXlsImportSkipExistingTests(TestCase):
             check_in=date(2026, 5, 20),
             check_out=date(2026, 5, 21),
             booker_name="Exists",
-            smoobu_modified_at=smoobu_at,
+            channel_modified_at=smoobu_at,
             imported_at=smoobu_at,
         )
         mock_parse.return_value = [
@@ -432,7 +432,7 @@ class BookingXlsImportSkipExistingTests(TestCase):
             check_out=date(2026, 7, 6),
             booker_name="Smoobu Guest",
             status=Reservation.Status.EXPECTED,
-            import_source="smoobu",
+            import_source="channex",
         )
         row = _sample_row(
             external_id="9998888",
@@ -466,7 +466,7 @@ class BookingXlsImportSkipExistingTests(TestCase):
             booker_phone="+31 31629557900",
             booker_email="keep@example.com",
             status=Reservation.Status.EXPECTED,
-            import_source="smoobu",
+            import_source="channex",
         )
         guest = Guest.objects.create(
             tenant=self.tenant,
@@ -510,7 +510,7 @@ class BookingXlsImportSkipExistingTests(TestCase):
             booker_name="Francisco Caimaris Villalonga",
             adults_count=2,
             status=Reservation.Status.EXPECTED,
-            import_source="smoobu",
+            import_source="channex",
         )
         smoobu_guest = Guest.objects.create(
             tenant=self.tenant,
@@ -579,7 +579,7 @@ class BookingXlsImportSkipExistingTests(TestCase):
             adults_count=4,
             units_count=1,
             status=Reservation.Status.EXPECTED,
-            import_source="smoobu",
+            import_source="channex",
         )
         kurt_guest = Guest.objects.create(
             tenant=self.tenant,

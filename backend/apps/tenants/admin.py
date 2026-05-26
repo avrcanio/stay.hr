@@ -11,6 +11,7 @@ from apps.tenants.cloudflare.dns import provision_tenant_domain_dns
 from apps.tenants.models import (
     VALID_SCOPES,
     ApiApplication,
+    StaffLoginEvent,
     StaffProfile,
     Tenant,
     TenantDomain,
@@ -97,6 +98,54 @@ class StaffProfileInline(admin.StackedInline):
     can_delete = False
     fields = ("preferred_language", "updated_at")
     readonly_fields = ("updated_at",)
+
+
+class StaffLoginEventInline(admin.TabularInline):
+    model = StaffLoginEvent
+    fk_name = "user"
+    extra = 0
+    max_num = 0
+    can_delete = False
+    fields = ("created_at", "channel", "tenant", "ip_address", "user_agent")
+    readonly_fields = fields
+    ordering = ("-created_at",)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("tenant").order_by("-created_at")[:10]
+
+
+@admin.register(StaffLoginEvent)
+class StaffLoginEventAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
+    list_display = (
+        "created_at",
+        "username",
+        "user",
+        "tenant",
+        "channel",
+        "ip_address",
+    )
+    list_filter = ("channel", "tenant", "created_at")
+    search_fields = ("username", "user__username", "ip_address")
+    readonly_fields = (
+        "user",
+        "username",
+        "tenant",
+        "channel",
+        "ip_address",
+        "user_agent",
+        "created_at",
+    )
+    raw_id_fields = ("user", "tenant")
+    date_hierarchy = "created_at"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Tenant)
@@ -329,4 +378,9 @@ admin.site.unregister(User)
 
 @admin.register(User)
 class StayUserAdmin(SuperuserOnlyAdminMixin, DjangoUserAdmin):
-    inlines = list(DjangoUserAdmin.inlines) + [StaffProfileInline, TenantMembershipInline]
+    list_display = DjangoUserAdmin.list_display + ("last_login",)
+    inlines = list(DjangoUserAdmin.inlines) + [
+        StaffProfileInline,
+        TenantMembershipInline,
+        StaffLoginEventInline,
+    ]

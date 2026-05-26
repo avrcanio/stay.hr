@@ -8,6 +8,7 @@ from apps.integrations.channex.booking_service import (
     channex_external_id,
     process_channex_booking_revision,
     process_channex_booking_revisions_feed,
+    resolve_ingest_property,
 )
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.models import ChannexBookingRevision, IntegrationConfig
@@ -78,6 +79,7 @@ class ChannexBookingIngestTests(TestCase):
                     "phone": "0976713511",
                     "address": "Test street 1",
                     "city": "Šibenik",
+                    "country": "HR",
                 },
                 "rooms": [
                     {
@@ -103,8 +105,49 @@ class ChannexBookingIngestTests(TestCase):
         self.assertIsNotNone(link)
         self.assertEqual(link.unit_code, "BCOM-STUDIO")
 
+    def test_room_types_lookup_for_production_mapping(self):
+        production_property = Property.objects.create(
+            tenant=self.tenant,
+            slug="uzorita",
+            name="Uzorita",
+            timezone="Europe/Zagreb",
+        )
+        production_unit = Unit.objects.create(
+            tenant=self.tenant,
+            property=production_property,
+            code="R1",
+            name="R1",
+            capacity_max_guests=2,
+            capacity_adults=2,
+        )
+        self.integration.set_config_dict(
+            {
+                **self.integration.get_config_dict(),
+                "sync_property_slug": "uzorita",
+                "certification_property_slug": "channex-bcom-test",
+                "room_types": [
+                    {
+                        "unit_code": "R1",
+                        "unit_id": production_unit.id,
+                        "channex_room_type_id": "prod-room-type-uuid",
+                        "channex_title": "Luxury Room Uzorita - R1",
+                    }
+                ],
+            }
+        )
+        self.integration.save()
+        config = ChannexRuntimeConfig.from_integration_dict(self.integration.get_config_dict())
+        link = config.room_link_for_channex_room_type_id("prod-room-type-uuid")
+        self.assertIsNotNone(link)
+        self.assertEqual(link.unit_code, "R1")
+        ingest_property = resolve_ingest_property(self.tenant, config)
+        self.assertEqual(ingest_property.slug, "uzorita")
+
+    @patch(
+        "apps.integrations.channex.reservation_availability_service.push_channex_inventory_after_ingest"
+    )
     @patch("apps.integrations.channex.booking_service.ChannexClient")
-    def test_ingest_creates_reservation_and_acknowledges(self, mock_client_cls):
+    def test_ingest_creates_reservation_and_acknowledges(self, mock_client_cls, mock_push_inventory):
         mock_client = MagicMock()
         mock_client.get_booking_revision.return_value = self.revision_payload
         mock_client_cls.return_value = mock_client
@@ -119,6 +162,7 @@ class ChannexBookingIngestTests(TestCase):
         self.assertEqual(reservation.check_out, date(2026, 5, 23))
         self.assertEqual(reservation.status, Reservation.Status.EXPECTED)
         self.assertEqual(reservation.booker_name, "Ante Vrcan")
+        self.assertEqual(reservation.booker_country, "HR")
         self.assertEqual(reservation.amount, Decimal("316.00"))
         self.assertEqual(reservation.currency, "GBP")
         self.assertEqual(reservation.source, "Offline")
@@ -135,6 +179,8 @@ class ChannexBookingIngestTests(TestCase):
         guest = Guest.objects.get(reservation=reservation, is_primary=True)
         self.assertEqual(guest.first_name, "Ante")
         self.assertEqual(guest.last_name, "Vrcan")
+        self.assertEqual(guest.nationality, "HR")
+        self.assertEqual(guest.document_country_iso2, "HR")
 
         mock_client.acknowledge_booking_revision.assert_called_once_with(self.revision_id)
         self.assertTrue(

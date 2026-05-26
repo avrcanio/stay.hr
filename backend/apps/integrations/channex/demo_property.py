@@ -26,7 +26,7 @@ UZORITA_LOCATION = {
 }
 
 CHANNEX_DEMO_CONTACT = {
-    "email": "booking@uzorita.hr",
+    "email": "room_reservations@uzorita.hr",
     "phone": "+385915000000",
     "website": "https://www.uzorita.hr",
 }

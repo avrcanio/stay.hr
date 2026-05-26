@@ -1,17 +1,36 @@
-# Channex — Uzorita room type mapping (staging)
+# Channex — Uzorita room type mapping
 
-Four physical units on Channex staging (each room type has **Count Of Rooms = 1**).
+Four physical units on Channex (each room type has **Count Of Rooms = 1**).
+
+**Booking.com kanal:** vidi [channex-uzorita-booking-channel.md](channex-uzorita-booking-channel.md) (provider Active 2026-05-26, hotel ID `4181954`).
+
+Staging UUID-ovi u tablici ispod su iz certifikacije; produkcija koristi UUID-e iz [app.channex.io](https://app.channex.io/) property `bca8473d-7c36-4986-bcdb-b5760b633283`.
 
 Booking.com occupancy (max guests, adults, children, infants) mapira se na stay.hr **`Unit`**, ne na `Property`. Polja: `capacity_max_guests`, `capacity_adults`, `capacity_children`, `capacity_infants`.
 
+| stay.hr `Unit.code` | Max | Adults | Children | Infants | Channex / Booking |
+|---------------------|-----|--------|----------|---------|-------------------|
+| R1 | 2 | 2 | 1 | 1 | Luxury Room Uzorita - R1 |
+| R2 | 3 | 2 | 2 | 1 | Luxury Room Uzorita - R2 |
+| R3 | 4 | 3 | 3 | 3 | Luxury Room Uzorita - R3 |
+| R6 | 4 | 3 | 3 | 3 | Deluxe Double Room → R6 |
+
+**Booking.com → Channex channel mapping:** vidi [channex-uzorita-booking-channel.md](channex-uzorita-booking-channel.md) (room ID `418195401`→R1, `418195404`→R2, `418195403`→R3, `418195405`→R6).
+
+Seed occupancy (idempotent):
+
+```bash
+docker compose exec django python manage.py seed_uzorita_unit_occupancy
+```
+
 Booking.com **Standard Arrangement** (tip kreveta + broj) mapira se na **`UnitBed`** (FK na `Unit`). Vrste: Twin, Full, Queen, King, Bunk, Sofa bed, Futon.
 
-| stay.hr `Unit.code` | Booking/Smoobu napomena | Standard beds (seed) |
+| stay.hr `Unit.code` | Booking napomena | Standard beds (seed) |
 |---------------------|-------------------------|----------------------|
 | R1 | — | Queen x1, Sofa bed x1 |
 | R2 | — | Queen x1, Sofa bed x1 |
 | R3 | — | Queen x1, Sofa bed x1 |
-| R6 | Booking/Smoobu R6 | Queen x1, Sofa bed x1 |
+| R6 | Booking listing R6 | Queen x1, Sofa bed x1 |
 
 Seed kreveta:
 
@@ -38,9 +57,9 @@ docker compose exec django python manage.py seed_uzorita_unit_bathrooms
 
 | stay.hr `Unit.code` | Channex title | Channex room type UUID |
 |---------------------|---------------|-------------------------|
-| R1 | Deluxe King 1 | `e8fc8060-3df5-4e49-bee9-32903786b4ee` |
+| R1 | Luxury Room Uzorita - R1 | `e8fc8060-3df5-4e49-bee9-32903786b4ee` (staging) |
 | R2 | Luxury Room Uzorita - R2 | `0d852a5e-41d5-4801-9bf1-679deabcfbec` |
-| R6 | Deluxe Double | `ecc2d4ab-7894-4fc9-8e20-c08d2317e4be` |
+| R6 | Luxury Room Uzorita - R6 | *(production UUID — see below)* |
 | R3 | Luxury Room Uzorita - R3 | `6058e4da-0ed4-48a1-a877-fec38685589a` |
 
 Booking.com listing names may differ; map each channel listing to the matching Channex room type UUID in [staging channels](https://staging.channex.io/channels).

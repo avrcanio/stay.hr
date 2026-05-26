@@ -1,6 +1,6 @@
 # Test suite — stay.hr backend
 
-Zadnji puni run: **2026-05-20** (Docker image `stay-hr-django:latest`, nakon Channex cert fixeva i Smoobu calendar resolver fixa).
+Zadnji puni run: **2026-05-26** (Docker image `stay-hr-django:latest`, nakon uklanjanja Smoobu integracije).
 
 ## Pokretanje
 
@@ -28,7 +28,7 @@ docker compose run --rm django python manage.py test
 
 Pronalazi samo **~53 testa** (uglavnom `api`, `core`, `tenants`). Ne uključuje automatski `integrations`, `properties`, `reservations`, `legacy_import` — koristi eksplicitne labele iznad.
 
-### Integracije (Channex + Smoobu + calendar)
+### Integracije (Channex)
 
 ```bash
 docker compose run --rm django python manage.py test apps.integrations.tests -v 2
@@ -62,7 +62,7 @@ docker compose run --rm django python manage.py test \
 | `apps.api.tests` | 15/15 | reception, rooms, FCM, unit serializers |
 | `apps.core.tests` | 7/7 | notifications, firebase |
 | `apps.tenants.tests` | 21/21 | admin scope, API apps, token encryption |
-| `apps.integrations.tests` | **28/28** | Channex, Smoobu, calendar rates, evisitor, webhook |
+| `apps.integrations.tests` | Channex, channel manager, evisitor, webhook |
 | `apps.properties.tests` | 19/19 | units, beds, bathrooms, seeds |
 | `apps.reservations.tests` | 6/6 | models, statistics, notifications |
 | `apps.legacy_import.tests` | 5/5 | validator bez live legacy DB |
@@ -80,14 +80,14 @@ docker compose run --rm django python manage.py test \
 | `test_channex_webhook.py` | 3 | auth header, payload |
 | `test_channex_mapping.py` | 2 | room type mapping |
 
-### Smoobu / calendar
+### Channel manager / Channex ARI
 
-| Datoteka | Testovi | Svrha |
-|----------|---------|--------|
-| `test_calendar_rates_api.py` | 5 | GET/PATCH `/api/v1/integrations/calendar/rates/` |
-| `test_smoobu_rates.py` | 4 | `apply_rate_updates`, push batches |
-| `test_smoobu_config.py` | 3 | encrypted config, **property-scoped resolver** |
-| `test_evisitor_resolver.py` | — | evisitor config |
+| Datoteka | Svrha |
+|----------|--------|
+| `test_channel_dispatch.py` | outbound sync, calendar blocks |
+| `test_channel_manager_resolver.py` | `none` / `channex` validation |
+| `test_channex_ari.py` | full sync, delta rate push, outbox |
+| `test_channex_reservation_availability.py` | availability push |
 
 ---
 
@@ -107,4 +107,4 @@ Za validator protiv stvarne Uzorita baze pokreni management command na serveru s
 ## Povezana dokumentacija
 
 - Channex cert: [channex-demo-property.md](../integrations/channex-demo-property.md)
-- Smoobu cijene: [smoobu-cijene-rezervacije-ml.md](../integrations/smoobu-cijene-rezervacije-ml.md)
+- Channel manager: [channel-manager-setup.md](../operations/channel-manager-setup.md)

@@ -26,7 +26,7 @@ export function useReservationStatusLabel() {
 const importSourceKeys: Record<ImportSourceKey, string> = {
   booking_pdf: "importSourcePdf",
   booking_xls: "importSourceXls",
-  smoobu: "importSourceSmoobu",
+  channex: "importSourceChannex",
   web: "importSourceWeb",
   manual: "importSourceManual",
 };

@@ -3,11 +3,18 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.urls import reverse
 from rest_framework.test import APIClient
 
 from apps.properties.models import Property, Unit
 from apps.reservations.models import Guest, Reservation, ReservationUnit
-from apps.tenants.models import RECEPTION_DEVICE_SCOPES, ApiApplication, Tenant, TenantMembership
+from apps.tenants.models import (
+    RECEPTION_DEVICE_SCOPES,
+    ApiApplication,
+    StaffLoginEvent,
+    Tenant,
+    TenantMembership,
+)
 
 User = get_user_model()
 
@@ -203,3 +210,62 @@ class ReceptionStaffAuthTests(TestCase):
     def test_unauthenticated_reception_timeline_forbidden(self):
         response = self.client.get("/api/v1/reception/reservations/")
         self.assertEqual(response.status_code, 403)
+
+    def test_reception_login_records_single_event(self):
+        response = self.client.post(
+            "/api/v1/auth/reception-login/",
+            {"username": "reception_staff", "password": "secret-pass"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        events = StaffLoginEvent.objects.filter(user=self.staff)
+        self.assertEqual(events.count(), 1)
+        event = events.get()
+        self.assertEqual(event.channel, StaffLoginEvent.Channel.RECEPTION)
+        self.assertEqual(event.tenant_id, self.tenant_a.pk)
+        self.assertEqual(event.username, "reception_staff")
+
+    def test_reception_login_with_tenant_records_event(self):
+        response = self.client.post(
+            "/api/v1/auth/reception-login/",
+            {
+                "username": "multi_staff",
+                "password": "secret-pass",
+                "tenant_id": self.tenant_b.pk,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        event = StaffLoginEvent.objects.get(user=self.multi_staff)
+        self.assertEqual(event.channel, StaffLoginEvent.Channel.RECEPTION)
+        self.assertEqual(event.tenant_id, self.tenant_b.pk)
+
+    def test_reception_login_requires_tenant_does_not_record_event(self):
+        response = self.client.post(
+            "/api/v1/auth/reception-login/",
+            {"username": "multi_staff", "password": "secret-pass"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(StaffLoginEvent.objects.filter(user=self.multi_staff).count(), 0)
+
+    def test_admin_login_records_event(self):
+        admin_user = User.objects.create_superuser(
+            username="admin_test",
+            password="secret-pass",
+            email="admin@test.com",
+        )
+        response = self.client.post(
+            reverse("admin:login"),
+            {
+                "username": "admin_test",
+                "password": "secret-pass",
+                "next": "/admin/",
+            },
+        )
+        self.assertIn(response.status_code, (302, 200))
+        events = StaffLoginEvent.objects.filter(user=admin_user, channel=StaffLoginEvent.Channel.ADMIN)
+        self.assertEqual(events.count(), 1)
+        event = events.get()
+        self.assertIsNone(event.tenant_id)
+        self.assertEqual(event.username, "admin_test")

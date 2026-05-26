@@ -154,7 +154,7 @@ class ReceptionChannexViewsTests(TestCase):
         uzorita = Tenant.objects.create(slug="uzorita", name="Uzorita")
         TenantReceptionSettings.objects.create(
             tenant=uzorita,
-            channel_manager=ChannelManager.SMOOBU,
+            channel_manager=ChannelManager.NONE,
         )
         staff = User.objects.create_user(username="uz_staff2", password="secret-pass", is_staff=True)
         TenantMembership.objects.create(user=staff, tenant=uzorita)
@@ -250,7 +250,7 @@ class ReceptionChannexViewsTests(TestCase):
         uzorita = Tenant.objects.create(slug="uzorita2", name="Uzorita")
         TenantReceptionSettings.objects.create(
             tenant=uzorita,
-            channel_manager=ChannelManager.SMOOBU,
+            channel_manager=ChannelManager.NONE,
         )
         staff = User.objects.create_user(username="uz_staff3", password="secret-pass", is_staff=True)
         TenantMembership.objects.create(user=staff, tenant=uzorita)
@@ -336,11 +336,11 @@ class ReceptionChannexViewsTests(TestCase):
         self.assertEqual(data["unit_id"], self.unit.id)
         self.assertEqual(data["blocked_nights"], ["2026-12-05"])
 
-    def test_smoobu_tenant_gets_403_on_channel_endpoints(self):
+    def test_none_tenant_gets_403_on_channel_endpoints(self):
         uzorita = Tenant.objects.create(slug="uzorita", name="Uzorita")
         TenantReceptionSettings.objects.create(
             tenant=uzorita,
-            channel_manager=ChannelManager.SMOOBU,
+            channel_manager=ChannelManager.NONE,
         )
         staff = User.objects.create_user(username="uz_staff", password="secret-pass", is_staff=True)
         TenantMembership.objects.create(user=staff, tenant=uzorita)
@@ -548,7 +548,7 @@ class ReceptionChannexViewsTests(TestCase):
         uzorita = Tenant.objects.create(slug="uzorita-bulk", name="Uzorita")
         TenantReceptionSettings.objects.create(
             tenant=uzorita,
-            channel_manager=ChannelManager.SMOOBU,
+            channel_manager=ChannelManager.NONE,
         )
         staff = User.objects.create_user(username="uz_bulk", password="secret-pass", is_staff=True)
         TenantMembership.objects.create(user=staff, tenant=uzorita)

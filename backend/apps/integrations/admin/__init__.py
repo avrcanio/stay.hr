@@ -11,6 +11,7 @@ from apps.integrations.models import (
     ChannelRatePlan,
     ChannexAriOutbox,
     ChannexBookingRevision,
+    ChannexMessage,
     IntegrationConfig,
     RatePlanDay,
     UnitAvailabilityDay,
@@ -18,7 +19,7 @@ from apps.integrations.models import (
 
 CHANNEL_MANAGER_HELP = (
     "For outbound reservation sync, set Tenant → Reception settings → "
-    "channel_manager (smoobu / channex / none). "
+    "channel_manager (channex / none). "
     "Credentials are stored per tenant in Integration configs (this form), not on the tenant page."
 )
 
@@ -131,7 +132,6 @@ class IntegrationConfigAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         if not provider:
             return ()
         mapping = {
-            IntegrationConfig.Provider.SMOOBU: ("api_key", "webhook_secret", "skip_verify"),
             IntegrationConfig.Provider.CHANNEX: ("api_key", "webhook_secret"),
             IntegrationConfig.Provider.WHATSAPP: ("access_token",),
             IntegrationConfig.Provider.EVISITOR: ("password", "api_key"),
@@ -142,12 +142,6 @@ class IntegrationConfigAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         if not provider:
             return ()
         mapping = {
-            IntegrationConfig.Provider.SMOOBU: (
-                "api_base",
-                "settings_channel_id",
-                "push_rates_enabled",
-                "default_channel_id_for_create",
-            ),
             IntegrationConfig.Provider.CHANNEX: (
                 "environment",
                 "base_url",
@@ -181,7 +175,6 @@ class IntegrationConfigAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         if not provider:
             return ()
         mapping = {
-            IntegrationConfig.Provider.SMOOBU: ("apartments_json",),
             IntegrationConfig.Provider.CHANNEX: (
                 "room_types_json",
                 "booking_test_rooms_json",
@@ -244,3 +237,36 @@ class ChannexAriOutboxAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
 class ChannexBookingRevisionAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("revision_id", "booking_id", "channex_status", "reservation", "acknowledged_at")
     search_fields = ("revision_id", "booking_id")
+
+
+@admin.register(ChannexMessage)
+class ChannexMessageAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    list_display = (
+        "channex_message_id",
+        "direction",
+        "sender",
+        "reservation",
+        "channex_booking_id",
+        "created_at",
+    )
+    list_filter = ("direction", "sender", "have_attachment")
+    search_fields = ("channex_message_id", "channex_booking_id", "body")
+    readonly_fields = (
+        "integration",
+        "reservation",
+        "channex_booking_id",
+        "message_thread_id",
+        "channex_message_id",
+        "direction",
+        "sender",
+        "body",
+        "have_attachment",
+        "raw_payload",
+        "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

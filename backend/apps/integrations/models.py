@@ -13,7 +13,6 @@ class IntegrationConfig(TenantScopedModel):
         ICAL = "ical", "iCal"
         EVISITOR = "evisitor", "eVisitor"
         CHANNEX = "channex", "Channex"
-        SMOOBU = "smoobu", "Smoobu"
         WHATSAPP = "whatsapp", "WhatsApp"
         OTHER = "other", "Other"
 
@@ -233,42 +232,11 @@ class ChannexAriOutbox(TenantScopedModel):
         return f"{self.kind} {self.status} ({len(self.values)} values)"
 
 
-class UnitRateDay(TenantScopedModel):
-    """Canonical per-unit daily rate for Smoobu (one price per apartment per day)."""
-
-    unit = models.ForeignKey(
-        "properties.Unit",
-        on_delete=models.CASCADE,
-        related_name="rate_days",
-    )
-    date = models.DateField()
-    rate = models.DecimalField(max_digits=10, decimal_places=2)
-    min_stay = models.PositiveSmallIntegerField(null=True, blank=True)
-    smoobu_synced_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["date", "unit_id"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["tenant", "unit", "date"],
-                name="integrations_unitrateday_unique_tenant_unit_date",
-            ),
-        ]
-        indexes = [
-            models.Index(fields=["tenant", "unit", "smoobu_synced_at"]),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.unit.code} {self.date}: {self.rate}"
-
-
 class UnitAvailabilityBlock(TenantScopedModel):
-    """Smoobu blocked-booking (channel 11) created via Hospira reception."""
+    """Manual calendar block created from stay.hr reception."""
 
     class CreatedVia(models.TextChoices):
-        HOSPIRA = "hospira", "Hospira"
+        STAY = "stay", "stay.hr"
 
     unit = models.ForeignKey(
         "properties.Unit",
@@ -280,15 +248,15 @@ class UnitAvailabilityBlock(TenantScopedModel):
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
-        related_name="smoobu_blocks",
+        related_name="availability_blocks",
     )
     check_in = models.DateField()
     check_out = models.DateField()
-    smoobu_booking_id = models.CharField(max_length=64)
+    block_ref = models.CharField(max_length=64)
     created_via = models.CharField(
         max_length=16,
         choices=CreatedVia.choices,
-        default=CreatedVia.HOSPIRA,
+        default=CreatedVia.STAY,
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -296,8 +264,8 @@ class UnitAvailabilityBlock(TenantScopedModel):
         ordering = ["check_in", "unit_id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant", "smoobu_booking_id"],
-                name="integrations_unitblock_unique_tenant_smoobu_id",
+                fields=["tenant", "block_ref"],
+                name="integrations_unitblock_unique_tenant_block_ref",
             ),
         ]
         indexes = [
@@ -344,3 +312,46 @@ class WhatsAppMessage(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"{self.direction} {self.wamid} ({self.wa_id})"
+
+
+class ChannexMessage(TenantScopedModel):
+    class Direction(models.TextChoices):
+        INBOUND = "inbound", "Inbound"
+        OUTBOUND = "outbound", "Outbound"
+
+    class Sender(models.TextChoices):
+        GUEST = "guest", "Guest"
+        PROPERTY = "property", "Property"
+
+    integration = models.ForeignKey(
+        IntegrationConfig,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="channex_messages",
+    )
+    reservation = models.ForeignKey(
+        "reservations.Reservation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="channex_messages",
+    )
+    channex_booking_id = models.CharField(max_length=64, db_index=True)
+    message_thread_id = models.CharField(max_length=64, blank=True)
+    channex_message_id = models.CharField(max_length=128, unique=True)
+    direction = models.CharField(max_length=16, choices=Direction.choices)
+    sender = models.CharField(max_length=16, choices=Sender.choices)
+    body = models.TextField(blank=True)
+    have_attachment = models.BooleanField(default=False)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["tenant", "reservation", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.direction} {self.channex_message_id} ({self.channex_booking_id})"

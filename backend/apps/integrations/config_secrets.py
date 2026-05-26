@@ -5,7 +5,6 @@ from typing import Any
 from apps.integrations.models import IntegrationConfig
 
 PROVIDER_SECRET_KEYS: dict[str, list[str]] = {
-    IntegrationConfig.Provider.SMOOBU: ["api_key", "webhook_secret"],
     IntegrationConfig.Provider.CHANNEX: ["api_key", "webhook_secret"],
     IntegrationConfig.Provider.WHATSAPP: ["access_token"],
     IntegrationConfig.Provider.EVISITOR: ["password", "api_key"],

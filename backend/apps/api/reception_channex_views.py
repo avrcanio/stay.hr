@@ -537,3 +537,92 @@ class ReceptionReservationCreateView(ReceptionWriteView, APIView):
             raise NotFound("Reservation not found after create.")
         output = ReservationTimelineSerializer(detail, context={"request": request})
         return Response(output.data, status=status.HTTP_201_CREATED)
+
+
+class ChannexMessageSendSerializer(serializers.Serializer):
+    message = serializers.CharField(max_length=4000, trim_whitespace=True)
+
+
+class ReceptionReservationChannexMessagesView(TenantAPIView, APIView):
+    permission_classes = [HasReceptionAccess, DenyAdminScopes]
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            self.required_scopes = ["reception:read"]
+        else:
+            self.required_scopes = ["reception:write"]
+        return [permission() for permission in self.permission_classes]
+
+    def _reservation(self, request, reservation_id: int) -> Reservation:
+        reservation = (
+            Reservation.objects.filter(tenant=request.tenant, pk=reservation_id)
+            .select_related("property")
+            .first()
+        )
+        if reservation is None:
+            raise NotFound("Reservation not found.")
+        return reservation
+
+    def get(self, request, reservation_id: int):
+        _guard_channex_tenant(request.tenant)
+        reservation = self._reservation(request, reservation_id)
+        try:
+            integration = get_active_channex_integration(request.tenant.slug)
+        except ChannexBookingIngestError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        sync_if_empty = request.query_params.get("sync", "auto") != "0"
+        try:
+            from apps.integrations.channex.message_service import (
+                list_messages_for_reservation,
+                serialize_channex_message,
+            )
+
+            rows = list_messages_for_reservation(
+                integration,
+                reservation,
+                sync_if_empty=sync_if_empty,
+            )
+        except ChannexBookingIngestError as exc:
+            raise ValidationError(str(exc)) from exc
+        except ChannexApiError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        return Response(
+            {
+                "reservation_id": reservation.pk,
+                "messages": [serialize_channex_message(row) for row in rows],
+            }
+        )
+
+    def post(self, request, reservation_id: int):
+        _guard_channex_tenant(request.tenant)
+        reservation = self._reservation(request, reservation_id)
+        serializer = ChannexMessageSendSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            integration = get_active_channex_integration(request.tenant.slug)
+        except ChannexBookingIngestError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        try:
+            from apps.integrations.channex.message_service import (
+                send_message_for_reservation,
+                serialize_channex_message,
+            )
+
+            row = send_message_for_reservation(
+                integration,
+                reservation,
+                serializer.validated_data["message"],
+            )
+        except ChannexBookingIngestError as exc:
+            raise ValidationError(str(exc)) from exc
+        except ChannexApiError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        return Response(
+            serialize_channex_message(row),
+            status=status.HTTP_201_CREATED,
+        )

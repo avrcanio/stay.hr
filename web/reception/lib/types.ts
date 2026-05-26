@@ -109,10 +109,10 @@ export type CalendarBlock = {
   unit_code: string;
   check_in: string;
   check_out: string;
-  smoobu_booking_id: string | null;
+  block_ref: string | null;
   reservation_id: number | null;
   can_unblock: boolean;
-  source: "hospira" | "smoobu";
+  source: "stay";
 };
 
 export type CalendarSelection = {

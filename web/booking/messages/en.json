@@ -117,7 +117,7 @@
       },
       "recipients": {
         "title": "5. Recipients and processors",
-        "body": "We share data only when necessary with:\n\n• hosting and infrastructure providers (Hetzner);\n• Cloudflare (CDN, TLS, protection);\n• integrations used by the property: Smoobu, Channex, WhatsApp (Meta), eVisitor, Firebase (push notifications for Hospira);\n• competent authorities when required by law.\n\nWe use data processing agreements or compliant services with recipients where applicable."
+        "body": "We share data only when necessary with:\n\n• hosting and infrastructure providers (Hetzner);\n• Cloudflare (CDN, TLS, protection);\n• integrations used by the property: Channex, WhatsApp (Meta), eVisitor, Firebase (push notifications for Hospira);\n• competent authorities when required by law.\n\nWe use data processing agreements or compliant services with recipients where applicable."
       },
       "cookies": {
         "title": "6. Cookies",

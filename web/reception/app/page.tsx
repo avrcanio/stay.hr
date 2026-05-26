@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
+import { BookingPdfImportForm } from "@/app/_components/BookingPdfImportForm";
 import { CountryFlag } from "@/app/_components/CountryFlag";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
 import { useMonthLabel, useReservationStatusLabel } from "@/lib/i18n-ui";
-import type { AppConfig, Reservation } from "@/lib/types";
+import type { AppConfig, BookingPdfImportResult, Reservation } from "@/lib/types";
 import { reservationStatusClass } from "@/lib/reservationUi";
 import { singlePropertySlug } from "@/lib/app-config";
 import { useSyncVersionsPoll } from "@/lib/useSyncVersionsPoll";
@@ -21,6 +23,7 @@ import {
 type OverviewMode = "today" | "week" | "month" | "all";
 
 export default function TimelinePage() {
+  const router = useRouter();
   const t = useTranslations("timeline");
   const tc = useTranslations("common");
   const tr = useTranslations("reservation");
@@ -58,7 +61,10 @@ export default function TimelinePage() {
           if (current && nextProperties.some((property) => property.slug === current)) {
             return current;
           }
-          return singlePropertySlug(config);
+          const single = singlePropertySlug(config);
+          if (single) return single;
+          const uzorita = nextProperties.find((property) => property.slug === "uzorita");
+          return uzorita?.slug ?? "";
         });
       }
 
@@ -174,6 +180,14 @@ export default function TimelinePage() {
             </div>
           ) : null}
         </div>
+
+        <BookingPdfImportForm
+          propertySlug={propertySlug || undefined}
+          onSuccess={(result: BookingPdfImportResult) => {
+            void load();
+            router.push(`/reservations/${result.id}`);
+          }}
+        />
 
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         {initialLoading ? <p className="text-muted">{tc("loading")}</p> : null}

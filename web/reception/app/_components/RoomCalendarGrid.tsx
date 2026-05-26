@@ -417,7 +417,7 @@ function RoomRow({
             const key =
               item.kind === "reservation"
                 ? `r-${item.data.id}`
-                : `b-${item.data.id ?? item.data.smoobu_booking_id}-${item.data.check_in}`;
+                : `b-${item.data.id ?? item.data.block_ref}-${item.data.check_in}`;
             return (
               <CalendarBar
                 key={key}

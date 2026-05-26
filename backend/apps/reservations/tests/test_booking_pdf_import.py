@@ -123,6 +123,53 @@ Total room price
         self.assertEqual(row.adults_count, 4)
         self.assertEqual(row.booker_country, "BE")
 
+    def test_parse_truncated_room_guest_name_deduped(self):
+        """Booking PDFs sometimes clip room-block Guest Name (prefix of booker)."""
+        text = """
+Luxury Room Uzorita B&B
+Check-in
+Wed, Aug 5, 2026
+Check-out
+Thu, Aug 6, 2026
+Total guests:
+2 adults
+Total units
+1
+Total price
+€ 79.57
+Guest name:
+Laurence Lambert de Beaulieu
+fr
+lbeaul.503187@guest.booking.com
+Booking number:
+5304300338
+Deluxe King Room (Luxury Room Uzorita - R1)
+€ 79.57
+Guest Name
+Laurence Lambert de
+Booked occupancy
+2 adults
+Total room price
+€ 79.57
+"""
+        row = parse_booking_pdf_text(text)
+        self.assertEqual(row.external_id, "5304300338")
+        self.assertEqual(row.booker_name, "Laurence Lambert de Beaulieu")
+        self.assertEqual(row.guest_names, ["Laurence Lambert de Beaulieu"])
+        self.assertEqual(row.adults_count, 2)
+        self.assertEqual(row.booker_country, "FR")
+
+    def test_parse_truncated_room_guest_name_from_pdf_file(self):
+        path = (
+            Path(__file__).resolve().parents[4]
+            / "data/media/booking_confirmations/uzorita/5304300338.pdf"
+        )
+        if not path.exists():
+            self.skipTest("5304300338.pdf not available")
+        row = parse_booking_pdf(path.read_bytes())
+        self.assertEqual(row.external_id, "5304300338")
+        self.assertEqual(row.guest_names, ["Laurence Lambert de Beaulieu"])
+
     def test_rejects_empty_pdf(self):
         with self.assertRaises(ValueError):
             parse_booking_pdf(b"")

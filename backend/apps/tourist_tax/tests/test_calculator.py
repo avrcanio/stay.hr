@@ -52,9 +52,9 @@ class TouristTaxCalculatorTests(TestCase):
 
         self.assertEqual(result.nights, 3)
         self.assertEqual(result.currency, "EUR")
-        self.assertEqual(result.total, Decimal("13.95"))
-        self.assertEqual(result.lines[0].night_total, Decimal("4.65"))
-        self.assertEqual(result.lines[0].base_rate, Decimal("1.86"))
+        self.assertEqual(result.total, Decimal("18.75"))
+        self.assertEqual(result.lines[0].night_total, Decimal("6.25"))
+        self.assertEqual(result.lines[0].base_rate, Decimal("2.50"))
         self.assertEqual(result.lines[0].season_code, "main")
 
     def test_checkout_day_not_charged(self):
@@ -75,7 +75,7 @@ class TouristTaxCalculatorTests(TestCase):
             )
 
         self.assertEqual(one_night.nights, 1)
-        self.assertEqual(one_night.total, Decimal("1.86"))
+        self.assertEqual(one_night.total, Decimal("2.50"))
 
     def test_off_season_peripheral_zone(self):
         result = calculate_tourist_tax(
@@ -102,14 +102,14 @@ class TouristTaxCalculatorTests(TestCase):
 
         self.assertEqual(result.nights, 6)
         self.assertTrue(all(line.season_code == "off" for line in result.lines))
-        self.assertEqual(result.total, Decimal("7.98"))
+        self.assertEqual(result.total, Decimal("10.80"))
 
     def test_age_boundary_multipliers(self):
         cases = [
             (11, Decimal("0.00")),
-            (12, Decimal("0.93")),
-            (17, Decimal("0.93")),
-            (18, Decimal("1.86")),
+            (12, Decimal("1.25")),
+            (17, Decimal("1.25")),
+            (18, Decimal("2.50")),
         ]
         for age_years, expected_amount in cases:
             with self.subTest(age_years=age_years):
@@ -207,4 +207,4 @@ class TouristTaxCalculatorTests(TestCase):
 
         result = calculate_tourist_tax_for_reservation(reservation)
         self.assertEqual(result.nights, 3)
-        self.assertEqual(result.total, Decimal("11.16"))
+        self.assertEqual(result.total, Decimal("15.00"))

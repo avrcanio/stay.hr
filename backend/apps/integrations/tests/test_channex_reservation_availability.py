@@ -100,7 +100,7 @@ class ChannexReservationAvailabilityTests(TestCase):
             unit=self.unit,
             check_in=date(2026, 11, 1),
             check_out=date(2026, 11, 2),
-            smoobu_booking_id="local:test",
+            block_ref="local:test",
         )
         self.assertEqual(
             compute_unit_availability(self.tenant, self.unit, date(2026, 11, 1)),

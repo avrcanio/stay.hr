@@ -112,6 +112,63 @@ def push_availability_range_for_unit(
     return {"pushed": True, "unit_code": unit.code, "nights": len(updates)}
 
 
+def push_channex_inventory_after_ingest(reservation_id: int) -> dict:
+    """
+    Recompute and push ARI to Channex after inbound booking ingest/cancel.
+
+    Unlike manual/web outbound sync, this runs for import_source=channex so the
+    channel calendar reflects stay.hr inventory including the new booking.
+    """
+    reservation = (
+        Reservation.objects.filter(pk=reservation_id)
+        .select_related("tenant")
+        .first()
+    )
+    if reservation is None:
+        return {"skipped": True, "reason": "not_found", "reservation_id": reservation_id}
+
+    if get_channel_manager(reservation.tenant) != ChannelManager.CHANNEX:
+        return {"skipped": True, "reason": "not_channex", "reservation_id": reservation_id}
+
+    try:
+        integration = get_active_channex_integration(reservation.tenant.slug)
+    except ChannexBookingIngestError as exc:
+        return {"skipped": True, "reason": str(exc), "reservation_id": reservation_id}
+
+    unit_rows = list(
+        ReservationUnit.objects.filter(reservation=reservation).select_related("unit")
+    )
+    if not unit_rows:
+        return {"skipped": True, "reason": "no_units", "reservation_id": reservation_id}
+
+    results: list[dict] = []
+    for row in unit_rows:
+        if row.unit is None:
+            results.append({"skipped": True, "reason": "unmapped_unit", "room_name": row.room_name})
+            continue
+        results.append(
+            push_availability_range_for_unit(
+                reservation.tenant,
+                row.unit,
+                reservation.check_in,
+                reservation.check_out,
+            )
+        )
+
+    from apps.integrations.channex.ari_service import push_channex_ari
+
+    push_channex_ari(integration)
+    logger.info(
+        "channex inventory pushed after booking ingest",
+        extra={
+            "reservation_id": reservation_id,
+            "status": reservation.status,
+            "units": len(results),
+        },
+    )
+    return {"reservation_id": reservation_id, "pushed": True, "units": results}
+
+
 @transaction.atomic
 def sync_reservation_channex_availability(reservation: Reservation) -> dict:
     if not should_sync_channex_availability(reservation):

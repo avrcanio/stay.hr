@@ -104,7 +104,7 @@
     "importSource": "Quelle",
     "importSourcePdf": "Booking.com PDF",
     "importSourceXls": "Booking.com XLS",
-    "importSourceSmoobu": "Smoobu",
+    "importSourceChannex": "Channex",
     "importSourceWeb": "Web (stay.hr)",
     "importSourceManual": "Manuell",
     "importPdfTitle": "PDF-Bestätigung importieren",
@@ -144,8 +144,7 @@
     "evisitorComplete": "Abgeschlossen"
   },
   "source": {
-    "hospira": "Hospira",
-    "smoobu": "Smoobu"
+    "stay": "stay.hr"
   },
   "errors": {
     "apiUnavailable": "API nicht verfügbar — bitte später erneut versuchen.",

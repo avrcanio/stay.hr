@@ -34,7 +34,7 @@ Use the same values when creating the property in Channex UI (must match channel
 | Title | `Test Property - Stay.hr` |
 | Default Currency | **GBP** |
 | Property Type | Hotel |
-| Email | `booking@uzorita.hr` |
+| Email | `room_reservations@uzorita.hr` |
 | Phone | `+385915000000` |
 | Website | `https://www.uzorita.hr` |
 | Country | Croatia |

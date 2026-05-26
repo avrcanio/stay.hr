@@ -61,7 +61,6 @@ class Tenant(models.Model):
 
 class ChannelManager(models.TextChoices):
     NONE = "none", "Manual"
-    SMOOBU = "smoobu", "Smoobu"
     CHANNEX = "channex", "Channex"
 
 
@@ -75,7 +74,7 @@ class TenantReceptionSettings(models.Model):
         max_length=16,
         choices=ChannelManager.choices,
         default=ChannelManager.NONE,
-        help_text="Outbound channel connector for this tenant (Smoobu, Channex, or manual).",
+        help_text="Outbound channel connector for this tenant (Channex or manual).",
     )
     auto_checkout_enabled = models.BooleanField(default=False)
     auto_checkout_time = models.TimeField(default=time(10, 0))
@@ -214,6 +213,45 @@ class StaffProfile(models.Model):
     def preferred_language_for(cls, user) -> str:
         profile, _ = cls.objects.get_or_create(user=user)
         return normalize_language(profile.preferred_language)
+
+
+class StaffLoginEvent(models.Model):
+    class Channel(models.TextChoices):
+        RECEPTION = "reception", "Reception"
+        ADMIN = "admin", "Admin"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="login_events",
+        null=True,
+        blank=True,
+    )
+    username = models.CharField(max_length=150)
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.SET_NULL,
+        related_name="staff_login_events",
+        null=True,
+        blank=True,
+    )
+    channel = models.CharField(max_length=16, choices=Channel.choices)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-created_at"]),
+            models.Index(fields=["tenant", "-created_at"]),
+        ]
+        verbose_name = "Staff login event"
+        verbose_name_plural = "Staff login events"
+
+    def __str__(self) -> str:
+        tenant_label = self.tenant.slug if self.tenant_id else "—"
+        return f"{self.username} @ {self.channel} ({tenant_label}) {self.created_at:%Y-%m-%d %H:%M}"
 
 
 class ApiApplication(models.Model):

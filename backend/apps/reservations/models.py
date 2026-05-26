@@ -68,8 +68,7 @@ class Reservation(TenantScopedModel):
     imported_at = models.DateTimeField(null=True, blank=True)
     xls_imported_at = models.DateTimeField(null=True, blank=True)
     pdf_imported_at = models.DateTimeField(null=True, blank=True)
-    smoobu_modified_at = models.DateTimeField(null=True, blank=True)
-    smoobu_booking_id = models.CharField(max_length=64, blank=True)
+    channel_modified_at = models.DateTimeField(null=True, blank=True)
     confirmation_pdf = models.FileField(
         upload_to=booking_confirmation_pdf_upload_to,
         blank=True,

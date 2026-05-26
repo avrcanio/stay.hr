@@ -1,0 +1,265 @@
+# Channex — Uzorita × Booking.com (produkcija)
+
+Booking.com extranet veza **Channex.io** za objekt **Luxury Room Uzorita B&B**.
+
+## Identifikatori
+
+| Polje | Vrijednost |
+|-------|------------|
+| Booking.com hotel ID | `4181954` |
+| Channex property | Luxury Room Uzorita B&B |
+| Channex property UUID | `bca8473d-7c36-4986-bcdb-b5760b633283` |
+| Channex account | [app.channex.io](https://app.channex.io/) (Fine Star d.o.o.) |
+| stay.hr tenant | `uzorita` (property slug `uzorita`) |
+| Valuta | EUR |
+
+## Channel — General Settings (Channex UI)
+
+| Polje | Vrijednost |
+|-------|------------|
+| Title | Booking.com - Uzorita |
+| Hotel ID | `4181954` |
+| Currency | EUR |
+| Pricing Type | **OBP** (occupancy-based pricing) |
+| Booking notification email | `room_reservations@uzorita.hr` ✅ |
+| Test Connection | Successful |
+
+---
+
+## Mapping — Booking.com → Channex → stay.hr
+
+1 fizička soba = 1 stay.hr `Unit.code` = 1 Channex room type.
+
+### Tablica mapiranja (korak Mapping u Channex channel wizardu)
+
+| Booking.com listing | Booking room ID | Rate plan | stay.hr | Channex room type |
+|---------------------|-----------------|-----------|---------|-------------------|
+| Deluxe King Room | `418195401` | Standard Rate `12846654` | **R1** | Luxury Room Uzorita - **R1** |
+| Deluxe King Room | `418195404` | Standard Rate `12846654` | **R2** | Luxury Room Uzorita - **R2** |
+| Deluxe Triple Room | `418195403` | Standard Rate `12846654` | **R3** | Luxury Room Uzorita - **R3** |
+| Deluxe Double Room | `418195405` | Standard Rate `12846654` | **R6** | Luxury Room Uzorita - **R6** |
+
+U Channex Mapping tabu za **svaki** Booking red odaberi odgovarajući **Channel Manager** room type (desna strana). Svi koriste isti rate plan ID `12846654`.
+
+### Kako smo potvrdili mapiranje
+
+| Dokaz | R1 | R2 | R3 | R6 |
+|-------|----|----|----|-----|
+| Booking PDF / XLS nazivi | `… - R1` / generic King→R1 | `… - R2` | Deluxe Triple | Deluxe Double |
+| Channex room type ID (Booking) | 418195401 | 418195404 | 418195403 | 418195405 |
+| Rezervacije u bazi (`ReservationUnit`) | Uzorita R1, Deluxe King | Uzorita R2, `… - R2` | Deluxe Triple | Uzorita R6, Deluxe Double |
+
+**Pažnja — dva Deluxe King Room:** Booking.com ima **dva** odvojena listinga (401 i 404). Generic `Deluxe King Room` bez sufiksa stay.hr povijesno mapira na **R1** (`unit_mapping.py`); u Channexu ih **ne smiješ** oba mapirati na isti room type.
+
+### Occupancy (Booking ikona / Channex / stay.hr)
+
+| Soba | Booking listing | stay.hr kapacitet |
+|------|-----------------|-------------------|
+| R1 | King, max 2 | 2 / 2 / 1 / 1 |
+| R2 | King, max 3 | 3 / 2 / 2 / 1 |
+| R3 | Triple, max 3–4 | 4 / 3 / 3 / 3 |
+| R6 | Double, max 3–4 | 4 / 3 / 3 / 3 |
+
+OBP pricing na kanalu — cijene po occupancy moraju biti usklađene u Channex rate planu i stay.hr syncu.
+
+### Vizualno (Channex Mapping)
+
+```
+Booking.com                          Channex (Channel Manager)
+─────────────────────────────────    ─────────────────────────────
+Deluxe Double Room (418195405)   →   Luxury Room Uzorita - R6
+  Standard Rate (12846654)
+
+Deluxe King Room (418195401)     →   Luxury Room Uzorita - R1
+  Standard Rate (12846654)
+
+Deluxe King Room (418195404)     →   Luxury Room Uzorita - R2
+  Standard Rate (12846654)
+
+Deluxe Triple Room (418195403)   →   Luxury Room Uzorita - R3
+  Standard Rate (12846654)
+```
+
+---
+
+| Polje | Vrijednost |
+|-------|------------|
+| Provider | Channex.io |
+| Status | **Active** |
+| Aktivirano | 2026-05-26 07:38:20 |
+| Partner tier (Booking) | Premier Plus |
+
+Prije spajanja svi tipovi pristupa imali su **Current provider: None** — prvi channel manager na Booking.com extranetu za te kategorije.
+
+### Odobrena prava (Booking.com extranet)
+
+| Kategorija | Tko smije (Booking pravilo) | Channex |
+|------------|----------------------------|---------|
+| Rates and availability | One provider | ✅ odobreno |
+| Reservations | One provider | ✅ odobreno |
+| Guest reviews | Multiple providers | ✅ odobreno |
+| Reporting | Multiple providers | ✅ odobreno |
+| Content | One provider | ✅ odobreno |
+| Photos | One provider | ✅ odobreno |
+| Guest messages | One provider | ✅ odobreno |
+| Performance data and insights | Multiple providers | ✅ odobreno |
+
+**Napomena Booking.com:** *Not all providers offer the full functionality associated with a connection type.*
+
+---
+
+## Što Channex **može** uređivati na Booking.com
+
+Označeno zelenom u Booking extranetu „What can Channex.io offer?“ (2026-05-26).
+
+### Rezervacije
+
+| Funkcija | Channex |
+|----------|---------|
+| Pregled i ažuriranje rezervacija / otkazivanja | ✅ |
+| Prijava nevažeće kartice | ✅ |
+| Prijava no-show | ✅ |
+| No-show commission waiver | ✅ |
+| Prijava promjene boravka (stay changes) | ❌ (nije u ponudi) |
+| Otkaz zbog nevažeće kartice | ❌ |
+
+### Rates and availability (cijene i raspoloživost)
+
+| Funkcija | Channex |
+|----------|---------|
+| Inventar soba (room inventory) | ✅ |
+| Restrikcije (min stay, stop sell, CTA/CTD, …) | ✅ |
+| Standard pricing | ✅ |
+| Single occupancy pricing | ✅ |
+| Occupancy-based pricing (OBP) | ✅ |
+| Pregled zadnjeg inventara/cijena na Booking.com | ✅ |
+| Length-of-stay pricing | ❌ |
+| Derived pricing | ❌ |
+
+### Content (sadržaj objekta)
+
+| Funkcija | Channex |
+|----------|---------|
+| Dodavanje property/listinga | ✅ |
+| Facilities | ✅ |
+| Kontakt objekta | ✅ |
+| Policies | ✅ |
+| Fotografije | ✅ |
+| House rules | ❌ |
+
+### Room and rate management
+
+| Funkcija | Channex |
+|----------|---------|
+| Kreiranje / ažuriranje soba | ✅ |
+| Kreiranje / ažuriranje rate planova | ✅ |
+| Dodjela rate planova sobama | ✅ |
+| Pregled svih soba i cijena | ✅ |
+
+### Promotions
+
+| Funkcija | Channex |
+|----------|---------|
+| Kreiranje promocija | ✅ |
+| Ažuriranje / deaktivacija | ✅ |
+| Performance promocija | ✅ |
+
+### Guest reviews
+
+| Funkcija | Channex |
+|----------|---------|
+| Odgovor na recenziju | ✅ |
+| Pregled ocjena | ✅ |
+| Pregled recenzija | ✅ |
+
+### Guest messaging
+
+| Funkcija | Channex |
+|----------|---------|
+| Slanje poruke gostu | ✅ |
+| Dohvat jednog razgovora | ✅ |
+| Upload privitka u razgovor | ✅ |
+| Poruka s privitkom | ✅ |
+| Dohvat svih razgovora po propertyju | ❌ |
+
+---
+
+## Gdje što uređivati (operativni vodič)
+
+| Što | Gdje | Napomena |
+|-----|------|----------|
+| **Cijene i dostupnost (live sync)** | stay.hr recepcija → Channel | Kanonski izvor: **stay.hr** `RatePlanDay` → Channex → Booking.com |
+| **Room types / mapping R1–R6** | Channex UI (app.channex.io) | Count=1 po fizičkoj sobi; mapiranje na Booking listing u channel Mapping |
+| **Occupancy (max guests, adults, …)** | Channex room type **i** stay.hr `Unit` | Moraju biti usklađeni — vidi [channex-uzorita-mapping.md](channex-uzorita-mapping.md) |
+| **Rate planovi** | Channex UI | UUID-ovi idu u stay.hr `IntegrationConfig` |
+| **Rezervacije inbound** | Channex webhook → stay.hr | Tek kad je production Channex config + webhook aktivan |
+| **Poruke gostima (Booking.com)** | Channex webhook `message` + stay.hr API | Inbound u `ChannexMessage`; odgovor: `POST /api/v1/reception/reservations/{id}/channex-messages/` |
+| **Sadržaj, fotke, recenzije** | Channex UI (ili Booking extranet) | stay.hr nema UI za sadržaj/recenzije (faza 1) |
+| **Promocije Booking.com** | Channex UI | stay.hr nema UI za B.com promocije |
+| **Ručne rezervacije / timeline** | stay.hr recepcija | Outbound u Channex tek kad `channel_manager=channex` |
+
+---
+
+## stay.hr — trenutni status integracije (2026-05-26)
+
+| Stavka | Status |
+|--------|--------|
+| Booking.com → Channex provider | ✅ Active |
+| Booking.com channel | ✅ Active (`Booking.com - Uzorita`) |
+| Property webhook | ✅ test 200 |
+| stay.hr `IntegrationConfig` production | ✅ seeded (id=2, active) |
+| stay.hr `channel_manager` | ✅ **channex** |
+| Full sync (500 days) | ✅ 2026-05-26 — availability task ok |
+| Guest messaging backend (webhook + API) | ✅ stay.hr `ChannexMessage` + reception API |
+| Smoobu disconnect (Booking.com extranet) | ✅ (prije Channex connecta) |
+
+---
+
+## Channex UI — tipični zadaci
+
+| Zadatak | Channex put |
+|---------|-------------|
+| Channel Mapping (Booking listing → room type) | Property → Channels → Booking.com → Mapping |
+| Room types R1–R6 | Property → Room Types |
+| Rate plans | Property → Rate Plans |
+| API key | Settings → API Keys |
+| Webhook prema stay.hr | Settings → Webhooks |
+| Messaging & Reviews app | Property → Apps → uključiti prije guest poruka |
+| Pregled rezervacija s kanala | Bookings |
+
+Webhook URL (stay.hr):
+
+```text
+https://api.stay.hr/api/v1/integrations/channex/webhook/?provider=stay&env=staging
+```
+
+Secret: `CHANNEX_WEBHOOK_SECRET` u `.env` / IntegrationConfig.
+
+### Guest messaging (stay.hr backend)
+
+1. U Channexu uključiti **Messaging & Reviews** app za Uzorita property.
+2. Na postojećem webhooku dodati event **`message`** s **`send_data=true`** (uz postojeće `booking*` evente).
+3. Inbound poruke spremaju se u **`ChannexMessage`** (admin → Integrations → Channex messages).
+4. API (recepcija, bez UI u fazi 1):
+
+| Metoda | Ruta |
+|--------|------|
+| GET | `/api/v1/reception/reservations/{id}/channex-messages/` |
+| POST | `/api/v1/reception/reservations/{id}/channex-messages/` — body `{"message": "..."}` |
+
+GET prazne liste automatski povlači poruke iz Channexa (`GET /bookings/{id}/messages`). Query `?sync=0` isključuje pull.
+
+Deploy nakon code changea:
+
+```bash
+docker compose exec django python manage.py migrate
+docker compose build django && docker compose up -d django celery-worker
+```
+
+---
+
+## Povezana dokumentacija
+
+- [channex-uzorita-mapping.md](channex-uzorita-mapping.md) — room types, occupancy, seed naredbe
+- [channel-manager-setup.md](../operations/channel-manager-setup.md) — Channex onboarding
+- [booking-com-konflikt-dvostruka-rezervacija.md](../booking-com-konflikt-dvostruka-rezervacija.md) — hotel ID `4181954`

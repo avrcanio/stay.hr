@@ -9,8 +9,8 @@ from apps.tourist_tax.seed.common import seed_ordinance
 
 ORDINANCE = {
     "code": "sibenik",
-    "name": "Odluka o visini turističke pristojbe — Grad Šibenik",
-    "issuer": "Grad Šibenik",
+    "name": "Odluka o visini turističke pristojbe — Šibensko-kninska županija (Grad Šibenik)",
+    "issuer": "Šibensko-kninska županija",
     "valid_from": date(2024, 1, 1),
 }
 
@@ -28,8 +28,8 @@ ZONES = [
             "Prvić",
         ],
         "rates": {
-            "main": Decimal("1.86"),
-            "off": Decimal("1.33"),
+            "main": Decimal("2.50"),
+            "off": Decimal("1.80"),
         },
     },
     {

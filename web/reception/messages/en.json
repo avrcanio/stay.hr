@@ -192,7 +192,7 @@
     "importSource": "Source",
     "importSourcePdf": "Booking.com PDF",
     "importSourceXls": "Booking.com XLS",
-    "importSourceSmoobu": "Smoobu",
+    "importSourceChannex": "Channex",
     "importSourceWeb": "Web (stay.hr)",
     "importSourceManual": "Manual",
     "importPdfTitle": "Import PDF confirmation",
@@ -206,7 +206,8 @@
     "importPdfNone": "No file selected",
     "downloadPdf": "Download PDF confirmation",
     "importPdfBookingMismatchConfirm": "The booking number in the PDF ({pdf}) differs from the number on this page ({context}). Continue import anyway?",
-    "importPdfCancelled": "PDF import cancelled."
+    "importPdfCancelled": "PDF import cancelled.",
+    "importPdfPropertyRequired": "Select a property before importing the PDF."
   },
   "guest": {
     "primary": "primary",
@@ -232,8 +233,7 @@
     "evisitorComplete": "Complete"
   },
   "source": {
-    "hospira": "Hospira",
-    "smoobu": "Smoobu"
+    "stay": "stay.hr"
   },
   "errors": {
     "apiUnavailable": "API unavailable — please try again later.",

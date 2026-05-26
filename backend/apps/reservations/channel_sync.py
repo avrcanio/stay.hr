@@ -8,34 +8,17 @@ from apps.tenants.models import Tenant
 
 IMPORT_SOURCE_BOOKING_XLS = "booking_xls"
 IMPORT_SOURCE_BOOKING_PDF = "booking_pdf"
-IMPORT_SOURCE_SMOOBU = "smoobu"
+IMPORT_SOURCE_CHANNEX = "channex"
 
-ChannelSource = Literal["booking_xls", "booking_pdf", "smoobu"]
+ChannelSource = Literal["booking_xls", "booking_pdf", "channex"]
 
 
 def find_reservation_for_channel_merge(
     *,
     tenant: Tenant,
     booking_code: str = "",
-    smoobu_booking_id: str = "",
     external_id: str = "",
 ) -> Reservation | None:
-    smoobu_id = (smoobu_booking_id or "").strip()
-    if smoobu_id:
-        found = Reservation.objects.filter(
-            tenant=tenant,
-            external_id=smoobu_id,
-            import_source=IMPORT_SOURCE_SMOOBU,
-        ).first()
-        if found is not None:
-            return found
-        found = Reservation.objects.filter(
-            tenant=tenant,
-            smoobu_booking_id=smoobu_id,
-        ).first()
-        if found is not None:
-            return found
-
     code = (booking_code or "").strip()
     if code:
         found = Reservation.objects.filter(
@@ -47,6 +30,13 @@ def find_reservation_for_channel_merge(
 
     ext = (external_id or "").strip()
     if ext:
+        found = Reservation.objects.filter(
+            tenant=tenant,
+            external_id=ext,
+            import_source=IMPORT_SOURCE_CHANNEX,
+        ).first()
+        if found is not None:
+            return found
         return Reservation.objects.filter(
             tenant=tenant,
             external_id=ext,
@@ -67,9 +57,9 @@ def opponent_timestamp(
     *,
     source: ChannelSource,
 ) -> datetime | None:
-    if source == IMPORT_SOURCE_SMOOBU:
+    if source == IMPORT_SOURCE_CHANNEX:
         return existing.xls_imported_at
-    return existing.smoobu_modified_at
+    return existing.channel_modified_at
 
 
 def incoming_wins(

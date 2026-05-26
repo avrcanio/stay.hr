@@ -29,7 +29,7 @@ export function reservationStatusBarClass(status: string): string {
 export type ImportSourceKey =
   | "booking_pdf"
   | "booking_xls"
-  | "smoobu"
+  | "channex"
   | "web"
   | "manual";
 
@@ -40,7 +40,7 @@ export function importSourceKey(
   const normalized = (importSource || "").trim().toLowerCase();
   if (normalized === "booking_pdf") return "booking_pdf";
   if (normalized === "booking_xls") return "booking_xls";
-  if (normalized === "smoobu") return "smoobu";
+  if (normalized === "channex") return "channex";
   if ((source || "").trim().toLowerCase() === "api") return "web";
   return "manual";
 }

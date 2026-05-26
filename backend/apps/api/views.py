@@ -29,7 +29,7 @@ def _feature_flags_for_channel_manager(channel_manager: str) -> dict[str, bool]:
         "public_booking": True,
         "availability_api": True,
         "channel_panel": channel_manager == ChannelManager.CHANNEX,
-        "smoobu_calendar_blocks": channel_manager == ChannelManager.SMOOBU,
+        "calendar_blocks": channel_manager in {ChannelManager.CHANNEX, ChannelManager.NONE},
         "manual_import": True,
         "reception_create_reservation": channel_manager in {
             ChannelManager.CHANNEX,
@@ -190,7 +190,7 @@ class PublicAvailabilityView(TenantAPIView):
             for block in manual_blocks:
                 blocked_by_unit[block.unit_id].append(
                     {
-                        "booking_code": block.smoobu_booking_id,
+                        "booking_code": block.block_ref,
                         "check_in": block.check_in.isoformat(),
                         "check_out": block.check_out.isoformat(),
                         "status": "blocked",

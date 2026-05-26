@@ -5,7 +5,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.api.staff_authentication import StaffSessionAuthentication
-from apps.tenants.models import StaffProfile, Tenant, TenantMembership
+from apps.tenants.login_audit import record_staff_login_event
+from apps.tenants.models import StaffLoginEvent, StaffProfile, Tenant, TenantMembership
 
 User = get_user_model()
 ACTIVE_TENANT_SESSION_KEY = "active_tenant_id"
@@ -112,6 +113,13 @@ class ReceptionLoginView(APIView):
 
         login(request, user)
         request.session[ACTIVE_TENANT_SESSION_KEY] = tenant.pk
+        record_staff_login_event(
+            user=user,
+            username=user.username,
+            channel=StaffLoginEvent.Channel.RECEPTION,
+            tenant=tenant,
+            request=request,
+        )
 
         return Response(
             {

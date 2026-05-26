@@ -192,7 +192,7 @@
     "importSource": "Izvor",
     "importSourcePdf": "Booking.com PDF",
     "importSourceXls": "Booking.com XLS",
-    "importSourceSmoobu": "Smoobu",
+    "importSourceChannex": "Channex",
     "importSourceWeb": "Web (stay.hr)",
     "importSourceManual": "Ručno",
     "importPdfTitle": "Uvoz PDF potvrde",
@@ -206,7 +206,8 @@
     "importPdfNone": "Nema odabrane datoteke",
     "downloadPdf": "Preuzmi PDF potvrdu",
     "importPdfBookingMismatchConfirm": "Broj rezervacije u PDF-u ({pdf}) razlikuje se od broja na ovoj stranici ({context}). Želite li ipak nastaviti uvoz?",
-    "importPdfCancelled": "Uvoz PDF-a je otkazan."
+    "importPdfCancelled": "Uvoz PDF-a je otkazan.",
+    "importPdfPropertyRequired": "Odaberite objekt (property) prije uvoza PDF-a."
   },
   "guest": {
     "primary": "primarni",
@@ -232,8 +233,7 @@
     "evisitorComplete": "Završeno"
   },
   "source": {
-    "hospira": "Hospira",
-    "smoobu": "Smoobu"
+    "stay": "stay.hr"
   },
   "errors": {
     "apiUnavailable": "API nije dostupan — pokušajte kasnije.",

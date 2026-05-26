@@ -14,6 +14,7 @@ from apps.api.reception_channex_views import (
     ReceptionChannelRatePlansView,
     ReceptionChannelRatesView,
     ReceptionChannelStatusView,
+    ReceptionReservationChannexMessagesView,
     ReceptionReservationCreateView,
 )
 from apps.api.reception_views import (
@@ -69,6 +70,11 @@ urlpatterns = [
         "reservations/<int:pk>/",
         ReservationDetailView.as_view(),
         name="reception-reservation-detail",
+    ),
+    path(
+        "reservations/<int:reservation_id>/channex-messages/",
+        ReceptionReservationChannexMessagesView.as_view(),
+        name="reception-reservation-channex-messages",
     ),
     path(
         "reservations/<int:reservation_id>/guests/",

@@ -255,7 +255,7 @@ export function RoomCalendarDayDetail({
           })}
 
           {dayBlocks.map((b) => (
-            <li key={`b-${b.id ?? b.smoobu_booking_id}-${b.check_in}`}>
+            <li key={`b-${b.id ?? b.block_ref}-${b.check_in}`}>
               <div className="card flex flex-wrap items-center justify-between gap-3 border-slate-300 bg-slate-50 px-4 py-3">
                 <div>
                   <div className="font-semibold text-stay-navy">{t("blocked")}</div>
@@ -265,7 +265,7 @@ export function RoomCalendarDayDetail({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="badge bg-slate-200 text-slate-800">
-                    {b.source === "hospira" ? ts("hospira") : ts("smoobu")}
+                    {ts("stay")}
                   </span>
                   {b.can_unblock && b.id != null ? (
                     <button type="button" className="btn-ghost text-sm" onClick={() => void handleUnblock(b)}>

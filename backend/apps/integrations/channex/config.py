@@ -104,3 +104,20 @@ class ChannexRuntimeConfig:
             if link.channex_room_type_id == channex_room_type_id:
                 return link
         return None
+
+    def room_link_for_channex_room_type_id(
+        self, channex_room_type_id: str
+    ) -> ChannexBookingTestRoomLink | None:
+        """Resolve room mapping from cert test rooms or production room_types."""
+        link = self.booking_test_room_for_channex_room_type_id(channex_room_type_id)
+        if link is not None:
+            return link
+        for row in self.room_types:
+            if row.channex_room_type_id == channex_room_type_id:
+                return ChannexBookingTestRoomLink(
+                    unit_code=row.unit_code,
+                    channex_room_type_id=row.channex_room_type_id,
+                    channex_title=row.channex_title,
+                    unit_id=row.unit_id,
+                )
+        return None

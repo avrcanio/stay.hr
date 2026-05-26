@@ -78,6 +78,19 @@ class ChannexClient:
     def update_restrictions(self, values: list[dict[str, Any]]) -> dict[str, Any]:
         return self._request("POST", "/restrictions", json={"values": values})
 
+    def list_booking_messages(self, booking_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/bookings/{booking_id}/messages")
+
+    def send_booking_message(self, booking_id: str, message: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/bookings/{booking_id}/messages",
+            json={"message": message},
+        )
+
+    def list_message_thread_messages(self, thread_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/message_threads/{thread_id}/messages")
+
     @staticmethod
     def extract_task_ids(response: dict[str, Any]) -> list[str]:
         task_ids: list[str] = []

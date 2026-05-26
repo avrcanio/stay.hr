@@ -1,18 +1,28 @@
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from apps.integrations.models import IntegrationConfig, UnitAvailabilityBlock
+from apps.integrations.models import UnitAvailabilityBlock
 from apps.properties.models import Property, Unit
 from apps.reservations.models import Reservation, ReservationUnit
-from apps.tenants.models import RECEPTION_DEVICE_SCOPES, ApiApplication, Tenant
+from apps.tenants.models import (
+    RECEPTION_DEVICE_SCOPES,
+    ApiApplication,
+    ChannelManager,
+    Tenant,
+    TenantReceptionSettings,
+)
 
 
 class ReceptionUnitBlockAPITests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(slug="uzorita", name="Uzorita")
+        TenantReceptionSettings.objects.create(
+            tenant=self.tenant,
+            channel_manager=ChannelManager.NONE,
+        )
         self.property = Property.objects.create(
             tenant=self.tenant,
             slug="uzorita",
@@ -30,26 +40,6 @@ class ReceptionUnitBlockAPITests(TestCase):
             name="Test tablet",
             scopes=RECEPTION_DEVICE_SCOPES,
         )
-        self.integration = IntegrationConfig.objects.create(
-            tenant=self.tenant,
-            property=self.property,
-            provider=IntegrationConfig.Provider.SMOOBU,
-            is_active=True,
-        )
-        self.integration.set_config_dict(
-            {
-                "api_base": "https://login.smoobu.com",
-                "api_key": "test-key",
-                "apartments": [
-                    {
-                        "unit_code": "R1",
-                        "smoobu_apartment_id": 3327457,
-                        "unit_id": self.unit.id,
-                    }
-                ],
-            }
-        )
-        self.integration.save()
         self.client = APIClient()
         self.auth = {"HTTP_AUTHORIZATION": f"Bearer {self.raw_token}"}
 
@@ -57,13 +47,13 @@ class ReceptionUnitBlockAPITests(TestCase):
         response = self.client.get("/api/v1/reception/calendar/blocks/", **self.auth)
         self.assertEqual(response.status_code, 400)
 
-    def test_list_hospira_blocks(self):
+    def test_list_stay_blocks(self):
         UnitAvailabilityBlock.objects.create(
             tenant=self.tenant,
             unit=self.unit,
             check_in=date(2026, 8, 4),
             check_out=date(2026, 8, 6),
-            smoobu_booking_id="99001",
+            block_ref="local:test1",
         )
         response = self.client.get(
             "/api/v1/reception/calendar/blocks/?from=2026-08-01&to=2026-08-31",
@@ -74,9 +64,10 @@ class ReceptionUnitBlockAPITests(TestCase):
         self.assertEqual(len(data), 1)
         self.assertTrue(data[0]["can_unblock"])
         self.assertEqual(data[0]["unit_code"], "R1")
+        self.assertEqual(data[0]["source"], "stay")
         self.assertIsNone(data[0]["reservation_id"])
 
-    def test_list_hospira_blocks_includes_reservation_id(self):
+    def test_list_stay_blocks_includes_reservation_id(self):
         reservation = Reservation.objects.create(
             tenant=self.tenant,
             property=self.property,
@@ -91,7 +82,7 @@ class ReceptionUnitBlockAPITests(TestCase):
             reservation=reservation,
             check_in=date(2026, 10, 4),
             check_out=date(2026, 10, 5),
-            smoobu_booking_id="140631922",
+            block_ref="140631922",
         )
         response = self.client.get(
             "/api/v1/reception/calendar/blocks/?from=2026-10-01&to=2026-10-31",
@@ -103,12 +94,7 @@ class ReceptionUnitBlockAPITests(TestCase):
         self.assertEqual(data[0]["reservation_id"], reservation.id)
         self.assertFalse(data[0]["can_unblock"])
 
-    @patch("apps.integrations.smoobu.blocking_service.SmoobuClient")
-    def test_create_block(self, mock_client_cls):
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
-        mock_client.create_reservation.return_value = {"id": 12345}
-
+    def test_create_block(self):
         response = self.client.post(
             f"/api/v1/reception/units/{self.unit.id}/block/",
             {"check_in": "2026-09-01", "check_out": "2026-09-04"},
@@ -116,12 +102,13 @@ class ReceptionUnitBlockAPITests(TestCase):
             **self.auth,
         )
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["smoobu_booking_id"], "12345")
+        payload = response.json()
+        self.assertTrue(payload["block_ref"].startswith("local:"))
         self.assertTrue(
             UnitAvailabilityBlock.objects.filter(
                 tenant=self.tenant,
                 unit=self.unit,
-                smoobu_booking_id="12345",
+                block_ref=payload["block_ref"],
             ).exists()
         )
 
@@ -148,24 +135,19 @@ class ReceptionUnitBlockAPITests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
-    @patch("apps.integrations.smoobu.blocking_service.SmoobuClient")
-    def test_unblock_hospira_block(self, mock_client_cls):
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
-
+    def test_unblock_stay_block(self):
         block_row = UnitAvailabilityBlock.objects.create(
             tenant=self.tenant,
             unit=self.unit,
             check_in=date(2026, 8, 4),
             check_out=date(2026, 8, 6),
-            smoobu_booking_id="99002",
+            block_ref="local:test2",
         )
         response = self.client.delete(
             f"/api/v1/reception/blocks/{block_row.id}/",
             **self.auth,
         )
         self.assertEqual(response.status_code, 204)
-        mock_client.cancel_reservation.assert_called_once_with("99002")
         self.assertFalse(UnitAvailabilityBlock.objects.filter(pk=block_row.id).exists())
 
     def test_cannot_unblock_reservation_linked_block(self):
@@ -183,7 +165,7 @@ class ReceptionUnitBlockAPITests(TestCase):
             reservation=reservation,
             check_in=date(2026, 8, 4),
             check_out=date(2026, 8, 6),
-            smoobu_booking_id="99003",
+            block_ref="local:test3",
         )
         response = self.client.delete(
             f"/api/v1/reception/blocks/{block_row.id}/",
@@ -192,25 +174,34 @@ class ReceptionUnitBlockAPITests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertTrue(UnitAvailabilityBlock.objects.filter(pk=block_row.id).exists())
 
-    @patch(
-        "apps.integrations.smoobu.calendar_blocks_service._fetch_external_blocks",
-        return_value=[
+    @patch("apps.integrations.channex.ari_service.push_channex_ari")
+    @patch("apps.integrations.channex.reservation_availability_service.push_availability_range_for_unit")
+    def test_channex_create_block_pushes_availability(self, mock_range, mock_push):
+        from apps.integrations.models import IntegrationConfig
+
+        TenantReceptionSettings.objects.filter(tenant=self.tenant).update(
+            channel_manager=ChannelManager.CHANNEX
+        )
+        channex = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
+        channex.set_config_dict(
             {
-                "id": None,
-                "unit_id": 1,
-                "unit_code": "R1",
-                "check_in": "2026-08-04",
-                "check_out": "2026-08-06",
-                "smoobu_booking_id": "88001",
-                "reservation_id": None,
-                "can_unblock": False,
-                "source": "smoobu",
+                "property_id": "prop-id",
+                "room_types": [{"unit_code": "R1", "channex_room_type_id": "rt-1"}],
             }
-        ],
-    )
-    def test_cannot_unblock_external_block_id(self, _mock_external):
-        response = self.client.delete(
-            "/api/v1/reception/blocks/99999/",
+        )
+        channex.save()
+        mock_range.return_value = {"pushed": True}
+        mock_push.return_value = []
+
+        response = self.client.post(
+            f"/api/v1/reception/units/{self.unit.id}/block/",
+            {"check_in": "2026-09-01", "check_out": "2026-09-04"},
+            format="json",
             **self.auth,
         )
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json().get("channex_pushed"))

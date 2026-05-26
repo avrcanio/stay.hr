@@ -78,7 +78,7 @@ export default function RoomCalendarPage() {
       if (configRes.ok) {
         const config = (await configRes.json()) as AppConfig;
         setFeatureFlags(config.feature_flags);
-        setShowCalendarBlocks(Boolean(config.feature_flags?.smoobu_calendar_blocks));
+        setShowCalendarBlocks(Boolean(config.feature_flags?.calendar_blocks));
         channelPanel = Boolean(config.feature_flags?.channel_panel);
         setShowChannelAri(channelPanel);
       } else {

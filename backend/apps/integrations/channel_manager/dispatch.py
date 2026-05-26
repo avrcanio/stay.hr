@@ -7,13 +7,6 @@ from django.db import transaction
 
 from apps.integrations.channel_manager.resolver import get_channel_manager
 from apps.integrations.models import UnitAvailabilityBlock
-from apps.integrations.smoobu.blocking_service import block_apartment_dates, unblock_apartment_dates
-from apps.integrations.smoobu.exceptions import SmoobuConfigError, SmoobuRatesError
-from apps.integrations.smoobu.reservation_blocking_service import (
-    remove_reservation_smoobu_blocks,
-    sync_reservation_smoobu_blocks,
-)
-from apps.integrations.smoobu.resolver import get_active_smoobu_integration
 from apps.properties.models import Unit
 from apps.reservations.booking_lifecycle import confirm_web_booking, is_web_pending_booking
 from apps.reservations.models import Reservation
@@ -22,10 +15,6 @@ from apps.tenants.models import ChannelManager, Tenant
 
 def sync_reservation_outbound(reservation: Reservation, *, action: str = "sync") -> dict:
     manager = get_channel_manager(reservation.tenant)
-    if manager == ChannelManager.SMOOBU:
-        if action == "remove":
-            return remove_reservation_smoobu_blocks(reservation)
-        return sync_reservation_smoobu_blocks(reservation)
     if manager == ChannelManager.CHANNEX:
         from apps.integrations.channex.reservation_availability_service import (
             remove_reservation_channex_availability,
@@ -54,10 +43,7 @@ def confirm_web_booking_if_ready(reservation_id: int, sync_result: dict) -> bool
     if sync_result.get("skipped") or sync_result.get("refused"):
         return False
 
-    if manager == ChannelManager.SMOOBU:
-        if not (sync_result.get("created") or sync_result.get("skipped_units")):
-            return False
-    elif manager == ChannelManager.CHANNEX:
+    if manager == ChannelManager.CHANNEX:
         if not sync_result.get("pushed"):
             return False
 
@@ -74,19 +60,19 @@ def _create_local_block(
     guest_label: str = "Block",
     notice: str = "",
 ) -> dict:
-    smoobu_id = f"local:{uuid.uuid4().hex}"
+    block_ref = f"local:{uuid.uuid4().hex}"
     block_row = UnitAvailabilityBlock.objects.create(
         tenant=tenant,
         unit=unit,
         reservation=reservation,
         check_in=check_in,
         check_out=check_out,
-        smoobu_booking_id=smoobu_id,
-        created_via=UnitAvailabilityBlock.CreatedVia.HOSPIRA,
+        block_ref=block_ref,
+        created_via=UnitAvailabilityBlock.CreatedVia.STAY,
     )
     return {
         "id": block_row.id,
-        "smoobu_booking_id": smoobu_id,
+        "block_ref": block_ref,
         "unit_code": unit.code,
         "unit_id": unit.id,
         "check_in": check_in.isoformat(),
@@ -106,16 +92,6 @@ def create_calendar_block(
     notice: str = "",
 ) -> dict:
     manager = get_channel_manager(tenant)
-    if manager == ChannelManager.SMOOBU:
-        integration = get_active_smoobu_integration(tenant.slug)
-        return block_apartment_dates(
-            integration,
-            unit_code=unit.code,
-            check_in=check_in,
-            check_out=check_out,
-            guest_label=guest_label,
-            notice=notice,
-        )
 
     with transaction.atomic():
         result = _create_local_block(
@@ -127,16 +103,20 @@ def create_calendar_block(
             notice=notice,
         )
         if manager == ChannelManager.CHANNEX:
+            from apps.integrations.channex.ari_service import push_channex_ari
             from apps.integrations.channex.reservation_availability_service import (
+                get_active_channex_integration,
                 push_availability_range_for_unit,
             )
 
+            integration = get_active_channex_integration(tenant.slug)
             push_availability_range_for_unit(
                 tenant,
                 unit,
                 check_in,
                 check_out,
             )
+            push_channex_ari(integration)
             result["channex_pushed"] = True
     return result
 
@@ -148,14 +128,14 @@ def delete_calendar_block(block_row: UnitAvailabilityBlock) -> None:
     check_in = block_row.check_in
     check_out = block_row.check_out
 
-    if manager == ChannelManager.SMOOBU:
-        unblock_apartment_dates(block_row)
-        return
-
     block_row.delete()
     if manager == ChannelManager.CHANNEX and unit is not None:
+        from apps.integrations.channex.ari_service import push_channex_ari
         from apps.integrations.channex.reservation_availability_service import (
+            get_active_channex_integration,
             push_availability_range_for_unit,
         )
 
+        integration = get_active_channex_integration(tenant.slug)
         push_availability_range_for_unit(tenant, unit, check_in, check_out)
+        push_channex_ari(integration)

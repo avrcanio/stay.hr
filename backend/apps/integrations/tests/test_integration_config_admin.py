@@ -6,7 +6,6 @@ from django.test import TestCase, override_settings
 
 from apps.integrations.admin.forms import IntegrationConfigAdminForm
 from apps.integrations.models import IntegrationConfig
-from apps.integrations.smoobu.mapping import UZORITA_SMOOBU_APARTMENTS
 from apps.properties.models import Property
 from apps.tenants.models import Tenant
 
@@ -22,23 +21,6 @@ class IntegrationConfigAdminFormTests(TestCase):
             slug="uzorita",
             name="Uzorita",
         )
-
-    def _create_smoobu_row(self, api_key: str = "original-key") -> IntegrationConfig:
-        row = IntegrationConfig.objects.create(
-            tenant=self.tenant,
-            property=self.prop,
-            provider=IntegrationConfig.Provider.SMOOBU,
-            is_active=True,
-        )
-        row.set_config_dict(
-            {
-                "api_base": "https://login.smoobu.com",
-                "api_key": api_key,
-                "apartments": [dict(UZORITA_SMOOBU_APARTMENTS[0])],
-            }
-        )
-        row.save()
-        return row
 
     def _create_channex_row(
         self,
@@ -83,83 +65,6 @@ class IntegrationConfigAdminFormTests(TestCase):
         }
         data.update(overrides)
         return data
-
-    @patch("apps.integrations.admin.forms.verify_smoobu_api_key")
-    def test_smoobu_blank_api_key_keeps_existing(self, mock_verify):
-        row = self._create_smoobu_row("original-key")
-        form = IntegrationConfigAdminForm(
-            data={
-                "tenant": self.tenant.pk,
-                "property": self.prop.pk,
-                "provider": IntegrationConfig.Provider.SMOOBU,
-                "routing_key": "",
-                "is_active": True,
-                "api_key": "",
-                "webhook_secret": "",
-                "skip_verify": True,
-                "api_base": "https://login.smoobu.com",
-                "settings_channel_id": "",
-                "push_rates_enabled": True,
-                "default_channel_id_for_create": "70",
-                "apartments_json": "",
-            },
-            instance=row,
-        )
-        self.assertTrue(form.is_valid(), form.errors)
-        saved = form.save()
-        self.assertEqual(saved.get_config_dict()["api_key"], "original-key")
-        mock_verify.assert_not_called()
-
-    @patch("apps.integrations.admin.forms.verify_smoobu_api_key")
-    def test_smoobu_new_api_key_overwrites(self, mock_verify):
-        mock_verify.return_value = {"id": 1, "email": "test@example.com"}
-        row = self._create_smoobu_row("original-key")
-        form = IntegrationConfigAdminForm(
-            data={
-                "tenant": self.tenant.pk,
-                "property": self.prop.pk,
-                "provider": IntegrationConfig.Provider.SMOOBU,
-                "routing_key": "",
-                "is_active": True,
-                "api_key": "rotated-key",
-                "webhook_secret": "",
-                "skip_verify": False,
-                "api_base": "https://login.smoobu.com",
-                "settings_channel_id": "",
-                "push_rates_enabled": True,
-                "default_channel_id_for_create": "70",
-                "apartments_json": "",
-            },
-            instance=row,
-        )
-        self.assertTrue(form.is_valid(), form.errors)
-        saved = form.save()
-        self.assertEqual(saved.get_config_dict()["api_key"], "rotated-key")
-        mock_verify.assert_called_once()
-
-    @patch("apps.integrations.admin.forms.verify_smoobu_api_key")
-    def test_smoobu_invalid_apartments_json_rejected(self, mock_verify):
-        row = self._create_smoobu_row()
-        form = IntegrationConfigAdminForm(
-            data={
-                "tenant": self.tenant.pk,
-                "property": self.prop.pk,
-                "provider": IntegrationConfig.Provider.SMOOBU,
-                "routing_key": "",
-                "is_active": True,
-                "api_key": "",
-                "webhook_secret": "",
-                "skip_verify": True,
-                "api_base": "https://login.smoobu.com",
-                "settings_channel_id": "",
-                "push_rates_enabled": True,
-                "default_channel_id_for_create": "70",
-                "apartments_json": "{not-json",
-            },
-            instance=row,
-        )
-        self.assertFalse(form.is_valid())
-        self.assertIn("apartments_json", form.errors)
 
     def test_channex_blank_api_key_keeps_existing(self):
         row = self._create_channex_row(api_key="original-ch-key")

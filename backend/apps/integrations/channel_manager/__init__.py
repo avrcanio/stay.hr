@@ -8,7 +8,6 @@ from apps.integrations.channel_manager.dispatch import (
 from apps.integrations.channel_manager.resolver import (
     get_channel_manager,
     require_channex,
-    require_smoobu,
 )
 
 __all__ = [
@@ -18,6 +17,5 @@ __all__ = [
     "get_channel_manager",
     "remove_reservation_outbound",
     "require_channex",
-    "require_smoobu",
     "sync_reservation_outbound",
 ]
