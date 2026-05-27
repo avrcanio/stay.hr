@@ -161,3 +161,45 @@ class BillingApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["reason"], "no_recipient")
+
+    @patch("apps.billing.tasks.fiscalize_invoice")
+    @patch("apps.billing.services.issue.issue_guest_invoice")
+    def test_create_invoice_for_checked_out_reservation(self, mock_issue, mock_fiscalize):
+        self.invoice.delete()
+        mock_issue.return_value = Invoice.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            invoice_number="2-PP1-1",
+            sequence_number=2,
+            issued_at=datetime(2026, 4, 16, 11, 0, tzinfo=ZoneInfo("Europe/Zagreb")),
+            buyer_name="Guest Guest",
+            subtotal=Decimal("88.50"),
+            vat_amount=Decimal("11.50"),
+            total=Decimal("100.00"),
+            zki="def456",
+        )
+
+        response = self.client.post(
+            f"/api/v1/reception/reservations/{self.reservation.pk}/invoice/",
+            {},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["invoice_number"], "2-PP1-1")
+        mock_issue.assert_called_once()
+        mock_fiscalize.delay.assert_called_once()
+
+    def test_create_invoice_requires_checked_out(self):
+        self.invoice.delete()
+        self.reservation.status = Reservation.Status.CHECKED_IN
+        self.reservation.save(update_fields=["status"])
+
+        response = self.client.post(
+            f"/api/v1/reception/reservations/{self.reservation.pk}/invoice/",
+            {},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["reason"], "not_checked_out")

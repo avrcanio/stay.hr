@@ -35,6 +35,7 @@ export function ReservationInvoiceSection({ reservation, onReservationUpdated }:
   const [invoiceMissing, setInvoiceMissing] = useState(false);
   const [loading, setLoading] = useState(!reservation.invoice_summary);
   const [sending, setSending] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [emailModalOpen, setEmailModalOpen] = useState(false);
@@ -130,6 +131,41 @@ export function ReservationInvoiceSection({ reservation, onReservationUpdated }:
     setEmailModalOpen(true);
   }
 
+  async function createInvoice() {
+    if (reservation.status !== "checked_out") return;
+    setCreating(true);
+    setMessage("");
+    setError("");
+    try {
+      const res = await fetch(reservationInvoicePath(reservation.id), { method: "POST" });
+      const data = (await res.json().catch(() => null)) as {
+        invoice_number?: string;
+        reason?: string;
+        detail?: string;
+      } | null;
+      if (!res.ok) {
+        if (data?.reason === "not_checked_out") {
+          throw new Error(t("invoiceCreateNotCheckedOut"));
+        }
+        if (data?.reason === "fiscal_config_incomplete") {
+          throw new Error(t("invoiceCreateFiscalConfig"));
+        }
+        if (data?.reason === "invoice_build_failed") {
+          throw new Error(data.detail || t("invoiceCreateFailed"));
+        }
+        throw new Error(t("invoiceCreateFailed"));
+      }
+      setMessage(t("invoiceCreateSuccess", { number: data?.invoice_number || "" }));
+      setInvoiceMissing(false);
+      await loadInvoice();
+      await onReservationUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("invoiceCreateFailed"));
+    } finally {
+      setCreating(false);
+    }
+  }
+
   if (loading) {
     return (
       <div>
@@ -141,9 +177,22 @@ export function ReservationInvoiceSection({ reservation, onReservationUpdated }:
 
   if (invoiceMissing || !invoice) {
     return (
-      <div>
+      <div className="space-y-3">
         <h2 className="mb-2 font-semibold">{t("invoiceTitle")}</h2>
-        <p className="text-sm text-muted">{t("invoiceNotFound")}</p>
+        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+        {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
+        {reservation.status === "checked_out" ? (
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={creating}
+            onClick={() => void createInvoice()}
+          >
+            {creating ? tc("loading") : t("createInvoice")}
+          </button>
+        ) : (
+          <p className="text-sm text-muted">{t("invoiceNotFound")}</p>
+        )}
       </div>
     );
   }

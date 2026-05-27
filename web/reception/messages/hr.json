@@ -238,7 +238,12 @@
     "invoiceNotFound": "Račun nije kreiran.",
     "invoiceSendFailed": "Slanje računa nije uspjelo.",
     "invoiceSendNoSmtp": "SMTP nije konfiguriran — račun se ne može poslati.",
-    "invoiceNoPrimaryGuest": "Nema primarnog gosta — email se ne može spremiti."
+    "invoiceNoPrimaryGuest": "Nema primarnog gosta — email se ne može spremiti.",
+    "createInvoice": "Kreiraj račun",
+    "invoiceCreateSuccess": "Račun {number} je kreiran.",
+    "invoiceCreateFailed": "Kreiranje računa nije uspjelo.",
+    "invoiceCreateNotCheckedOut": "Račun se može kreirati samo nakon odjave gosta.",
+    "invoiceCreateFiscalConfig": "Fiskalne postavke nisu potpune — provjerite PDV konfiguraciju."
   },
   "guest": {
     "primary": "primarni",

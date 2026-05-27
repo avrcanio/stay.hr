@@ -238,7 +238,12 @@
     "invoiceNotFound": "Invoice was not created.",
     "invoiceSendFailed": "Failed to send invoice.",
     "invoiceSendNoSmtp": "SMTP is not configured — invoice cannot be sent.",
-    "invoiceNoPrimaryGuest": "No primary guest — email cannot be saved."
+    "invoiceNoPrimaryGuest": "No primary guest — email cannot be saved.",
+    "createInvoice": "Create invoice",
+    "invoiceCreateSuccess": "Invoice {number} created.",
+    "invoiceCreateFailed": "Failed to create invoice.",
+    "invoiceCreateNotCheckedOut": "Invoice can only be created after guest checkout.",
+    "invoiceCreateFiscalConfig": "Fiscal settings are incomplete — check VAT configuration."
   },
   "guest": {
     "primary": "primary",

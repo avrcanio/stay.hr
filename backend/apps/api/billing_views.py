@@ -9,7 +9,9 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.api.permissions import DenyAdminScopes, HasReceptionAccess
 from apps.api.reception_views import ReceptionReadView, ReceptionWriteView
+from apps.api.views import TenantAPIView
 from apps.billing.models import Invoice, TenantFiscalSettings
 from apps.billing.services.pdf import render_invoice_html
 from apps.communications.invoice_email import send_invoice_email
@@ -76,7 +78,16 @@ class InvoiceSerializerMixin:
         }
 
 
-class ReservationInvoiceView(ReceptionReadView, InvoiceSerializerMixin, APIView):
+class ReservationInvoiceView(TenantAPIView, InvoiceSerializerMixin, APIView):
+    permission_classes = [HasReceptionAccess, DenyAdminScopes]
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            self.required_scopes = ["reception:write"]
+        else:
+            self.required_scopes = ["reception:read"]
+        return [permission() for permission in self.permission_classes]
+
     def get(self, request, pk: int):
         reservation = get_object_or_404(
             Reservation.objects.for_tenant(request.tenant),
@@ -86,6 +97,55 @@ class ReservationInvoiceView(ReceptionReadView, InvoiceSerializerMixin, APIView)
         if invoice is None:
             return Response({"detail": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(self.serialize_invoice(invoice))
+
+    def post(self, request, pk: int):
+        if _vat_settings_for_tenant(request.tenant) is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        reservation = get_object_or_404(
+            Reservation.objects.for_tenant(request.tenant).select_related("invoice"),
+            pk=pk,
+        )
+        existing = getattr(reservation, "invoice", None)
+        if existing is not None:
+            return Response(self.serialize_invoice(existing))
+
+        if reservation.status != Reservation.Status.CHECKED_OUT:
+            return Response(
+                {"status": "error", "reason": "not_checked_out"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from apps.billing.exceptions import FiscalConfigError, InvoiceBuildError
+        from apps.billing.services.issue import issue_guest_invoice
+        from apps.billing.tasks import fiscalize_invoice, send_invoice_email_task
+        from apps.communications.invoice_email import resolve_invoice_recipient
+
+        try:
+            invoice = issue_guest_invoice(reservation)
+        except FiscalConfigError as exc:
+            return Response(
+                {
+                    "status": "error",
+                    "reason": "fiscal_config_incomplete",
+                    "detail": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except InvoiceBuildError as exc:
+            return Response(
+                {
+                    "status": "error",
+                    "reason": "invoice_build_failed",
+                    "detail": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        fiscalize_invoice.delay(invoice.pk)
+        if resolve_invoice_recipient(reservation):
+            send_invoice_email_task.delay(invoice.pk)
+
+        return Response(self.serialize_invoice(invoice), status=status.HTTP_201_CREATED)
 
 
 class ReservationInvoicePdfView(ReceptionReadView, APIView):
