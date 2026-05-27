@@ -161,7 +161,6 @@ class InvoiceAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
         "buyer_name",
         "buyer_document_number",
         "buyer_address",
-        "buyer_country",
         "payment_method",
         "payment_note",
         "subtotal",
