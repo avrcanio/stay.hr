@@ -85,6 +85,8 @@ class InvoiceBuilderTests(TestCase):
         built = build_invoice_from_reservation(reservation, self.settings)
 
         self.assertEqual(built.buyer_name, "Ana Anic")
+        self.assertEqual(built.buyer_document_number, "")
+        self.assertEqual(built.buyer_address, "")
         self.assertEqual(built.total, Decimal("150.00"))
         self.assertEqual(len(built.lines), 3)
 

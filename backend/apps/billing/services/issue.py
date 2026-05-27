@@ -86,6 +86,8 @@ def issue_guest_invoice(reservation: Reservation) -> Invoice:
         sequence_number=seq,
         issued_at=issued_at,
         buyer_name=built.buyer_name,
+        buyer_document_number=built.buyer_document_number,
+        buyer_address=built.buyer_address,
         payment_method=built.payment_method,
         payment_note=built.payment_note,
         subtotal=built.subtotal,
@@ -121,3 +123,25 @@ def issue_guest_invoice(reservation: Reservation) -> Invoice:
 def should_issue_invoice_on_checkout(reservation: Reservation) -> bool:
     settings = get_fiscal_settings_for_reservation(reservation)
     return settings.is_vat_registered
+
+
+def refresh_invoice_buyer_from_reservation(invoice: Invoice) -> None:
+    """Refresh buyer snapshot from reservation before PDF regeneration."""
+    from apps.billing.services.invoice_builder import (
+        resolve_buyer_identity,
+        resolve_buyer_name,
+    )
+
+    reservation = invoice.reservation
+    invoice.buyer_name = resolve_buyer_name(reservation)
+    document_number, address = resolve_buyer_identity(reservation)
+    invoice.buyer_document_number = document_number
+    invoice.buyer_address = address
+    invoice.save(
+        update_fields=[
+            "buyer_name",
+            "buyer_document_number",
+            "buyer_address",
+            "updated_at",
+        ]
+    )

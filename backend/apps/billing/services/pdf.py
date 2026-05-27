@@ -3,14 +3,44 @@ from __future__ import annotations
 import base64
 import io
 from decimal import Decimal
+from pathlib import Path
 
 import qrcode
 from django.core.files.base import ContentFile
 from django.template.loader import render_to_string
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from xhtml2pdf import pisa
 
 from apps.billing.models import Invoice, InvoiceLine, TenantFiscalSettings
 from apps.billing.services.qr import build_invoice_qr_url
+
+FONTS_DIR = Path(__file__).resolve().parent.parent / "static" / "fonts"
+FONT_REGULAR = FONTS_DIR / "DejaVuSans.ttf"
+FONT_BOLD = FONTS_DIR / "DejaVuSans-Bold.ttf"
+_DEJAVU_REGISTERED = False
+
+
+def _ensure_dejavu_fonts() -> None:
+    global _DEJAVU_REGISTERED
+    if _DEJAVU_REGISTERED:
+        return
+    if not FONT_REGULAR.is_file() or not FONT_BOLD.is_file():
+        raise RuntimeError("DejaVu Sans font files are missing from billing/static/fonts.")
+    pdfmetrics.registerFont(TTFont("DejaVuSans", str(FONT_REGULAR)))
+    pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", str(FONT_BOLD)))
+    _DEJAVU_REGISTERED = True
+
+
+def _link_callback(uri: str, rel: str) -> str:
+    del rel
+    name = Path(uri).name
+    font_path = FONTS_DIR / name
+    if font_path.is_file():
+        return str(font_path)
+    if Path(uri).is_file():
+        return uri
+    raise RuntimeError(f"Unable to resolve invoice PDF asset: {uri}")
 
 
 def _format_money(value: Decimal) -> str:
@@ -61,6 +91,8 @@ def invoice_template_context(invoice: Invoice, settings: TenantFiscalSettings) -
         "tourist_tax_clause": (
             "Turistička pristojba ne podliježe oporezivanju sukladno čl. 33. st. 3. Zakona o PDV-u."
         ),
+        "font_regular": "DejaVuSans.ttf",
+        "font_bold": "DejaVuSans-Bold.ttf",
     }
 
 
@@ -70,9 +102,15 @@ def render_invoice_html(invoice: Invoice, settings: TenantFiscalSettings) -> str
 
 
 def render_invoice_pdf(invoice: Invoice, settings: TenantFiscalSettings) -> None:
+    _ensure_dejavu_fonts()
     html = render_invoice_html(invoice, settings)
     buffer = io.BytesIO()
-    pdf = pisa.CreatePDF(html, dest=buffer, encoding="UTF-8")
+    pdf = pisa.CreatePDF(
+        html,
+        dest=buffer,
+        encoding="UTF-8",
+        link_callback=_link_callback,
+    )
     if pdf.err:
         raise RuntimeError("Failed to generate invoice PDF.")
     filename = f"invoice-{invoice.invoice_number.replace('/', '-')}.pdf"

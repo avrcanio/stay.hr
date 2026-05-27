@@ -3,6 +3,8 @@ from django.contrib import admin, messages
 from django.utils.html import format_html
 
 from apps.billing.models import FiscalizationAttempt, Invoice, InvoiceLine, TenantFiscalSettings
+from apps.billing.services.issue import get_fiscal_settings_for_reservation, refresh_invoice_buyer_from_reservation
+from apps.billing.services.pdf import render_invoice_pdf
 from apps.billing.tasks import fiscalize_invoice
 from apps.core.admin import SuperuserOnlyAdminMixin
 from apps.tenants.models import Tenant
@@ -122,6 +124,21 @@ def retry_fiscalization(modeladmin, request, queryset):
     )
 
 
+@admin.action(description="Regeneriraj PDF")
+def regenerate_invoice_pdf(modeladmin, request, queryset):
+    count = 0
+    for invoice in queryset.select_related("tenant", "reservation"):
+        refresh_invoice_buyer_from_reservation(invoice)
+        settings = get_fiscal_settings_for_reservation(invoice.reservation)
+        render_invoice_pdf(invoice, settings)
+        count += 1
+    modeladmin.message_user(
+        request,
+        f"Regenerated PDF for {count} invoice(s).",
+        level=messages.SUCCESS,
+    )
+
+
 @admin.register(Invoice)
 class InvoiceAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     list_display = (
@@ -142,6 +159,8 @@ class InvoiceAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
         "sequence_number",
         "issued_at",
         "buyer_name",
+        "buyer_document_number",
+        "buyer_address",
         "payment_method",
         "payment_note",
         "subtotal",
@@ -161,7 +180,7 @@ class InvoiceAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
         "updated_at",
     )
     inlines = [InvoiceLineInline]
-    actions = [retry_fiscalization]
+    actions = [retry_fiscalization, regenerate_invoice_pdf]
 
     @admin.display(description="PDF")
     def pdf_link(self, obj: Invoice | None) -> str:

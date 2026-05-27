@@ -29,6 +29,8 @@ class BuiltInvoiceLine:
 @dataclass(frozen=True)
 class BuiltInvoice:
     buyer_name: str
+    buyer_document_number: str
+    buyer_address: str
     payment_method: str
     payment_note: str
     lines: tuple[BuiltInvoiceLine, ...]
@@ -61,6 +63,20 @@ def resolve_buyer_name(reservation: Reservation) -> str:
     if booker:
         return booker
     raise InvoiceBuildError("Primary guest name is required for the invoice.")
+
+
+def resolve_buyer_identity(reservation: Reservation) -> tuple[str, str]:
+    primary = reservation.guests.filter(is_primary=True).first()
+    document_number = ""
+    address = ""
+    if primary is not None:
+        document_number = (primary.document_number or "").strip()
+        if not document_number:
+            document_number = (primary.personal_id_number or "").strip()
+        address = (primary.address or "").strip()
+    if not address:
+        address = (reservation.booker_address or "").strip()
+    return document_number, address
 
 
 def _guest_counts_label(reservation: Reservation) -> str:
@@ -161,8 +177,11 @@ def build_invoice_from_reservation(
     total = _quantize(sum(line.line_total for line in lines))
 
     payment_method = resolve_payment_method(reservation)
+    buyer_document_number, buyer_address = resolve_buyer_identity(reservation)
     return BuiltInvoice(
         buyer_name=resolve_buyer_name(reservation),
+        buyer_document_number=buyer_document_number,
+        buyer_address=buyer_address,
         payment_method=payment_method,
         payment_note=build_payment_note(reservation, payment_method),
         lines=tuple(lines),

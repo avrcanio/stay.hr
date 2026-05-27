@@ -4,13 +4,23 @@
   <meta charset="utf-8">
   <title>Račun {{ invoice.invoice_number }}</title>
   <style>
+    @font-face {
+      font-family: DejaVuSans;
+      src: url("{{ font_regular }}");
+    }
+    @font-face {
+      font-family: DejaVuSans;
+      src: url("{{ font_bold }}");
+      font-weight: bold;
+    }
     @page { size: A4; margin: 1.5cm; }
-    body { font-family: DejaVu Sans, Arial, sans-serif; font-size: 11pt; color: #111; }
-    h1 { font-size: 18pt; margin: 0 0 8px; }
+    body { font-family: DejaVuSans, sans-serif; font-size: 11pt; color: #111; }
+    h1 { font-size: 18pt; margin: 0 0 8px; font-weight: bold; }
+    strong { font-weight: bold; }
     .muted { color: #555; }
     table { width: 100%; border-collapse: collapse; margin-top: 16px; }
     th, td { border: 1px solid #999; padding: 6px 8px; text-align: left; }
-    th { background: #f3f3f3; }
+    th { background: #f3f3f3; font-weight: bold; }
     .right { text-align: right; }
     .totals { margin-top: 12px; font-weight: bold; }
     .footer { margin-top: 24px; font-size: 10pt; line-height: 1.5; }
@@ -31,7 +41,11 @@
     {% if settings.issuer_iban %}<br>IBAN: {{ settings.issuer_iban }}{% endif %}
   </p>
 
-  <p><strong>Kupac:</strong><br>{{ invoice.buyer_name }}</p>
+  <p><strong>Kupac:</strong><br>
+    {{ invoice.buyer_name }}
+    {% if invoice.buyer_document_number %}<br>Broj dokumenta: {{ invoice.buyer_document_number }}{% endif %}
+    {% if invoice.buyer_address %}<br>Adresa: {{ invoice.buyer_address|linebreaksbr }}{% endif %}
+  </p>
 
   <table>
     <thead>

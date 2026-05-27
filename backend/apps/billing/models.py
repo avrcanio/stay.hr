@@ -117,6 +117,8 @@ class Invoice(TenantScopedModel):
     sequence_number = models.PositiveIntegerField()
     issued_at = models.DateTimeField()
     buyer_name = models.CharField(max_length=255)
+    buyer_document_number = models.CharField(max_length=64, blank=True, default="")
+    buyer_address = models.TextField(blank=True, default="")
     payment_method = models.CharField(
         max_length=16,
         choices=PaymentMethod.choices,

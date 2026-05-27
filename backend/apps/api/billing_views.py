@@ -49,6 +49,8 @@ class InvoiceSerializerMixin:
             "invoice_number": invoice.invoice_number,
             "issued_at": invoice.issued_at.isoformat(),
             "buyer_name": invoice.buyer_name,
+            "buyer_document_number": invoice.buyer_document_number,
+            "buyer_address": invoice.buyer_address,
             "payment_method": invoice.payment_method,
             "payment_note": invoice.payment_note,
             "subtotal": str(invoice.subtotal),
