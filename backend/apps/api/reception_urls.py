@@ -19,6 +19,8 @@ from apps.api.reception_channex_views import (
 )
 from apps.api.billing_views import (
     InvoicePdfView,
+    ReservationInvoicePdfView,
+    ReservationInvoiceSendEmailView,
     ReservationInvoiceView,
 )
 from apps.api.reception_views import (
@@ -74,6 +76,16 @@ urlpatterns = [
         "reservations/<int:pk>/invoice/",
         ReservationInvoiceView.as_view(),
         name="reception-reservation-invoice",
+    ),
+    path(
+        "reservations/<int:pk>/invoice/pdf/",
+        ReservationInvoicePdfView.as_view(),
+        name="reception-reservation-invoice-pdf",
+    ),
+    path(
+        "reservations/<int:pk>/invoice/send-email/",
+        ReservationInvoiceSendEmailView.as_view(),
+        name="reception-reservation-invoice-send-email",
     ),
     path(
         "invoices/<int:invoice_id>/pdf/",

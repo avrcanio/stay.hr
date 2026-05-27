@@ -155,6 +155,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
     check_in_allowed = serializers.SerializerMethodField()
     check_in_blocked_code = serializers.SerializerMethodField()
     confirmation_pdf_url = serializers.SerializerMethodField()
+    invoice_summary = serializers.SerializerMethodField()
     property_slug = serializers.CharField(source="property.slug", read_only=True)
     property_name = serializers.CharField(source="property.name", read_only=True)
 
@@ -175,6 +176,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
             "total_amount",
             "currency",
             "booker_name",
+            "booker_email",
             "booker_phone",
             "booker_address",
             "booker_country",
@@ -207,6 +209,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
             "evisitor_summary",
             "check_in_allowed",
             "check_in_blocked_code",
+            "invoice_summary",
         )
 
     def get_primary_guest_name(self, obj):
@@ -265,6 +268,27 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
         if not request:
             return ""
         return reservation_confirmation_pdf_url(obj, request)
+
+    def get_invoice_summary(self, obj):
+        from apps.billing.models import TenantFiscalSettings
+
+        tenant = self._tenant_for_check_in(obj)
+        settings = TenantFiscalSettings.objects.filter(tenant=tenant).first()
+        if settings is None or not settings.is_vat_registered:
+            return None
+        invoice = getattr(obj, "invoice", None)
+        if invoice is None:
+            return None
+        return {
+            "id": invoice.pk,
+            "invoice_number": invoice.invoice_number,
+            "fiscal_status": invoice.fiscal_status,
+            "jir": invoice.jir,
+            "zki": invoice.zki,
+            "email_sent_at": invoice.email_sent_at.isoformat() if invoice.email_sent_at else None,
+            "total": str(invoice.total),
+            "currency": invoice.currency,
+        }
 
 
 _ALLOWED_STATUS_TRANSITIONS = {

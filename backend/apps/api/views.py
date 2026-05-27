@@ -24,8 +24,15 @@ from apps.reservations.models import Reservation, ReservationUnit
 from apps.tenants.models import ChannelManager
 
 
+def _billing_feature_flags(tenant) -> dict[str, bool]:
+    from apps.billing.models import TenantFiscalSettings
+
+    settings = TenantFiscalSettings.objects.filter(tenant=tenant).first()
+    return {"guest_invoices": bool(settings and settings.is_vat_registered)}
+
+
 def _feature_flags_for_channel_manager(channel_manager: str) -> dict[str, bool]:
-    return {
+    flags = {
         "public_booking": True,
         "availability_api": True,
         "channel_panel": channel_manager == ChannelManager.CHANNEX,
@@ -36,6 +43,7 @@ def _feature_flags_for_channel_manager(channel_manager: str) -> dict[str, bool]:
             ChannelManager.NONE,
         },
     }
+    return flags
 
 
 def _channel_manager_for_tenant(tenant) -> str:
@@ -79,12 +87,14 @@ class AppConfigView(TenantAPIView):
             .order_by("property__name", "code")
         )
         channel_manager = _channel_manager_for_tenant(tenant)
+        feature_flags = _feature_flags_for_channel_manager(channel_manager)
+        feature_flags.update(_billing_feature_flags(tenant))
         payload = {
             "tenant": tenant,
             "properties": properties,
             "units": units,
             "channel_manager": channel_manager,
-            "feature_flags": _feature_flags_for_channel_manager(channel_manager),
+            "feature_flags": feature_flags,
         }
         data = AppConfigSerializer(payload).data
         data["branding"] = {}

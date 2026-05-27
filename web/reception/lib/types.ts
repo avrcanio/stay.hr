@@ -76,11 +76,24 @@ export type GuestLite = {
 
 export type EvisitorSummary = "none" | "incomplete" | "complete" | "checked_out";
 
+export type InvoiceSummary = {
+  id: number;
+  invoice_number: string;
+  fiscal_status: string;
+  jir: string | null;
+  zki: string | null;
+  email_sent_at: string | null;
+  total?: string;
+  currency?: string;
+};
+
 export type ReservationDetail = Reservation & {
   units?: ReservationUnit[];
   guests: GuestLite[];
   booker_name: string;
+  booker_email?: string;
   booker_phone: string;
+  invoice_summary?: InvoiceSummary | null;
   booking_code?: string;
   notes: string;
   source: string;

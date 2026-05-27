@@ -12,3 +12,15 @@ export function stayProxyPath(apiV1Path: string): string {
 export function reservationConfirmationPdfPath(reservationId: number): string {
   return `/api/stay/reception/reservations/${reservationId}/confirmation-pdf/`;
 }
+
+export function reservationInvoicePath(reservationId: number): string {
+  return `/api/stay/reception/reservations/${reservationId}/invoice/`;
+}
+
+export function reservationInvoicePdfPath(reservationId: number): string {
+  return `/api/stay/reception/reservations/${reservationId}/invoice/pdf/`;
+}
+
+export function reservationInvoiceSendEmailPath(reservationId: number): string {
+  return `/api/stay/reception/reservations/${reservationId}/invoice/send-email/`;
+}

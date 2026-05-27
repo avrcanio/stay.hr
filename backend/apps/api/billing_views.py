@@ -1,16 +1,41 @@
 from __future__ import annotations
 
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.api.reception_views import ReceptionReadView
+from apps.api.reception_views import ReceptionReadView, ReceptionWriteView
 from apps.billing.models import Invoice, TenantFiscalSettings
 from apps.billing.services.pdf import render_invoice_html
-from apps.reservations.models import Reservation
+from apps.communications.invoice_email import send_invoice_email
+from apps.reservations.models import Guest, Reservation
+
+
+def _get_reservation_invoice(request, pk: int) -> tuple[Reservation, Invoice]:
+    reservation = get_object_or_404(
+        Reservation.objects.for_tenant(request.tenant).select_related("invoice"),
+        pk=pk,
+    )
+    invoice = getattr(reservation, "invoice", None)
+    if invoice is None:
+        raise Invoice.DoesNotExist
+    return reservation, invoice
+
+
+def _vat_settings_for_tenant(tenant) -> TenantFiscalSettings | None:
+    settings = TenantFiscalSettings.objects.filter(tenant=tenant).first()
+    if settings is None or not settings.is_vat_registered:
+        return None
+    return settings
+
+
+class InvoiceSendEmailSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False, allow_blank=True)
 
 
 class InvoiceSerializerMixin:
@@ -61,6 +86,76 @@ class ReservationInvoiceView(ReceptionReadView, InvoiceSerializerMixin, APIView)
         if invoice is None:
             return Response({"detail": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(self.serialize_invoice(invoice))
+
+
+class ReservationInvoicePdfView(ReceptionReadView, APIView):
+    def get(self, request, pk: int):
+        if _vat_settings_for_tenant(request.tenant) is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            _reservation, invoice = _get_reservation_invoice(request, pk)
+        except Invoice.DoesNotExist:
+            return Response({"detail": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not invoice.pdf_file:
+            return Response({"detail": "PDF not available."}, status=status.HTTP_404_NOT_FOUND)
+        return FileResponse(
+            invoice.pdf_file.open("rb"),
+            as_attachment=True,
+            filename=f"racun-{invoice.invoice_number.replace('/', '-')}.pdf",
+            content_type="application/pdf",
+        )
+
+
+class ReservationInvoiceSendEmailView(ReceptionWriteView, APIView):
+    def post(self, request, pk: int):
+        if _vat_settings_for_tenant(request.tenant) is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            reservation, invoice = _get_reservation_invoice(request, pk)
+        except Invoice.DoesNotExist:
+            return Response({"detail": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = InvoiceSendEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        raw_email = (serializer.validated_data.get("email") or "").strip()
+        guest_email_saved = False
+
+        if raw_email:
+            try:
+                validate_email(raw_email)
+            except ValidationError:
+                return Response(
+                    {"status": "error", "reason": "invalid_email"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            primary_guest = reservation.guests.filter(is_primary=True).first()
+            if primary_guest is None:
+                return Response(
+                    {"status": "error", "reason": "no_primary_guest"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            primary_guest.email = raw_email
+            primary_guest.save(update_fields=["email", "updated_at"])
+            guest_email_saved = True
+
+        result = send_invoice_email(invoice.pk)
+        if result.get("status") == "sent":
+            return Response(
+                {
+                    "status": "sent",
+                    "recipient": result.get("recipient"),
+                    "guest_email_saved": guest_email_saved,
+                }
+            )
+        if result.get("reason") == "no_smtp":
+            return Response(
+                {"status": "skipped", "reason": "no_smtp"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {"status": "skipped", "reason": result.get("reason", "no_recipient")},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class InvoicePdfView(ReceptionReadView, APIView):

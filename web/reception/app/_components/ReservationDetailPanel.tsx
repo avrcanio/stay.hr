@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { BookingPdfImportForm } from "@/app/_components/BookingPdfImportForm";
 import { CountryFlag } from "@/app/_components/CountryFlag";
 import { GuestList } from "@/app/_components/GuestList";
+import { ReservationInvoiceSection } from "@/app/_components/ReservationInvoiceSection";
 import { ReservationMoveDatesModal } from "@/app/_components/ReservationMoveDatesModal";
 import { useImportSourceLabel, useReservationStatusLabel } from "@/lib/i18n-ui";
 import {
@@ -20,7 +21,7 @@ import {
   statusConfirmKey,
   statusSuccessKey,
 } from "@/lib/reservationStatusTransitions";
-import type { BookingPdfImportResult, ReservationDetail, ReservationStatus } from "@/lib/types";
+import type { AppConfig, BookingPdfImportResult, ReservationDetail, ReservationStatus } from "@/lib/types";
 import { reservationStatusClass } from "@/lib/reservationUi";
 
 type Props = {
@@ -41,6 +42,7 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
   const [loading, setLoading] = useState(true);
   const [statusChanging, setStatusChanging] = useState(false);
   const [moveDatesOpen, setMoveDatesOpen] = useState(false);
+  const [guestInvoices, setGuestInvoices] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -56,6 +58,15 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
       setLoading(false);
     }
   }, [reservationId, t, tc]);
+
+  useEffect(() => {
+    void fetch("/api/stay/app/config")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((config: AppConfig | null) => {
+        setGuestInvoices(Boolean(config?.feature_flags?.guest_invoices));
+      })
+      .catch(() => setGuestInvoices(false));
+  }, []);
 
   useEffect(() => {
     setMoveDatesOpen(false);
@@ -211,6 +222,10 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
             {t("downloadPdf")}
           </a>
         </p>
+      ) : null}
+
+      {guestInvoices && reservation.status === "checked_out" ? (
+        <ReservationInvoiceSection reservation={reservation} onReservationUpdated={load} />
       ) : null}
 
       {canMoveDates || nextStatuses.length > 0 ? (
