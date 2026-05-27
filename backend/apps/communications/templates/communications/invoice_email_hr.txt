@@ -1,0 +1,12 @@
+Pozdrav {{ booker_name }},
+
+u prilogu Vam šaljemo račun za boravak u {{ property_name }}.
+
+Broj računa: {{ invoice_number }}
+Rezervacija: {{ booking_code }}
+
+Račun možete pregledati i ispisati na sljedećoj poveznici:
+{{ invoice_url }}
+
+Lijep pozdrav,
+{{ property_name }}

@@ -18,6 +18,7 @@ hospira-*.json
 *-firebase-adminsdk-*.json
 .wp_photos/
 google-services (hospira).json
+*.p12
 .imports/
 node_modules/
 web/**/.next/

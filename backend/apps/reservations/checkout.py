@@ -1,7 +1,13 @@
+from __future__ import annotations
+
+import logging
+
 from apps.integrations.evisitor.service import checkout_reservation_guests_in_evisitor
 from apps.integrations.evisitor.summary import evisitor_summary_for_reservation
 from apps.reservations.guest_slots import remove_unfilled_secondary_guests
 from apps.reservations.models import Reservation
+
+logger = logging.getLogger(__name__)
 
 
 class CheckoutBlockedError(Exception):
@@ -38,5 +44,26 @@ def perform_reservation_checkout(
         )
 
     checkout_reservation_guests_in_evisitor(reservation)
+
+    from apps.billing.exceptions import FiscalConfigError, InvoiceBuildError
+    from apps.billing.services.issue import issue_guest_invoice, should_issue_invoice_on_checkout
+    from apps.billing.tasks import fiscalize_invoice, send_invoice_email_task
+    from apps.communications.invoice_email import resolve_invoice_recipient
+
+    if should_issue_invoice_on_checkout(reservation):
+        try:
+            invoice = issue_guest_invoice(reservation)
+            fiscalize_invoice.delay(invoice.pk)
+            if resolve_invoice_recipient(reservation):
+                send_invoice_email_task.delay(invoice.pk)
+        except FiscalConfigError as exc:
+            raise CheckoutBlockedError("fiscal_config_incomplete", str(exc)) from exc
+        except InvoiceBuildError as exc:
+            logger.warning(
+                "Checkout invoice build failed reservation_id=%s: %s",
+                reservation.pk,
+                exc,
+            )
+
     reservation.status = Reservation.Status.CHECKED_OUT
     reservation.save(update_fields=["status", "updated_at"])

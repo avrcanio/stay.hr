@@ -1,0 +1,12 @@
+Hello {{ booker_name }},
+
+Please find your invoice for your stay at {{ property_name }}.
+
+Invoice number: {{ invoice_number }}
+Booking: {{ booking_code }}
+
+View and print your invoice:
+{{ invoice_url }}
+
+Kind regards,
+{{ property_name }}

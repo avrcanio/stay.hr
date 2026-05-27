@@ -1,0 +1,10 @@
+<p>Hello {{ booker_name }},</p>
+<p>Please find your invoice for your stay at <strong>{{ property_name }}</strong>.</p>
+<p>
+  Invoice number: <strong>{{ invoice_number }}</strong><br>
+  Booking: <strong>{{ booking_code }}</strong>
+</p>
+<p>
+  <a href="{{ invoice_url }}">View and print invoice</a>
+</p>
+<p>Kind regards,<br>{{ property_name }}</p>

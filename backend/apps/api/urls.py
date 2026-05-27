@@ -5,6 +5,7 @@ from apps.api.auth_views import (
     ReceptionLogoutView,
     ReceptionSessionView,
 )
+from apps.api.billing_views import PublicInvoiceHtmlView, PublicInvoicePdfView
 from apps.api.views import (
     AppConfigView,
     PublicAvailabilityView,
@@ -41,6 +42,16 @@ urlpatterns = [
         "public/reservations",
         PublicReservationCreateView.as_view(),
         name="public-reservations",
+    ),
+    path(
+        "public/invoices/<uuid:public_access_token>/",
+        PublicInvoiceHtmlView.as_view(),
+        name="public-invoice-html",
+    ),
+    path(
+        "public/invoices/<uuid:public_access_token>/pdf/",
+        PublicInvoicePdfView.as_view(),
+        name="public-invoice-pdf",
     ),
     path(
         "public/reservations/<str:booking_code>",

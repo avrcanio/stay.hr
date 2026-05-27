@@ -354,6 +354,15 @@ class ReservationUpdateSerializer(serializers.ModelSerializer):
                             )
                         }
                     ) from exc
+                if exc.code == "fiscal_config_incomplete":
+                    raise serializers.ValidationError(
+                        {
+                            "status": (
+                                "Odjava nije moguća: PDV/fiskalni podaci tenant-a nisu potpuno "
+                                "postavljeni u adminu."
+                            )
+                        }
+                    ) from exc
                 raise serializers.ValidationError(
                     {"status": "Nedozvoljen prijelaz statusa rezervacije."}
                 ) from exc

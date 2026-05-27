@@ -17,6 +17,10 @@ from apps.api.reception_channex_views import (
     ReceptionReservationChannexMessagesView,
     ReceptionReservationCreateView,
 )
+from apps.api.billing_views import (
+    InvoicePdfView,
+    ReservationInvoiceView,
+)
 from apps.api.reception_views import (
     BookingPdfImportView,
     DocumentPhotosUploadView,
@@ -65,6 +69,16 @@ urlpatterns = [
         "reservations/<int:pk>/confirmation-pdf/",
         ReservationConfirmationPdfView.as_view(),
         name="reception-reservation-confirmation-pdf",
+    ),
+    path(
+        "reservations/<int:pk>/invoice/",
+        ReservationInvoiceView.as_view(),
+        name="reception-reservation-invoice",
+    ),
+    path(
+        "invoices/<int:invoice_id>/pdf/",
+        InvoicePdfView.as_view(),
+        name="reception-invoice-pdf",
     ),
     path(
         "reservations/<int:pk>/",

@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "apps.communications",
     "apps.legacy_import",
     "apps.tourist_tax",
+    "apps.billing",
     "apps.api",
 ]
 
