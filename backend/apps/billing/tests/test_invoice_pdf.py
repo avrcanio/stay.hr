@@ -49,6 +49,7 @@ class InvoicePdfTests(TestCase):
             status=Reservation.Status.CHECKED_OUT,
             booker_name="Kris Meeus",
             booker_address="Bruxellesstraat 1, 2800 Mechelen",
+            external_id="5898434847",
             amount=Decimal("201.65"),
             adults_count=4,
             payment_provider="Booking.com",
@@ -113,6 +114,7 @@ class InvoicePdfTests(TestCase):
         self.assertIn("Način", html)
         self.assertIn("čl. 33.", html)
         self.assertIn("Broj dokumenta: BE1234567", html)
+        self.assertIn("Broj rezervacije: 5898434847", html)
         self.assertIn("Bruxellesstraat 1", html)
 
     def test_invoice_template_context_utf8(self):

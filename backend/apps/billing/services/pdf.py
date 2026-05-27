@@ -47,6 +47,17 @@ def _format_money(value: Decimal) -> str:
     return f"{value.quantize(Decimal('0.01')):.2f}".replace(".", ",")
 
 
+def resolve_reservation_number(invoice: Invoice) -> str:
+    reservation = invoice.reservation
+    booking_code = (reservation.booking_code or "").strip()
+    if booking_code:
+        return booking_code
+    external_id = (reservation.external_id or "").strip()
+    if external_id:
+        return external_id
+    return str(reservation.pk)
+
+
 def _qr_data_uri(invoice: Invoice) -> str:
     url = build_invoice_qr_url(invoice)
     if not url:
@@ -84,6 +95,7 @@ def invoice_template_context(invoice: Invoice, settings: TenantFiscalSettings) -
         "vat_amount": _format_money(invoice.vat_amount),
         "total": _format_money(invoice.total),
         "issued_at_display": invoice.issued_at.strftime("%d.%m.%Y %H:%M"),
+        "reservation_number": resolve_reservation_number(invoice),
         "jir_display": invoice.jir or "u obradi",
         "zki_display": invoice.zki,
         "operator_code": settings.operator_code or settings.issuer_oib,

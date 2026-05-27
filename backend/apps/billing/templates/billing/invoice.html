@@ -33,6 +33,9 @@
 <body>
   <h1>Račun {{ invoice.invoice_number }}</h1>
   <p class="muted">Datum izdavanja: {{ issued_at_display }}</p>
+  {% if reservation_number %}
+  <p class="muted">Broj rezervacije: {{ reservation_number }}</p>
+  {% endif %}
 
   <p><strong>Izdavatelj:</strong><br>
     {{ settings.issuer_name }}<br>
