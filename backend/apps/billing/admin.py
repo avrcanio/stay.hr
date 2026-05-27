@@ -5,6 +5,7 @@ from django.utils.html import format_html
 from apps.billing.models import FiscalizationAttempt, Invoice, InvoiceLine, TenantFiscalSettings
 from apps.billing.tasks import fiscalize_invoice
 from apps.core.admin import SuperuserOnlyAdminMixin
+from apps.tenants.models import Tenant
 
 
 class TenantFiscalSettingsInlineForm(forms.ModelForm):
