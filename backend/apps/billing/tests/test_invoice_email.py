@@ -70,5 +70,9 @@ class InvoiceEmailTests(TestCase):
         result = send_invoice_email(invoice.pk)
         self.assertEqual(result["status"], "sent")
         mock_send.assert_called_once()
+        message = mock_send.call_args[0][0]
+        html_body = message.alternatives[0][0]
+        self.assertIn(f"/api/v1/public/invoices/{invoice.public_access_token}/", html_body)
+        self.assertIn(f"/api/v1/public/invoices/{invoice.public_access_token}/pdf/", html_body)
         invoice.refresh_from_db()
         self.assertEqual(invoice.email_recipient, "guest@example.com")

@@ -8,5 +8,8 @@ Booking: {{ booking_code }}
 View and print your invoice:
 {{ invoice_url }}
 
+Download PDF:
+{{ invoice_pdf_url }}
+
 Kind regards,
 {{ property_name }}

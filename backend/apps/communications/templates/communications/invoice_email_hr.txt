@@ -8,5 +8,8 @@ Rezervacija: {{ booking_code }}
 Račun možete pregledati i ispisati na sljedećoj poveznici:
 {{ invoice_url }}
 
+Preuzimanje PDF-a:
+{{ invoice_pdf_url }}
+
 Lijep pozdrav,
 {{ property_name }}
