@@ -51,6 +51,7 @@ class InvoiceSerializerMixin:
             "buyer_name": invoice.buyer_name,
             "buyer_document_number": invoice.buyer_document_number,
             "buyer_address": invoice.buyer_address,
+            "buyer_country": invoice.buyer_country,
             "payment_method": invoice.payment_method,
             "payment_note": invoice.payment_note,
             "subtotal": str(invoice.subtotal),

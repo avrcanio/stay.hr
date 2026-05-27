@@ -119,6 +119,7 @@ class Invoice(TenantScopedModel):
     buyer_name = models.CharField(max_length=255)
     buyer_document_number = models.CharField(max_length=64, blank=True, default="")
     buyer_address = models.TextField(blank=True, default="")
+    buyer_country = models.CharField(max_length=64, blank=True, default="")
     payment_method = models.CharField(
         max_length=16,
         choices=PaymentMethod.choices,

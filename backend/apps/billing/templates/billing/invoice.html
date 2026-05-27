@@ -48,6 +48,7 @@
     {{ invoice.buyer_name }}
     {% if invoice.buyer_document_number %}<br>Broj dokumenta: {{ invoice.buyer_document_number }}{% endif %}
     {% if invoice.buyer_address %}<br>Adresa: {{ invoice.buyer_address|linebreaksbr }}{% endif %}
+    {% if invoice.buyer_country %}<br>Država: {{ invoice.buyer_country }}{% endif %}
   </p>
 
   <table>

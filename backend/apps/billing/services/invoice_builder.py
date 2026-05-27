@@ -5,6 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from apps.billing.exceptions import FiscalConfigError, InvoiceBuildError
 from apps.billing.models import InvoiceLine, TenantFiscalSettings
+from apps.billing.services.country_names_hr import country_display_name_hr
 from apps.billing.services.payment import build_payment_note, resolve_payment_method
 from apps.reservations.models import Guest, Reservation
 from apps.tourist_tax.services.calculator import (
@@ -31,6 +32,7 @@ class BuiltInvoice:
     buyer_name: str
     buyer_document_number: str
     buyer_address: str
+    buyer_country: str
     payment_method: str
     payment_note: str
     lines: tuple[BuiltInvoiceLine, ...]
@@ -77,6 +79,21 @@ def resolve_buyer_identity(reservation: Reservation) -> tuple[str, str]:
     if not address:
         address = (reservation.booker_address or "").strip()
     return document_number, address
+
+
+def resolve_buyer_country(reservation: Reservation) -> str:
+    primary = reservation.guests.filter(is_primary=True).first()
+    if primary is not None:
+        nationality = country_display_name_hr(primary.nationality)
+        if nationality:
+            return nationality
+        document_country = (primary.document_country or "").strip()
+        if document_country:
+            return document_country
+        document_iso2 = country_display_name_hr(primary.document_country_iso2)
+        if document_iso2:
+            return document_iso2
+    return country_display_name_hr(reservation.booker_country)
 
 
 def _guest_counts_label(reservation: Reservation) -> str:
@@ -178,10 +195,12 @@ def build_invoice_from_reservation(
 
     payment_method = resolve_payment_method(reservation)
     buyer_document_number, buyer_address = resolve_buyer_identity(reservation)
+    buyer_country = resolve_buyer_country(reservation)
     return BuiltInvoice(
         buyer_name=resolve_buyer_name(reservation),
         buyer_document_number=buyer_document_number,
         buyer_address=buyer_address,
+        buyer_country=buyer_country,
         payment_method=payment_method,
         payment_note=build_payment_note(reservation, payment_method),
         lines=tuple(lines),

@@ -88,6 +88,7 @@ def issue_guest_invoice(reservation: Reservation) -> Invoice:
         buyer_name=built.buyer_name,
         buyer_document_number=built.buyer_document_number,
         buyer_address=built.buyer_address,
+        buyer_country=built.buyer_country,
         payment_method=built.payment_method,
         payment_note=built.payment_note,
         subtotal=built.subtotal,
@@ -128,6 +129,7 @@ def should_issue_invoice_on_checkout(reservation: Reservation) -> bool:
 def refresh_invoice_buyer_from_reservation(invoice: Invoice) -> None:
     """Refresh buyer snapshot from reservation before PDF regeneration."""
     from apps.billing.services.invoice_builder import (
+        resolve_buyer_country,
         resolve_buyer_identity,
         resolve_buyer_name,
     )
@@ -137,11 +139,13 @@ def refresh_invoice_buyer_from_reservation(invoice: Invoice) -> None:
     document_number, address = resolve_buyer_identity(reservation)
     invoice.buyer_document_number = document_number
     invoice.buyer_address = address
+    invoice.buyer_country = resolve_buyer_country(reservation)
     invoice.save(
         update_fields=[
             "buyer_name",
             "buyer_document_number",
             "buyer_address",
+            "buyer_country",
             "updated_at",
         ]
     )

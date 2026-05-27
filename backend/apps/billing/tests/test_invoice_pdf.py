@@ -60,7 +60,7 @@ class InvoicePdfTests(TestCase):
             first_name="Kris",
             last_name="Meeus",
             is_primary=True,
-            document_number="BE1234567",
+            nationality="BE",
             address="Bruxellesstraat 1, 2800 Mechelen",
         )
         cls.invoice = Invoice.objects.create(
@@ -72,6 +72,7 @@ class InvoicePdfTests(TestCase):
             buyer_name="Kris Meeus",
             buyer_document_number="BE1234567",
             buyer_address="Bruxellesstraat 1, 2800 Mechelen",
+            buyer_country="Belgija",
             payment_method=Invoice.PaymentMethod.BOOKING,
             payment_note=(
                 "Plaćeno u cijelosti online putem posrednika Booking.com. "
@@ -115,6 +116,7 @@ class InvoicePdfTests(TestCase):
         self.assertIn("čl. 33.", html)
         self.assertIn("Broj dokumenta: BE1234567", html)
         self.assertIn("Broj rezervacije: 5898434847", html)
+        self.assertIn("Država: Belgija", html)
         self.assertIn("Bruxellesstraat 1", html)
 
     def test_invoice_template_context_utf8(self):
@@ -163,3 +165,4 @@ class InvoicePdfTests(TestCase):
         built = build_invoice_from_reservation(self.reservation, self.settings)
         self.assertEqual(built.buyer_document_number, "BE1234567")
         self.assertIn("Mechelen", built.buyer_address)
+        self.assertEqual(built.buyer_country, "Belgija")
