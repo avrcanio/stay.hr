@@ -107,17 +107,40 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
   async function patchStatus(newStatus: ReservationStatus) {
     if (!reservation) return;
 
-    const confirmKey = statusConfirmKey(newStatus);
-    if (confirmKey && !window.confirm(t(confirmKey))) return;
+    let waivedFees: boolean | undefined;
+    if (newStatus === "no_show") {
+      const confirmKey = statusConfirmKey(newStatus);
+      if (confirmKey && !window.confirm(t(confirmKey))) return;
+
+      if (reservation.import_source === "channex") {
+        if (window.confirm(t("noShowConfirmWaive"))) {
+          waivedFees = true;
+        } else if (window.confirm(t("noShowConfirmCharge"))) {
+          waivedFees = false;
+        } else {
+          return;
+        }
+      }
+    } else {
+      const confirmKey = statusConfirmKey(newStatus);
+      if (confirmKey && !window.confirm(t(confirmKey))) return;
+    }
 
     setStatusChanging(true);
     setActionMessage("");
     setError("");
     try {
+      const payload: { status: ReservationStatus; waived_fees?: boolean } = {
+        status: newStatus,
+      };
+      if (newStatus === "no_show" && waivedFees !== undefined) {
+        payload.waived_fees = waivedFees;
+      }
+
       const res = await fetch(`/api/stay/reception/reservations/${reservation.id}/`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as {
@@ -247,6 +270,7 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
               const actionKey = statusActionKey(nextStatus);
               if (!actionKey) return null;
               const isCancel = nextStatus === "canceled";
+              const isNoShow = nextStatus === "no_show";
               const isCheckIn = nextStatus === "checked_in";
               const disabled =
                 statusChanging || (isCheckIn && isCheckInActionDisabled(reservation));
@@ -254,7 +278,7 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
                 <button
                   key={nextStatus}
                   type="button"
-                  className={isCancel ? "btn-danger" : "btn btn-sm"}
+                  className={isCancel || isNoShow ? "btn-danger" : "btn btn-sm"}
                   disabled={disabled}
                   onClick={() => void patchStatus(nextStatus)}
                 >

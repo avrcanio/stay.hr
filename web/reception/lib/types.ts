@@ -7,7 +7,7 @@ export type TenantOption = {
   slug: string;
 };
 
-export type ReservationStatus = "expected" | "checked_in" | "checked_out" | "canceled" | "pending" | "refused";
+export type ReservationStatus = "expected" | "checked_in" | "checked_out" | "canceled" | "no_show" | "pending" | "refused";
 
 export type ReservationUnit = {
   id: number;

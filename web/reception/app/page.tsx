@@ -148,6 +148,7 @@ export default function TimelinePage() {
               <option value="checked_in">{tr("statusCheckedIn")}</option>
               <option value="checked_out">{tr("statusCheckedOut")}</option>
               <option value="canceled">{tr("statusCanceled")}</option>
+              <option value="no_show">{tr("statusNoShow")}</option>
             </select>
           </div>
           <div className="min-w-[200px] flex-1">

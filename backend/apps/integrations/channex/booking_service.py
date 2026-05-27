@@ -173,11 +173,24 @@ def _upsert_reservation_from_revision(
             "persons_count": adults + child_count,
         }
 
+    incoming_status = _map_reservation_status(str(attrs.get("status") or ""))
+    existing = Reservation.objects.filter(
+        tenant=tenant,
+        external_id=channex_external_id(booking_id),
+    ).first()
+    mapped_status = incoming_status
+    if (
+        existing is not None
+        and existing.status == Reservation.Status.NO_SHOW
+        and incoming_status == Reservation.Status.CANCELED
+    ):
+        mapped_status = Reservation.Status.NO_SHOW
+
     defaults: dict[str, Any] = {
         "property": property,
         "check_in": check_in,
         "check_out": check_out,
-        "status": _map_reservation_status(str(attrs.get("status") or "")),
+        "status": mapped_status,
         "booking_status": str(attrs.get("status") or ""),
         "booker_name": _customer_name(customer),
         "booker_email": str(customer.get("mail") or "").strip(),
@@ -193,7 +206,7 @@ def _upsert_reservation_from_revision(
         "nights_count": nights or None,
         "notes": str(attrs.get("notes") or "").strip(),
         "canceled_at": timezone.now()
-        if _map_reservation_status(str(attrs.get("status") or "")) == Reservation.Status.CANCELED
+        if mapped_status == Reservation.Status.CANCELED
         else None,
         "details_pending": False,
     }
@@ -251,7 +264,10 @@ def _upsert_reservation_from_revision(
         reservation.units_count = units_count
         reservation.save(update_fields=["units_count", "updated_at"])
 
-    if customer and reservation.status != Reservation.Status.CANCELED:
+    if customer and reservation.status not in {
+        Reservation.Status.CANCELED,
+        Reservation.Status.NO_SHOW,
+    }:
         first = str(customer.get("name") or "").strip() or "Guest"
         last = str(customer.get("surname") or "").strip()
         guest_defaults = {
@@ -279,7 +295,10 @@ def _upsert_reservation_from_revision(
             adults_count=reservation.adults_count,
         )
 
-    if reservation.status != Reservation.Status.CANCELED and units_count:
+    if (
+        reservation.status not in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}
+        and units_count
+    ):
         flag_ingest_overbooking(reservation)
 
     return reservation, created

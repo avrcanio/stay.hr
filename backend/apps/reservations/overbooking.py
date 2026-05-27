@@ -64,7 +64,8 @@ def find_conflicts(
         ReservationUnit.objects.filter(
             tenant=tenant,
             unit_id__isnull=False,
-            reservation__status__in=Reservation.OPERATIONAL_STATUSES - {Reservation.Status.CANCELED},
+            reservation__status__in=Reservation.OPERATIONAL_STATUSES
+            - {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW},
         )
         .select_related("unit", "reservation")
         .order_by("unit_id", "reservation_id")
@@ -157,7 +158,7 @@ def _incumbent_reservation_for_unit(
 
 
 def find_ingest_conflicts(reservation: Reservation) -> list[tuple[Unit, Reservation]]:
-    if reservation.status == Reservation.Status.CANCELED:
+    if reservation.status in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}:
         return []
 
     conflicts: list[tuple[Unit, Reservation]] = []

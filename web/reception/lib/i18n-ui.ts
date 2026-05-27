@@ -10,6 +10,7 @@ const statusKeys: Record<ReservationStatus, string> = {
   checked_in: "statusCheckedIn",
   checked_out: "statusCheckedOut",
   canceled: "statusCanceled",
+  no_show: "statusNoShow",
   pending: "statusPending",
   refused: "statusRefused",
 };

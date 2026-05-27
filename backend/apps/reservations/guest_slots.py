@@ -22,7 +22,7 @@ def ensure_adult_guest_slots(
     adults_count: int | None,
 ) -> int:
     """Add placeholder guests until count matches adults_count. Returns number created."""
-    if reservation.status == Reservation.Status.CANCELED:
+    if reservation.status in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}:
         return 0
 
     existing_count = reservation.guests.count()

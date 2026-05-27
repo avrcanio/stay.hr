@@ -5,6 +5,7 @@ export const statusClass: Record<string, string> = {
   checked_in: "badge-checked_in",
   checked_out: "badge-checked_out",
   canceled: "badge-canceled",
+  no_show: "badge-no_show",
   pending: "badge-expected",
   refused: "badge-canceled",
 };
@@ -14,6 +15,7 @@ export const statusBarClass: Record<string, string> = {
   checked_in: "bg-emerald-200 border-emerald-500 text-emerald-950",
   checked_out: "bg-slate-200 border-slate-400 text-slate-800",
   canceled: "bg-red-100 border-red-300 text-red-900",
+  no_show: "bg-orange-100 border-orange-300 text-orange-950",
   pending: "bg-amber-200 border-amber-400 text-amber-950",
   refused: "bg-red-100 border-red-300 text-red-900",
 };

@@ -91,6 +91,13 @@ class ChannexClient:
     def list_message_thread_messages(self, thread_id: str) -> dict[str, Any]:
         return self._request("GET", f"/message_threads/{thread_id}/messages")
 
+    def report_no_show(self, booking_id: str, *, waived_fees: bool) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/bookings/{booking_id}/no_show",
+            json={"no_show_report": {"waived_fees": waived_fees}},
+        )
+
     @staticmethod
     def extract_task_ids(response: dict[str, Any]) -> list[str]:
         task_ids: list[str] = []

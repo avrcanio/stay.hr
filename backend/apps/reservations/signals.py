@@ -9,7 +9,7 @@ from apps.reservations.models import Reservation
 def reservation_created_notify(sender, instance: Reservation, created: bool, **kwargs):
     if not created:
         return
-    if instance.status == Reservation.Status.CANCELED:
+    if instance.status in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}:
         return
 
     from apps.reservations.booking_lifecycle import is_web_pending_booking
@@ -27,7 +27,7 @@ def reservation_created_notify(sender, instance: Reservation, created: bool, **k
 def reservation_outbound_on_create(sender, instance: Reservation, created: bool, **kwargs):
     if not created:
         return
-    if instance.status == Reservation.Status.CANCELED:
+    if instance.status in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}:
         return
 
     from apps.integrations.channel_manager.tasks import sync_reservation_outbound_task
@@ -79,7 +79,7 @@ def reservation_outbound_on_update(sender, instance: Reservation, created: bool,
         return
 
     def queue_updates():
-        if instance.status == Reservation.Status.CANCELED:
+        if instance.status in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}:
             sync_reservation_outbound_task.delay(instance.pk, "remove")
             return
 

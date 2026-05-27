@@ -295,17 +295,21 @@ _ALLOWED_STATUS_TRANSITIONS = {
     Reservation.Status.EXPECTED: {
         Reservation.Status.CHECKED_IN,
         Reservation.Status.CANCELED,
+        Reservation.Status.NO_SHOW,
     },
     Reservation.Status.CHECKED_IN: {Reservation.Status.CHECKED_OUT},
     Reservation.Status.CHECKED_OUT: set(),
     Reservation.Status.CANCELED: set(),
+    Reservation.Status.NO_SHOW: set(),
 }
 
 
 class ReservationUpdateSerializer(serializers.ModelSerializer):
+    waived_fees = serializers.BooleanField(required=False, default=True, write_only=True)
+
     class Meta:
         model = Reservation
-        fields = ("status", "check_in", "check_out")
+        fields = ("status", "check_in", "check_out", "waived_fees")
 
     def validate(self, attrs):
         instance = self.instance
@@ -354,7 +358,31 @@ class ReservationUpdateSerializer(serializers.ModelSerializer):
         return attrs
 
     def update(self, instance, validated_data):
+        waived_fees = validated_data.pop("waived_fees", True)
         new_status = validated_data.get("status", instance.status)
+        if (
+            instance.status == Reservation.Status.EXPECTED
+            and new_status == Reservation.Status.NO_SHOW
+        ):
+            from apps.integrations.channex.ari_service import get_active_channex_integration
+            from apps.integrations.channex.exceptions import ChannexBookingIngestError
+            from apps.integrations.channex.no_show_service import (
+                is_channex_no_show_eligible,
+                report_no_show_for_reservation,
+            )
+
+            if is_channex_no_show_eligible(instance):
+                try:
+                    integration = get_active_channex_integration(instance.tenant.slug)
+                    report_no_show_for_reservation(
+                        integration,
+                        instance,
+                        waived_fees=waived_fees,
+                    )
+                except ChannexBookingIngestError as exc:
+                    raise serializers.ValidationError({"status": str(exc)}) from exc
+            validated_data["booking_status"] = "no_show"
+
         if (
             instance.status == Reservation.Status.CHECKED_IN
             and new_status == Reservation.Status.CHECKED_OUT

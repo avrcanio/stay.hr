@@ -811,3 +811,29 @@ class ReceptionAPITests(TestCase):
         reservation.refresh_from_db()
         self.assertEqual(reservation.property_id, other_property.id)
 
+    @patch("apps.core.tasks.notify_reservation_status_changed.delay")
+    def test_patch_status_to_no_show(self, mock_notify_status):
+        response = self.client.patch(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            {"status": Reservation.Status.NO_SHOW, "waived_fees": True},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], Reservation.Status.NO_SHOW)
+        self.reservation.refresh_from_db()
+        self.assertEqual(self.reservation.status, Reservation.Status.NO_SHOW)
+        self.assertEqual(self.reservation.booking_status, "no_show")
+        mock_notify_status.assert_called_once()
+
+    def test_patch_status_to_no_show_rejected_from_checked_in(self):
+        self.reservation.status = Reservation.Status.CHECKED_IN
+        self.reservation.save(update_fields=["status", "updated_at"])
+        response = self.client.patch(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            {"status": Reservation.Status.NO_SHOW},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+
