@@ -15,6 +15,7 @@ from apps.integrations.channex.ari_payload import (
     restriction_delta_from_update,
 )
 from apps.integrations.channex.booking_test import certification_property_slug
+from apps.integrations.channex.mapping import channex_push_rate_for_unit
 from apps.integrations.channex.client import ChannexClient
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.channex.exceptions import ChannexBookingIngestError
@@ -300,6 +301,11 @@ def apply_rate_updates(
             current += timedelta(days=1)
 
         sample = saved[-1]
+        push_rate = (
+            channex_push_rate_for_unit(unit_code, sample.rate)
+            if "rate" in item
+            else None
+        )
         if day == day_to:
             outbox_values.append(
                 restriction_delta_from_update(
@@ -308,6 +314,7 @@ def apply_rate_updates(
                     property_id=property_id,
                     rate_plan_id=rate_plan.channex_rate_plan_id,
                     day=day.isoformat(),
+                    rate_override=push_rate,
                 )
             )
         else:
@@ -319,6 +326,7 @@ def apply_rate_updates(
                     rate_plan_id=rate_plan.channex_rate_plan_id,
                     date_from=day.isoformat(),
                     date_to=day_to.isoformat(),
+                    rate_override=push_rate,
                 )
             )
 
@@ -731,6 +739,10 @@ def _build_full_sync_inventory(
             sample_day = range_from + timedelta(days=(range_to - range_from).days // 2)
             for plan in rate_plans:
                 restrictions = _inventory_restrictions_for_day(plan, sample_day)
+                restrictions = {
+                    **restrictions,
+                    "rate": channex_push_rate_for_unit(plan.unit.code, restrictions["rate"]),
+                }
                 restriction_values.append(
                     build_restriction_value(
                         property_id=property_id,

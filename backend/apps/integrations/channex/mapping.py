@@ -7,7 +7,14 @@ Production UUIDs: Luxury Room Uzorita B&B on app.channex.io (property bca8473d-â
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import TypedDict
+
+# Booking.com OBP reduction model: primary occupancy = max adults (full/normal price).
+# stay.hr stores 1-adult base; Channex push = normal price, auto decrease for fewer guests.
+# Optional per-unit override when Booking channel rejects max occupancy (e.g. R6 fallback).
+UZORITA_BOOKING_OBP_PRIMARY_OCCUPANCY: dict[str, int] = {}
+UZORITA_BOOKING_OBP_ADULT_DELTA = Decimal("5.00")
 
 
 class ChannexRoomTypeMapping(TypedDict):
@@ -98,6 +105,12 @@ UZORITA_PRODUCTION_RATE_PLANS: dict[str, ChannexRatePlanMapping] = {
 }
 
 UZORITA_PRODUCTION_PROPERTY_ID = "bca8473d-7c36-4986-bcdb-b5760b633283"
+
+
+def channex_push_rate_for_unit(unit_code: str, stay_rate: Decimal) -> Decimal:
+    from apps.integrations.pricing.obp import channex_push_rate_for_unit as _push_rate
+
+    return _push_rate(unit_code, stay_rate)
 
 
 def _units_by_code(tenant_slug: str = "uzorita") -> dict[str, object]:

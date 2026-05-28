@@ -19,6 +19,17 @@ import {
   ratePlansForRoom,
   type RoomRatePlan,
 } from "@/lib/channelCalendarAri";
+import {
+  formatObpTierLabel,
+  formatObpTierReductionSuffix,
+  formatObpTooltip,
+  obpAnchorAdultsFromRates,
+  obpExpandedTierTemplates,
+  obpRateForTier,
+  obpTierFromRates,
+  obpTierKey,
+  type ObpTierTemplate,
+} from "@/lib/obpPricing";
 import { addDaysIso, todayIso } from "@/lib/utils";
 
 const ROOM_COL_WIDTH = "8.5rem";
@@ -232,12 +243,14 @@ function RatePlanRow({
   today,
   ratesByDate,
   locale,
+  showBaseTierLabel = true,
 }: {
   plan: RoomRatePlan;
   days: CalendarDay[];
   today: string;
   ratesByDate?: Record<string, ChannelRateDay[]>;
   locale: string;
+  showBaseTierLabel?: boolean;
 }) {
   const t = useTranslations("calendar");
 
@@ -253,6 +266,83 @@ function RatePlanRow({
       {days.map((day) => {
         const rateRow = rateForPlanOnDate(ratesByDate, day.iso, plan.code);
         const formattedRate = rateRow ? formatChannelRateValue(rateRow.rate, locale) : null;
+        const obpTooltip =
+          rateRow && rateRow.obp_tiers?.length
+            ? formatObpTooltip(rateRow.obp_tiers, rateRow.currency, locale, t("obpBaseRate"))
+            : null;
+        const ariaRate = formattedRate
+          ? obpTooltip
+            ? `${formattedRate} — ${obpTooltip.replace(/\n/g, "; ")}`
+            : formattedRate
+          : null;
+        return (
+          <div
+            key={day.iso}
+            className={`flex flex-col items-center justify-center border-r border-stay-border px-0.5 text-[9px] font-medium text-stay-navy last:border-r-0 ${dayBackgroundClass(day, today)}`}
+            style={{ minWidth: DAY_MIN_WIDTH }}
+            title={obpTooltip ?? (formattedRate ? t("channelRateDayAria", { plan: plan.title, date: day.iso, rate: formattedRate }) : undefined)}
+            aria-label={
+              ariaRate
+                ? t("channelRateDayAria", { plan: plan.title, date: day.iso, rate: ariaRate })
+                : undefined
+            }
+          >
+            {formattedRate ? (
+              <>
+                <span className="truncate">{formattedRate}</span>
+                {showBaseTierLabel && rateRow?.obp_tiers?.length ? (
+                  <span className="truncate text-[8px] font-normal text-stay-muted">
+                    {formatObpTierLabel(rateRow.obp_tiers[0], locale)}
+                  </span>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ObpTierRow({
+  tier,
+  plan,
+  days,
+  today,
+  ratesByDate,
+  locale,
+}: {
+  tier: ObpTierTemplate;
+  plan: RoomRatePlan;
+  days: CalendarDay[];
+  today: string;
+  ratesByDate?: Record<string, ChannelRateDay[]>;
+  locale: string;
+}) {
+  const t = useTranslations("calendar");
+  const tierLabel = formatObpTierLabel({ ...tier, rate: "0" }, locale);
+  const sampleRow = days
+    .map((day) => rateForPlanOnDate(ratesByDate, day.iso, plan.code))
+    .find((row) => row?.obp_tiers?.length);
+  const tierData = obpTierFromRates(sampleRow?.obp_tiers, tier.adults, tier.children);
+  const reductionSuffix =
+    sampleRow && tierData
+      ? formatObpTierReductionSuffix(tierData, sampleRow.currency, locale)
+      : null;
+
+  const gridStyle = {
+    display: "grid" as const,
+    gridTemplateColumns: `repeat(${days.length}, minmax(${DAY_MIN_WIDTH}, 1fr))`,
+    minWidth: daysScrollMinWidth(days.length),
+    height: RATE_ROW_HEIGHT,
+  };
+
+  return (
+    <div className="border-t border-stay-border/40 bg-slate-50/50" style={gridStyle}>
+      {days.map((day) => {
+        const rateRow = rateForPlanOnDate(ratesByDate, day.iso, plan.code);
+        const rate = obpRateForTier(rateRow?.obp_tiers, tier.adults, tier.children);
+        const formattedRate = rate ? formatChannelRateValue(rate, locale) : null;
         return (
           <div
             key={day.iso}
@@ -260,12 +350,11 @@ function RatePlanRow({
             style={{ minWidth: DAY_MIN_WIDTH }}
             title={
               formattedRate
-                ? t("channelRateDayAria", { plan: plan.title, date: day.iso, rate: formattedRate })
-                : undefined
-            }
-            aria-label={
-              formattedRate
-                ? t("channelRateDayAria", { plan: plan.title, date: day.iso, rate: formattedRate })
+                ? t("channelRateDayAria", {
+                    plan: `${plan.title} (${tierLabel}${reductionSuffix ? ` ${reductionSuffix}` : ""})`,
+                    date: day.iso,
+                    rate: formattedRate,
+                  })
                 : undefined
             }
           >
@@ -274,6 +363,139 @@ function RatePlanRow({
         );
       })}
     </div>
+  );
+}
+
+function RatePlanLabelSection({
+  plan,
+  expanded,
+  canExpand,
+  onToggle,
+  tierTemplates,
+  ratesByDate,
+  locale,
+}: {
+  plan: RoomRatePlan;
+  expanded: boolean;
+  canExpand: boolean;
+  onToggle: () => void;
+  tierTemplates: ObpTierTemplate[];
+  ratesByDate?: Record<string, ChannelRateDay[]>;
+  locale: string;
+}) {
+  const t = useTranslations("calendar");
+  const anchorAdults = obpAnchorAdultsFromRates(ratesByDate, plan.code);
+  const sampleRow = ratesByDate
+    ? Object.values(ratesByDate)
+        .flat()
+        .find((row) => row.rate_plan_code === plan.code && row.obp_tiers?.length)
+    : undefined;
+  const labelContent = (
+    <>
+      {canExpand ? (
+        <span className="mr-0.5 shrink-0 text-[8px] leading-none" aria-hidden>
+          {expanded ? "▼" : "▶"}
+        </span>
+      ) : null}
+      <span className="truncate">{plan.title}</span>
+    </>
+  );
+
+  if (!canExpand) {
+    return (
+      <div
+        className="flex items-center truncate border-t border-stay-border/60 pl-5 pr-2 text-[10px] font-medium text-stay-muted"
+        style={{ height: RATE_ROW_HEIGHT }}
+        title={plan.title}
+      >
+        {plan.title}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="flex w-full items-center truncate border-t border-stay-border/60 pl-5 pr-2 text-left text-[10px] font-medium text-stay-muted hover:bg-slate-50 hover:text-stay-navy"
+        style={{ height: RATE_ROW_HEIGHT }}
+        aria-expanded={expanded}
+        aria-label={expanded ? t("obpCollapseRates") : t("obpExpandRates")}
+        title={plan.title}
+        onClick={onToggle}
+      >
+        {labelContent}
+      </button>
+      {expanded
+        ? tierTemplates.map((tier) => {
+            const tierData = obpTierFromRates(sampleRow?.obp_tiers, tier.adults, tier.children);
+            const reductionSuffix =
+              sampleRow && tierData
+                ? formatObpTierReductionSuffix(tierData, sampleRow.currency, locale)
+                : null;
+            const isNormalTier =
+              tier.children === 0 && anchorAdults !== null && tier.adults === anchorAdults;
+            return (
+            <div
+              key={obpTierKey(tier)}
+              className="flex items-center truncate border-t border-stay-border/40 bg-slate-50/50 pl-6 pr-2 text-[9px] text-stay-muted"
+              style={{ height: RATE_ROW_HEIGHT }}
+            >
+              {formatObpTierLabel({ ...tier, rate: "0" }, locale)}
+              {isNormalTier ? (
+                <span className="ml-1 truncate text-[8px]">· {t("obpNormalRate", { occupancy: anchorAdults })}</span>
+              ) : reductionSuffix ? (
+                <span className="ml-1 truncate text-[8px]">· {reductionSuffix}</span>
+              ) : null}
+            </div>
+            );
+          })
+        : null}
+    </>
+  );
+}
+
+function RatePlanRatesSection({
+  plan,
+  days,
+  today,
+  ratesByDate,
+  locale,
+  expanded,
+  tierTemplates,
+}: {
+  plan: RoomRatePlan;
+  days: CalendarDay[];
+  today: string;
+  ratesByDate?: Record<string, ChannelRateDay[]>;
+  locale: string;
+  expanded: boolean;
+  tierTemplates: ObpTierTemplate[];
+}) {
+  return (
+    <>
+      <RatePlanRow
+        plan={plan}
+        days={days}
+        today={today}
+        ratesByDate={ratesByDate}
+        locale={locale}
+        showBaseTierLabel={!expanded}
+      />
+      {expanded
+        ? tierTemplates.map((tier) => (
+            <ObpTierRow
+              key={obpTierKey(tier)}
+              tier={tier}
+              plan={plan}
+              days={days}
+              today={today}
+              ratesByDate={ratesByDate}
+              locale={locale}
+            />
+          ))
+        : null}
+    </>
   );
 }
 
@@ -295,6 +517,8 @@ function RoomRow({
   onSyncChange,
   onScroll,
   locale,
+  obpExpanded,
+  onToggleObp,
 }: {
   room: Room;
   days: CalendarDay[];
@@ -313,6 +537,8 @@ function RoomRow({
   onSyncChange: (enabled: boolean) => void;
   onScroll: (scrollLeft: number) => void;
   locale: string;
+  obpExpanded: boolean;
+  onToggleObp: () => void;
 }) {
   const t = useTranslations("calendar");
   const roomBlocks = standaloneBlocks(blocks.filter((b) => b.unit_id === room.id));
@@ -353,16 +579,23 @@ function RoomRow({
           />
           <span className="truncate">{room.code}</span>
         </div>
-        {ratePlans.map((plan) => (
-          <div
-            key={plan.code}
-            className="flex items-center truncate border-t border-stay-border/60 pl-5 pr-2 text-[10px] font-medium text-stay-muted"
-            style={{ height: RATE_ROW_HEIGHT }}
-            title={plan.title}
-          >
-            {plan.title}
-          </div>
-        ))}
+        {ratePlans.map((plan) => {
+          const tierTemplates = obpExpandedTierTemplates(channelRatesByDate, plan.code);
+          const canExpand = tierTemplates.length > 0;
+          const expanded = obpExpanded && canExpand;
+          return (
+            <RatePlanLabelSection
+              key={plan.code}
+              plan={plan}
+              expanded={expanded}
+              canExpand={canExpand}
+              onToggle={onToggleObp}
+              tierTemplates={tierTemplates}
+              ratesByDate={channelRatesByDate}
+              locale={locale}
+            />
+          );
+        })}
       </div>
 
       <div
@@ -431,16 +664,22 @@ function RoomRow({
           })}
         </div>
 
-        {ratePlans.map((plan) => (
-          <RatePlanRow
-            key={plan.code}
-            plan={plan}
-            days={days}
-            today={today}
-            ratesByDate={channelRatesByDate}
-            locale={locale}
-          />
-        ))}
+        {ratePlans.map((plan) => {
+          const tierTemplates = obpExpandedTierTemplates(channelRatesByDate, plan.code);
+          const expanded = obpExpanded && tierTemplates.length > 0;
+          return (
+            <RatePlanRatesSection
+              key={plan.code}
+              plan={plan}
+              days={days}
+              today={today}
+              ratesByDate={channelRatesByDate}
+              locale={locale}
+              expanded={expanded}
+              tierTemplates={tierTemplates}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -469,6 +708,7 @@ export function RoomCalendarGrid({
   const [syncByRoom, setSyncByRoom] = useState<Record<number, boolean>>(() =>
     Object.fromEntries(rooms.map((room) => [room.id, true])),
   );
+  const [obpExpandedByRoom, setObpExpandedByRoom] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     setSyncByRoom((prev) => {
@@ -547,6 +787,10 @@ export function RoomCalendarGrid({
     }
   }, []);
 
+  const toggleObpExpanded = useCallback((roomId: number) => {
+    setObpExpandedByRoom((prev) => ({ ...prev, [roomId]: !prev[roomId] }));
+  }, []);
+
   const setRowRef = useCallback((roomId: number) => {
     return (node: HTMLDivElement | null) => {
       rowRefs.current[roomId] = node;
@@ -603,6 +847,8 @@ export function RoomCalendarGrid({
             onSyncChange={(enabled) => handleSyncChange(room.id, enabled)}
             onScroll={(scrollLeft) => handleRowScroll(room.id, scrollLeft)}
             locale={locale}
+            obpExpanded={obpExpandedByRoom[room.id] ?? false}
+            onToggleObp={() => toggleObpExpanded(room.id)}
           />
         ))}
       </div>

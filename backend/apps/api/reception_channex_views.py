@@ -23,6 +23,7 @@ from apps.integrations.channex.ari_service import (
 from apps.properties.models import Property, Unit
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.models import ChannelRatePlan, ChannexAriOutbox, RatePlanDay, UnitAvailabilityDay
+from apps.integrations.pricing.obp import get_obp_policy, serialize_obp_policy, serialize_rate_obp_fields
 from apps.integrations.channex.ari_views import (
     AvailabilityUpdateItemSerializer,
     RateUpdateItemSerializer,
@@ -87,6 +88,7 @@ def _channel_rate_plans_queryset(tenant, integration):
 
 
 def _serialize_channel_rate_plan(plan: ChannelRatePlan) -> dict:
+    policy = get_obp_policy(plan.unit.code)
     return {
         "id": plan.id,
         "unit_code": plan.unit.code,
@@ -95,7 +97,26 @@ def _serialize_channel_rate_plan(plan: ChannelRatePlan) -> dict:
         "title": plan.title or plan.code,
         "default_rate": format(plan.default_rate.quantize(Decimal("0.01")), "f"),
         "currency": plan.currency,
+        "obp": serialize_obp_policy(policy, plan.default_rate, plan.unit.code),
     }
+
+
+def _serialize_channel_rate_day(row: RatePlanDay) -> dict:
+    unit_code = row.rate_plan.unit.code
+    base_rate = row.rate.quantize(Decimal("0.01"))
+    payload = {
+        "unit_id": row.rate_plan.unit_id,
+        "unit_code": unit_code,
+        "rate_plan_code": row.rate_plan.code,
+        "rate_plan_title": row.rate_plan.title or row.rate_plan.code,
+        "currency": row.rate_plan.currency,
+        "date": row.date.isoformat(),
+        "rate": format(base_rate, "f"),
+        "stop_sell": row.stop_sell,
+        "min_stay_arrival": row.min_stay_arrival or 1,
+    }
+    payload.update(serialize_rate_obp_fields(base_rate, unit_code))
+    return payload
 
 
 class ChannelRatePlanUpdateItemSerializer(serializers.Serializer):
@@ -189,20 +210,7 @@ class ReceptionChannelCalendarAriView(ReceptionReadView, APIView):
                     }
                     for row in availability_rows
                 ],
-                "rates": [
-                    {
-                        "unit_id": row.rate_plan.unit_id,
-                        "unit_code": row.rate_plan.unit.code,
-                        "rate_plan_code": row.rate_plan.code,
-                        "rate_plan_title": row.rate_plan.title or row.rate_plan.code,
-                        "currency": row.rate_plan.currency,
-                        "date": row.date.isoformat(),
-                        "rate": format(row.rate.quantize(Decimal("0.01")), "f"),
-                        "stop_sell": row.stop_sell,
-                        "min_stay_arrival": row.min_stay_arrival or 1,
-                    }
-                    for row in rate_rows
-                ],
+                "rates": [_serialize_channel_rate_day(row) for row in rate_rows],
             }
         )
 

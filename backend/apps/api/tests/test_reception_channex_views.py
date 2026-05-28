@@ -122,6 +122,10 @@ class ReceptionChannexViewsTests(TestCase):
         self.assertEqual(row["code"], "standard")
         self.assertEqual(row["default_rate"], "95.00")
         self.assertEqual(row["currency"], "GBP")
+        self.assertIn("obp", row)
+        self.assertEqual(row["obp"]["base_adults"], 1)
+        self.assertEqual(row["obp"]["adult_delta"], "5.00")
+        self.assertEqual(row["obp"]["child_fee"], "2.00")
         self.assertTrue(
             ChannelRatePlan.objects.filter(
                 tenant=self.tenant,
@@ -237,6 +241,16 @@ class ReceptionChannexViewsTests(TestCase):
         self.assertEqual(len(data["rates"]), 1)
         self.assertEqual(data["rates"][0]["rate_plan_code"], "standard")
         self.assertEqual(data["rates"][0]["rate"], "95.00")
+        self.assertIn("obp_tiers", data["rates"][0])
+        self.assertEqual(len(data["rates"][0]["obp_tiers"]), 2)
+        self.assertEqual(data["rates"][0]["obp_tiers"][0]["adults"], 1)
+        self.assertEqual(data["rates"][0]["obp_tiers"][0]["rate"], "95.00")
+        self.assertEqual(data["rates"][0]["obp_tiers"][1]["adults"], 2)
+        self.assertEqual(data["rates"][0]["obp_tiers"][1]["rate"], "100.00")
+        self.assertEqual(data["rates"][0]["obp_primary_occupancy_adults"], 2)
+        self.assertEqual(data["rates"][0]["obp_anchor_adults"], 2)
+        self.assertEqual(data["rates"][0]["obp_normal_rate"], "100.00")
+        self.assertEqual(data["rates"][0]["channex_push_rate"], "100.00")
 
     def test_calendar_channel_ari_requires_from_and_to(self):
         self._login()

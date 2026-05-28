@@ -7,6 +7,9 @@ import { ReservationDetailPanel } from "@/app/_components/ReservationDetailPanel
 import { overlapsDay } from "@/lib/calendarLayout";
 import { formatChannelRateValue } from "@/lib/channelCalendarAri";
 import {
+  formatObpTierList,
+} from "@/lib/obpPricing";
+import {
   freeUnitsForNight,
   isDayTappable,
   isUnitFreeForRange,
@@ -321,7 +324,8 @@ export function RoomCalendarDayDetail({
                     <thead>
                       <tr className="border-b text-left text-muted">
                         <th className="py-2 pr-3 font-medium">{t("channelRatePlan")}</th>
-                        <th className="py-2 pr-3 font-medium">{t("channelRate")}</th>
+                        <th className="py-2 pr-3 font-medium">{t("obpBaseRate")}</th>
+                        <th className="py-2 pr-3 font-medium">{t("obpTiers")}</th>
                         <th className="py-2 pr-3 font-medium">{t("channelMinStay")}</th>
                         <th className="py-2 font-medium">{t("channelStopSell")}</th>
                       </tr>
@@ -332,6 +336,28 @@ export function RoomCalendarDayDetail({
                           <td className="py-2 pr-3">{row.rate_plan_title || row.rate_plan_code}</td>
                           <td className="py-2 pr-3 font-medium">
                             {formatChannelRateValue(row.rate, locale)} {row.currency}
+                            {row.channex_push_rate ? (
+                              <div className="text-xs font-normal text-muted">
+                                {t("obpChannexPushNote", {
+                                  rate: formatChannelRateValue(row.channex_push_rate, locale),
+                                  occupancy: row.obp_primary_occupancy_adults ?? row.obp_anchor_adults ?? 2,
+                                })}
+                              </div>
+                            ) : null}
+                            {row.obp_normal_rate && row.channex_push_rate ? (
+                              <div className="text-xs font-normal text-muted">
+                                {t("obpNormalRate", {
+                                  occupancy: row.obp_anchor_adults ?? row.obp_primary_occupancy_adults ?? 2,
+                                })}
+                                {": "}
+                                {formatChannelRateValue(row.obp_normal_rate, locale)} {row.currency}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td className="py-2 pr-3 text-xs text-stay-navy">
+                            {row.obp_tiers?.length
+                              ? formatObpTierList(row.obp_tiers, row.currency, locale)
+                              : "—"}
                           </td>
                           <td className="py-2 pr-3">{row.min_stay_arrival}</td>
                           <td className="py-2">{row.stop_sell ? t("yes") : t("no")}</td>

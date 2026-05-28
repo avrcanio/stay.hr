@@ -92,11 +92,12 @@ def restriction_delta_from_update(
     day: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    rate_override: Decimal | None = None,
 ) -> dict[str, Any]:
     """Build Channex restrictions payload with only fields present in the update item."""
     kwargs: dict[str, Any] = {}
     if "rate" in item:
-        kwargs["rate"] = sample.rate
+        kwargs["rate"] = rate_override if rate_override is not None else sample.rate
     for field in RESTRICTION_DELTA_FIELDS:
         if field in item:
             kwargs[field] = getattr(sample, field)

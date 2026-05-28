@@ -145,6 +145,25 @@ export type ChannelAvailabilityDay = {
   availability: number;
 };
 
+export type ObpTier = {
+  adults: number;
+  children: number;
+  rate: string;
+  reduction_from_normal?: string;
+};
+
+export type ObpPolicy = {
+  mode: string;
+  base_adults: number;
+  adult_delta: string;
+  child_fee: string;
+  max_adults: number;
+  primary_occupancy_adults: number;
+  anchor_adults?: number;
+  normal_rate?: string;
+  tiers_at_default_rate: ObpTier[];
+};
+
 export type ChannelRateDay = {
   unit_id: number;
   unit_code: string;
@@ -155,6 +174,11 @@ export type ChannelRateDay = {
   rate: string;
   stop_sell: boolean;
   min_stay_arrival: number;
+  obp_tiers?: ObpTier[];
+  channex_push_rate?: string;
+  obp_primary_occupancy_adults?: number;
+  obp_anchor_adults?: number;
+  obp_normal_rate?: string;
 };
 
 export type ChannelCalendarAri = {

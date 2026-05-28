@@ -57,8 +57,8 @@ U Channex Mapping tabu za **svaki** Booking red odaberi odgovarajući **Channel 
 |------|-----------------|-------------------|
 | R1 | King, max 2 | 2 / 2 / 1 / 1 |
 | R2 | King, max 3 | 3 / 2 / 2 / 1 |
-| R3 | Triple, max 3–4 | 4 / 3 / 3 / 3 |
-| R6 | Double, max 3–4 | 4 / 3 / 3 / 3 |
+| R3 | Triple, max 4 gostiju (**max 3 odrasla**) | 4 / 3 / 3 / 3 |
+| R6 | Double, max 4 gostiju (**max 3 odrasla**) | 4 / 3 / 3 / 3 |
 
 OBP pricing na kanalu — cijene po occupancy moraju biti usklađene u Channex rate planu i stay.hr syncu.
 
@@ -254,6 +254,72 @@ Deploy nakon code changea:
 ```bash
 docker compose exec django python manage.py migrate
 docker compose build django && docker compose up -d django celery-worker
+```
+
+---
+
+## Pricing policy 2026 (sezona srpanj–kolovoz)
+
+**Primijenjeno:** 2026-05-28 — Booking **reduction model**: puna cijena na max odraslih, manje gostiju −5 €.
+
+**Ispravka Booking sync (2026-05-28, reduction OBP R3/R6):**
+
+| Problem | Uzrok | Fix |
+|---------|-------|-----|
+| Booking extranet prikazuje povećanje od 1 odr. umjesto smanjenja od pune cijene | stay.hr + Channex koristili increment model (primary occ=1, push baze 147 €) | Reduction model: primary **max odrasli**, push **normal** cijene, channel **occupancy = max** |
+| R3 Booking extranet **147 / 157 / 167** (ranije) | Channel mapping RLO + dupli occ=3 red | OBP + ispravan sync (vidi fazu 1 ispod) |
+
+**Ranija ispravka (2026-05-28, faza increment → zatim zamijenjena reduction modelom):**
+
+| Problem | Fix |
+|---------|-----|
+| R3 **147 / 157 / 167** umjesto **147 / 152 / 157** | Channel R3 → OBP (outbox #110) |
+| R6 dupli mapping | Jedan OBP mapping (outbox #111) |
+
+**Reduction OBP (2026-05-28, outbox #113):**
+
+| Akcija | Detalj |
+|--------|--------|
+| Rate plan R3/R6 | Primary occupancy **3**, `rate_mode: auto`, `±5 €` |
+| Rate plan R1/R2 | Primary occupancy **2** |
+| Channel mapping | R3 `418195403` **OBP occ=3** · R6 `418195405` **OBP occ=3** · R1/R2 **OBP occ=2** |
+| Re-push srpanj–kolovoz 2026 | R3/R6 **157 €** (baza 147 €) · R1/R2 **118 €** (baza 113 €, outbox #115) |
+
+| Period | Sobe | Stara lista (1 odr.) | Nova lista (1 odr.) |
+|--------|------|----------------------|---------------------|
+| **2026-07-01 – 2026-08-31** | R3, R6 | 129 € | **147,00 €** |
+| **2026-07-01 – 2026-08-31** | R1, R2 | 99 € | **113,00 €** |
+| Ostatak godine | postojeći `RatePlanDay` | npr. 89–129 € | nepromijenjeno |
+
+**stay.hr pohranjuje cijenu za 1 odraslog.** Channex push šalje **punu cijenu** (normal) na primary occupancy = max odrasli; Booking prikazuje smanjenja za manje gostiju.
+
+**OBP (Channex + Booking, reduction model):**
+
+| Postavka | Vrijednost |
+|----------|------------|
+| `sell_mode` | `per_person` |
+| `rate_mode` | `auto` (± **5 €**) |
+| Primary occupancy | **max odrasli** (R3/R6: **3** · R1/R2: **2**) |
+| `children_fee` | **2.00 €** |
+| `meal_type` | `breakfast` |
+| Booking channel | **OBP** · occupancy = primary (max odrasli) |
+| Max odraslih | R1/R2: 2 · R3/R6: 3 (nema 4 odraslih) |
+
+```
+normal = baza_1_osoba + (max_odrasli − 1) × 5
+List   = normal − (max_odrasli − odrasli) × 5 + djeca × 2
+Channex push = normal
+```
+
+| Soba | Max odr. | Normal (push) | 1 odr. | 2 odr. | 3 odr. | 3 odr. + 1 dijete |
+|------|----------|---------------|--------|--------|--------|-------------------|
+| **R1/R2** | 2 | **118,00** | 113 (−5) | 118 | — | 120,00 |
+| **R3/R6** | 3 | **157,00** | 147 (−10) | 152 (−5) | 157 | 159,00 |
+
+Ponovni push iz stay.hr:
+
+```bash
+docker compose exec django python manage.py channex_ari_flush --tenant-slug uzorita
 ```
 
 ---
