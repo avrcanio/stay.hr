@@ -8,11 +8,6 @@ import {
   computeObpTiersFromPolicy,
   formatObpTierLine,
 } from "@/lib/obpPricing";
-import {
-  channexPushRateFromPolicy,
-  computeObpTiersFromPolicy,
-  formatObpTierLine,
-} from "@/lib/obpPricing";
 import { addDaysIso, todayIso } from "@/lib/utils";
 
 export type ChannelRatePlanRow = {
@@ -23,6 +18,7 @@ export type ChannelRatePlanRow = {
   title: string;
   default_rate: string;
   currency: string;
+  obp?: ObpPolicy | null;
 };
 
 export type BulkWizardPrefill = {
@@ -129,9 +125,9 @@ export function ChannelBulkWizardModal({
   initialUnitId,
   initialDateFrom,
   initialStep,
-  const locale = useLocale();
   channelRatesByUnitDate,
 }: Props) {
+  const locale = useLocale();
   const t = useTranslations("calendar.bulkWizard");
   const tc = useTranslations("common");
 
@@ -472,98 +468,94 @@ export function ChannelBulkWizardModal({
             <div className="space-y-3">
               <p className="text-sm text-muted">
                 {selectedRooms.length > 1 ? t("ratesHintMulti") : t("ratesHint")}
-                <div className="space-y-4">
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[420px] text-sm">
-                      <thead>
-                        <tr className="border-b text-left text-muted">
-                          <th className="py-2 pr-3 font-medium">{t("ratePlan")}</th>
-                          <th className="py-2 font-medium">{t("obpBaseRate")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sharedRatePlans.map((plan) => (
-                          <tr key={plan.code} className="border-b border-slate-100">
-                            <td className="py-2 pr-3">
-                              <div className="font-medium">{plan.title || plan.code}</div>
-                              <div className="text-xs text-muted">{plan.currency}</div>
-                            </td>
-                            <td className="py-2">
-                              <input
-                                className="input w-28"
-                                value={rateInputs[plan.code] ?? ""}
-                                placeholder={ratePrefillForSelectedRooms(
-                                  selectedRoomIds,
-                                  dateFrom,
-                                  plan.code,
-                                  plan.default_rate,
-                                  channelRatesByUnitDate,
-                                )}
-                                inputMode="decimal"
-                                onChange={(e) =>
-                                  setRateInputs((prev) => ({ ...prev, [plan.code]: e.target.value }))
-                                }
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {sharedRatePlans.map((plan) => {
-                    const rawRate =
-                      rateInputs[plan.code]?.trim() ||
-                      ratePrefillForSelectedRooms(
-                        selectedRoomIds,
-                        dateFrom,
-                        plan.code,
-                        plan.default_rate,
-                        channelRatesByUnitDate,
-                      );
-                    if (!rawRate.trim()) return null;
-                    const unitPlans = ratePlans.filter(
-                      (row) =>
-                        row.code === plan.code &&
-                        selectedRooms.some((room) => room.code === row.unit_code) &&
-                        row.obp,
-                    );
-                    if (unitPlans.length === 0) return null;
-                    return (
-                      <div key={`${plan.code}-preview`} className="rounded-lg border border-stay-border/70 p-3">
-                        <div className="text-sm font-medium text-stay-navy">
-                          {plan.title || plan.code} · {t("obpPreview")}
-                        </div>
-                        <div className="mt-2 space-y-2">
-                          {unitPlans.map((unitPlan) => {
-                            const tiers = computeObpTiersFromPolicy(rawRate, unitPlan.obp!);
-                            const pushRate = channexPushRateFromPolicy(rawRate, unitPlan.obp!);
-                            return (
-                              <div key={unitPlan.unit_code} className="text-xs text-stay-navy">
-                                <div className="font-medium">{unitPlan.unit_code}</div>
-                                <div className="text-muted">
-                                  {tiers.map((tier) => formatObpTierLine(tier, unitPlan.currency, locale)).join(" · ")}
-                                </div>
-                                {pushRate ? (
-                                  <div className="text-muted">
-                                    {t("obpChannexPushNote", {
-                                      rate: pushRate,
-                                      occupancy: unitPlan.obp!.primary_occupancy_adults,
-                                    })}
-                                  </div>
-                                ) : null}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
+              </p>
+              <div className="space-y-4">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[420px] text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted">
+                        <th className="py-2 pr-3 font-medium">{t("ratePlan")}</th>
+                        <th className="py-2 font-medium">{t("obpBaseRate")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sharedRatePlans.map((plan) => (
+                        <tr key={plan.code} className="border-b border-slate-100">
+                          <td className="py-2 pr-3">
+                            <div className="font-medium">{plan.title || plan.code}</div>
+                            <div className="text-xs text-muted">{plan.currency}</div>
+                          </td>
+                          <td className="py-2">
+                            <input
+                              className="input w-28"
+                              value={rateInputs[plan.code] ?? ""}
+                              placeholder={ratePrefillForSelectedRooms(
+                                selectedRoomIds,
+                                dateFrom,
+                                plan.code,
+                                plan.default_rate,
+                                channelRatesByUnitDate,
+                              )}
+                              inputMode="decimal"
+                              onChange={(e) =>
+                                setRateInputs((prev) => ({ ...prev, [plan.code]: e.target.value }))
+                              }
+                            />
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              )}
+                {sharedRatePlans.map((plan) => {
+                  const rawRate =
+                    rateInputs[plan.code]?.trim() ||
+                    ratePrefillForSelectedRooms(
+                      selectedRoomIds,
+                      dateFrom,
+                      plan.code,
+                      plan.default_rate,
+                      channelRatesByUnitDate,
+                    );
+                  if (!rawRate.trim()) return null;
+                  const unitPlans = ratePlans.filter(
+                    (row) =>
+                      row.code === plan.code &&
+                      selectedRooms.some((room) => room.code === row.unit_code) &&
+                      row.obp,
+                  );
+                  if (unitPlans.length === 0) return null;
+                  return (
+                    <div key={`${plan.code}-preview`} className="rounded-lg border border-stay-border/70 p-3">
+                      <div className="text-sm font-medium text-stay-navy">
+                        {plan.title || plan.code} · {t("obpPreview")}
+                      </div>
+                      <div className="mt-2 space-y-2">
+                        {unitPlans.map((unitPlan) => {
+                          const tiers = computeObpTiersFromPolicy(rawRate, unitPlan.obp!);
+                          const pushRate = channexPushRateFromPolicy(rawRate, unitPlan.obp!);
+                          return (
+                            <div key={unitPlan.unit_code} className="text-xs text-stay-navy">
+                              <div className="font-medium">{unitPlan.unit_code}</div>
+                              <div className="text-muted">
+                                {tiers.map((tier) => formatObpTierLine(tier, unitPlan.currency, locale)).join(" · ")}
+                              </div>
+                              {pushRate ? (
+                                <div className="text-muted">
+                                  {t("obpChannexPushNote", {
+                                    rate: pushRate,
+                                    occupancy: unitPlan.obp!.primary_occupancy_adults,
+                                  })}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : null}
 

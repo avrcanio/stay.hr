@@ -12,7 +12,7 @@ from django.utils.dateparse import parse_date, parse_datetime
 from apps.integrations.channex.booking_test import certification_property_slug
 from apps.integrations.channex.client import ChannexClient
 from apps.integrations.channex.config import ChannexBookingTestRoomLink, ChannexRuntimeConfig
-from apps.integrations.channex.exceptions import ChannexBookingIngestError
+from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
 from apps.integrations.models import ChannexBookingRevision, IntegrationConfig
 from apps.properties.models import Property, Unit
 from apps.reservations.guest_slots import ensure_adult_guest_slots
@@ -40,6 +40,67 @@ def parse_channex_booking_id(external_id: str) -> str | None:
     return booking_id or None
 
 
+def _channex_booking_lookup_codes(reservation: Reservation) -> list[str]:
+    """
+    OTA codes usable for GET /bookings?filter[ota_reservation_code]=… on legacy rows.
+
+    Legacy migrations stored internal row ids (140xxxxxx) in external_id; those are excluded.
+    """
+    codes: list[str] = []
+    seen: set[str] = set()
+
+    def add(code: str) -> None:
+        normalized = code.strip()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            codes.append(normalized)
+
+    add(reservation.booking_code or "")
+
+    external_id = (reservation.external_id or "").strip()
+    if external_id.isdigit() and not external_id.startswith("140"):
+        add(external_id)
+
+    return codes
+
+
+def _resolve_channex_booking_payload(
+    client: ChannexClient,
+    reservation: Reservation,
+) -> tuple[str, dict[str, Any], str] | None:
+    """
+    Resolve Channex booking payload for a stay.hr reservation.
+
+    Returns (booking_id, payload, lookup_method) where lookup_method is
+    ``external_id`` or ``booking_code``.
+    """
+    booking_id = parse_channex_booking_id(reservation.external_id)
+    if booking_id:
+        try:
+            payload = client.get_booking(booking_id)
+        except ChannexApiError:
+            return None
+        return booking_id, payload, "external_id"
+
+    lookup_codes = _channex_booking_lookup_codes(reservation)
+    if not lookup_codes:
+        return None
+
+    for code in lookup_codes:
+        payload = client.find_booking_by_ota_reservation_code(code)
+        if payload is None:
+            continue
+        resolved_id = str(payload.get("id") or "").strip()
+        if not resolved_id:
+            attrs = payload.get("attributes")
+            if isinstance(attrs, dict):
+                resolved_id = str(attrs.get("id") or "").strip()
+        if resolved_id:
+            return resolved_id, payload, "booking_code"
+
+    return None
+
+
 def _parse_decimal(value: Any) -> Decimal | None:
     if value is None or value == "":
         return None
@@ -47,6 +108,57 @@ def _parse_decimal(value: Any) -> Decimal | None:
         return Decimal(str(value))
     except (InvalidOperation, ValueError):
         return None
+
+
+def _commission_percent(amount: Decimal | None, commission: Decimal | None) -> Decimal | None:
+    if amount is None or commission is None or amount <= 0:
+        return None
+    return (commission / amount * Decimal("100")).quantize(Decimal("0.01"))
+
+
+def _channex_payment_provider(attrs: dict[str, Any]) -> str:
+    payment_collect = str(attrs.get("payment_collect") or "").strip().lower()
+    ota_name = str(attrs.get("ota_name") or "").strip()
+    payment_type = str(attrs.get("payment_type") or "").strip()
+
+    if payment_collect == "ota":
+        if "booking" in ota_name.lower():
+            return "Payments by Booking.com"
+        if ota_name:
+            return f"Payments by {ota_name}"
+    if payment_type:
+        return payment_type.replace("_", " ").title()
+    return ""
+
+
+def _channex_payment_status(attrs: dict[str, Any]) -> str:
+    provider = _channex_payment_provider(attrs)
+    if provider:
+        return f"Payment is facilitated through {provider}"
+    return ""
+
+
+def _channex_financial_fields(attrs: dict[str, Any]) -> dict[str, Any]:
+    """Map Channex booking revision financial attrs; omit keys when source data is absent."""
+    fields: dict[str, Any] = {}
+
+    amount = _parse_decimal(attrs.get("amount"))
+    commission = _parse_decimal(attrs.get("ota_commission"))
+    if commission is not None:
+        fields["commission_amount"] = commission
+        percent = _commission_percent(amount, commission)
+        if percent is not None:
+            fields["commission_percent"] = percent
+
+    payment_provider = _channex_payment_provider(attrs)
+    if payment_provider:
+        fields["payment_provider"] = payment_provider
+
+    payment_status = _channex_payment_status(attrs)
+    if payment_status:
+        fields["payment_status"] = payment_status
+
+    return fields
 
 
 def _parse_date(value: Any) -> date | None:
@@ -210,6 +322,7 @@ def _upsert_reservation_from_revision(
         else None,
         "details_pending": False,
     }
+    defaults.update(_channex_financial_fields(attrs))
 
     reservation, created = Reservation.objects.update_or_create(
         tenant=tenant,
@@ -436,3 +549,125 @@ def process_channex_booking_revisions_feed(
         if owns_client and client is not None:
             client.close()
     return processed
+
+
+def backfill_channex_financial_fields(
+    integration_row: IntegrationConfig,
+    *,
+    only_missing_commission: bool = True,
+    dry_run: bool = False,
+    limit: int | None = None,
+    client: ChannexClient | None = None,
+) -> dict[str, int | list[dict[str, Any]]]:
+    """
+    Fetch latest Channex booking details and apply financial fields to existing reservations.
+
+    Uses GET /bookings/:id (latest revision). Does not acknowledge revisions or re-ingest guests.
+    """
+    tenant = integration_row.tenant
+    config = ChannexRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+    owns_client = client is None
+    if owns_client:
+        client = ChannexClient(config)
+
+    stats: dict[str, int | list[dict[str, Any]]] = {
+        "processed": 0,
+        "updated": 0,
+        "skipped_has_commission": 0,
+        "skipped_no_lookup_code": 0,
+        "skipped_no_financial_data": 0,
+        "not_found": 0,
+        "errors": 0,
+        "updates": [],
+    }
+
+    reservations = (
+        Reservation.objects.filter(
+            tenant=tenant,
+            import_source="channex",
+        )
+        .order_by("id")
+    )
+    if only_missing_commission:
+        reservations = reservations.filter(commission_amount__isnull=True)
+    if limit is not None:
+        reservations = reservations[:limit]
+
+    try:
+        for reservation in reservations:
+            stats["processed"] = int(stats["processed"]) + 1
+
+            if only_missing_commission and reservation.commission_amount is not None:
+                stats["skipped_has_commission"] = int(stats["skipped_has_commission"]) + 1
+                continue
+
+            if not parse_channex_booking_id(reservation.external_id) and not _channex_booking_lookup_codes(
+                reservation
+            ):
+                stats["skipped_no_lookup_code"] = int(stats["skipped_no_lookup_code"]) + 1
+                logger.warning(
+                    "channex financial backfill: no Channex UUID or booking code",
+                    extra={"reservation_id": reservation.id, "external_id": reservation.external_id},
+                )
+                continue
+
+            try:
+                resolved = _resolve_channex_booking_payload(client, reservation)
+            except ChannexApiError as exc:
+                stats["errors"] = int(stats["errors"]) + 1
+                logger.warning(
+                    "channex financial backfill: API error",
+                    extra={
+                        "reservation_id": reservation.id,
+                        "error": str(exc),
+                    },
+                )
+                continue
+
+            if resolved is None:
+                stats["not_found"] = int(stats["not_found"]) + 1
+                continue
+
+            booking_id, payload, lookup_method = resolved
+
+            attrs = payload.get("attributes")
+            if not isinstance(attrs, dict):
+                stats["errors"] = int(stats["errors"]) + 1
+                continue
+
+            fields = _channex_financial_fields(attrs)
+            if not fields:
+                stats["skipped_no_financial_data"] = int(stats["skipped_no_financial_data"]) + 1
+                continue
+
+            update_entry = {
+                "reservation_id": reservation.id,
+                "booking_id": booking_id,
+                "booking_code": reservation.booking_code,
+                "lookup_method": lookup_method,
+                **fields,
+            }
+            updates = stats["updates"]
+            assert isinstance(updates, list)
+            updates.append(update_entry)
+
+            if dry_run:
+                continue
+
+            for key, value in fields.items():
+                setattr(reservation, key, value)
+            reservation.save(update_fields=[*fields.keys(), "updated_at"])
+            stats["updated"] = int(stats["updated"]) + 1
+            logger.info(
+                "channex financial backfill updated reservation",
+                extra={
+                    "reservation_id": reservation.id,
+                    "booking_id": booking_id,
+                    "fields": list(fields.keys()),
+                },
+            )
+    finally:
+        if owns_client and client is not None:
+            client.close()
+
+    return stats

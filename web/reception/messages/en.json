@@ -261,7 +261,15 @@
     "invoiceCreateSuccess": "Invoice {number} created.",
     "invoiceCreateFailed": "Failed to create invoice.",
     "invoiceCreateNotCheckedOut": "Invoice can only be created after guest checkout.",
-    "invoiceCreateFiscalConfig": "Fiscal settings are incomplete — check VAT configuration."
+    "invoiceCreateFiscalConfig": "Fiscal settings are incomplete — check VAT configuration.",
+    "financialTitle": "Finances",
+    "financialTotal": "Total",
+    "financialNights": "Nights",
+    "financialCommission": "Commission",
+    "financialNet": "Net to owner",
+    "financialPaymentStatus": "Payment status",
+    "financialPaymentProvider": "Payment method",
+    "financialEmpty": "No financial data for this reservation."
   },
   "guest": {
     "primary": "primary",

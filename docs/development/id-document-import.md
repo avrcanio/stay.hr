@@ -106,7 +106,7 @@ Provjeri i MRZ na dnu prednje strane (pouzdanije za broj dokumenta i datume).
 
 **Stražnja strana**
 
-- Adresa
+- Adresa — ⚠️ **eVisitor:** upisati kao **`Grad, ulica`** (npr. `Osijek, Dubrovačka 30`), ne ulicu pa grad. Vidi [evisitor-adresa-res-190-2026-05-30.md](../operations/evisitor-adresa-res-190-2026-05-30.md).
 - `délivrée le` / datum izdavanja
 - `valable jusqu'au` / datum isteka  
   ⚠️ Paziti na odsjaj na foliji — godina može biti pogrešno pročitana (npr. 2025 vs 2030). Za FR CNI izdanu 2017. često je valjanost **15 godina**.

@@ -104,6 +104,12 @@ export type ReservationDetail = Reservation & {
   evisitor_summary?: EvisitorSummary;
   check_in_allowed?: boolean;
   check_in_blocked_code?: "wrong_date" | "room_occupied" | "no_unit" | null;
+  payment_status?: string;
+  payment_status_key?: string;
+  payment_provider?: string;
+  commission_percent?: string | null;
+  commission_amount?: string | null;
+  nights_count?: number | null;
 };
 
 export type BookingPdfImportResult = ReservationDetail & {

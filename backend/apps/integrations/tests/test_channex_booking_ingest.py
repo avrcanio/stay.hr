@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase
 
 from apps.integrations.channex.booking_service import (
+    backfill_channex_financial_fields,
     channex_external_id,
     process_channex_booking_revision,
     process_channex_booking_revisions_feed,
@@ -323,3 +324,233 @@ class ChannexBookingIngestTests(TestCase):
         self.assertIn("OVERBOOKING:", reservation.notes)
         self.assertIn("6931685558", reservation.notes)
         mock_reception_push.assert_called_once()
+
+    @patch(
+        "apps.integrations.channex.reservation_availability_service.push_channex_inventory_after_ingest"
+    )
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_ingest_maps_ota_commission_and_payment_fields(self, mock_client_cls, mock_push_inventory):
+        payload = dict(self.revision_payload)
+        payload["attributes"] = {
+            **self.revision_payload["attributes"],
+            "ota_name": "Booking.com",
+            "ota_commission": "37.35",
+            "payment_collect": "ota",
+            "payment_type": "bank_transfer",
+        }
+
+        mock_client = MagicMock()
+        mock_client.get_booking_revision.return_value = payload
+        mock_client_cls.return_value = mock_client
+
+        reservation = process_channex_booking_revision(
+            self.integration,
+            "commission-revision-id",
+        )
+
+        self.assertEqual(reservation.commission_amount, Decimal("37.35"))
+        self.assertEqual(reservation.commission_percent, Decimal("11.82"))
+        self.assertEqual(reservation.payment_provider, "Payments by Booking.com")
+        self.assertEqual(
+            reservation.payment_status,
+            "Payment is facilitated through Payments by Booking.com",
+        )
+
+    @patch(
+        "apps.integrations.channex.reservation_availability_service.push_channex_inventory_after_ingest"
+    )
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_ingest_without_ota_commission_preserves_existing_commission(
+        self, mock_client_cls, mock_push_inventory
+    ):
+        mock_client = MagicMock()
+        mock_client.get_booking_revision.return_value = self.revision_payload
+        mock_client_cls.return_value = mock_client
+
+        reservation = process_channex_booking_revision(
+            self.integration,
+            "preserve-commission-revision-id",
+        )
+        Reservation.objects.filter(pk=reservation.pk).update(
+            commission_amount=Decimal("50.00"),
+            commission_percent=Decimal("15.82"),
+            payment_provider="From XLS",
+            payment_status="Paid via XLS",
+        )
+
+        modified_payload = dict(self.revision_payload)
+        modified_payload["attributes"] = {
+            **self.revision_payload["attributes"],
+            "status": "modified",
+        }
+        mock_client.get_booking_revision.return_value = modified_payload
+
+        updated = process_channex_booking_revision(
+            self.integration,
+            "preserve-commission-revision-id-2",
+        )
+
+        self.assertEqual(updated.pk, reservation.pk)
+        self.assertEqual(updated.commission_amount, Decimal("50.00"))
+        self.assertEqual(updated.commission_percent, Decimal("15.82"))
+        self.assertEqual(updated.payment_provider, "From XLS")
+        self.assertEqual(updated.payment_status, "Paid via XLS")
+
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_backfill_financial_fields_from_booking_api(self, mock_client_cls):
+        booking_id = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id=channex_external_id(booking_id),
+            booking_code="BDC-123",
+            booker_name="Jane Doe",
+            check_in=date(2026, 6, 1),
+            check_out=date(2026, 6, 3),
+            status=Reservation.Status.EXPECTED,
+            import_source="channex",
+            amount=Decimal("315.90"),
+        )
+
+        mock_client = MagicMock()
+        mock_client.get_booking.return_value = {
+            "id": booking_id,
+            "attributes": {
+                "amount": "315.90",
+                "ota_commission": "37.35",
+                "ota_name": "Booking.com",
+                "payment_collect": "ota",
+            },
+        }
+        mock_client_cls.return_value = mock_client
+
+        stats = backfill_channex_financial_fields(self.integration, client=mock_client)
+
+        reservation.refresh_from_db()
+        self.assertEqual(stats["updated"], 1)
+        self.assertEqual(reservation.commission_amount, Decimal("37.35"))
+        self.assertEqual(reservation.commission_percent, Decimal("11.82"))
+        self.assertEqual(reservation.payment_provider, "Payments by Booking.com")
+        mock_client.get_booking.assert_called_once_with(booking_id)
+
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_backfill_skips_reservations_with_existing_commission(self, mock_client_cls):
+        booking_id = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+        Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id=channex_external_id(booking_id),
+            booking_code="BDC-456",
+            booker_name="John Doe",
+            check_in=date(2026, 6, 1),
+            check_out=date(2026, 6, 3),
+            status=Reservation.Status.EXPECTED,
+            import_source="channex",
+            commission_amount=Decimal("50.00"),
+        )
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+
+        stats = backfill_channex_financial_fields(self.integration, client=mock_client)
+
+        self.assertEqual(stats["processed"], 0)
+        mock_client.get_booking.assert_not_called()
+
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_backfill_dry_run_does_not_save(self, mock_client_cls):
+        booking_id = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id=channex_external_id(booking_id),
+            booking_code="BDC-789",
+            booker_name="Dry Run",
+            check_in=date(2026, 6, 1),
+            check_out=date(2026, 6, 3),
+            status=Reservation.Status.EXPECTED,
+            import_source="channex",
+        )
+
+        mock_client = MagicMock()
+        mock_client.get_booking.return_value = {
+            "id": booking_id,
+            "attributes": {
+                "amount": "100.00",
+                "ota_commission": "10.00",
+                "ota_name": "Booking.com",
+                "payment_collect": "ota",
+            },
+        }
+        mock_client_cls.return_value = mock_client
+
+        stats = backfill_channex_financial_fields(
+            self.integration,
+            dry_run=True,
+            client=mock_client,
+        )
+
+        reservation.refresh_from_db()
+        self.assertEqual(stats["updated"], 0)
+        self.assertEqual(len(stats["updates"]), 1)
+        self.assertIsNone(reservation.commission_amount)
+
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_backfill_resolves_legacy_reservation_by_booking_code(self, mock_client_cls):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="140327897",
+            booking_code="6366775609",
+            booker_name="Ante Vrcan",
+            check_in=date(2026, 12, 14),
+            check_out=date(2026, 12, 15),
+            status=Reservation.Status.EXPECTED,
+            import_source="channex",
+            amount=Decimal("62.30"),
+        )
+
+        mock_client = MagicMock()
+        mock_client.get_booking.side_effect = AssertionError("should not call get_booking")
+        mock_client.find_booking_by_ota_reservation_code.return_value = {
+            "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "attributes": {
+                "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "amount": "62.30",
+                "ota_commission": "7.40",
+                "ota_name": "Booking.com",
+                "payment_collect": "ota",
+            },
+        }
+        mock_client_cls.return_value = mock_client
+
+        stats = backfill_channex_financial_fields(self.integration, client=mock_client)
+
+        reservation.refresh_from_db()
+        self.assertEqual(stats["updated"], 1)
+        self.assertEqual(reservation.commission_amount, Decimal("7.40"))
+        mock_client.find_booking_by_ota_reservation_code.assert_called_once_with("6366775609")
+        self.assertEqual(stats["updates"][0]["lookup_method"], "booking_code")
+
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_backfill_skips_legacy_blocked_channel_without_booking_code(self, mock_client_cls):
+        Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="140574507",
+            booking_code="",
+            booker_name="Block R6",
+            check_in=date(2026, 11, 2),
+            check_out=date(2026, 11, 8),
+            status=Reservation.Status.EXPECTED,
+            import_source="channex",
+        )
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+
+        stats = backfill_channex_financial_fields(self.integration, client=mock_client)
+
+        self.assertEqual(stats["skipped_no_lookup_code"], 1)
+        mock_client.find_booking_by_ota_reservation_code.assert_not_called()
+        mock_client.get_booking.assert_not_called()

@@ -60,6 +60,33 @@ class ChannexClient:
             raise ChannexApiError(f"Booking revision {revision_id} not found in response")
         return data
 
+    def get_booking(self, booking_id: str) -> dict[str, Any]:
+        """Fetch latest booking revision details by Channex booking UUID."""
+        payload = self._request("GET", f"/bookings/{booking_id}")
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ChannexApiError(f"Booking {booking_id} not found in response")
+        return data
+
+    def list_bookings(self, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self._request("GET", "/bookings", params=params or {})
+
+    def find_booking_by_ota_reservation_code(self, ota_reservation_code: str) -> dict[str, Any] | None:
+        """Find a booking by OTA reservation code (e.g. Booking.com confirmation number)."""
+        code = ota_reservation_code.strip()
+        if not code:
+            return None
+        payload = self.list_bookings(
+            params={
+                "filter[ota_reservation_code]": code,
+                "pagination[limit]": 1,
+            }
+        )
+        data = payload.get("data")
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            return data[0]
+        return None
+
     def acknowledge_booking_revision(self, revision_id: str) -> None:
         self._request("POST", f"/booking_revisions/{revision_id}/ack")
 

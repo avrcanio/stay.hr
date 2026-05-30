@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { BookingPdfImportForm } from "@/app/_components/BookingPdfImportForm";
 import { CountryFlag } from "@/app/_components/CountryFlag";
 import { GuestList } from "@/app/_components/GuestList";
+import { ReservationFinancialSection } from "@/app/_components/ReservationFinancialSection";
 import { ReservationInvoiceSection } from "@/app/_components/ReservationInvoiceSection";
 import { ReservationMoveDatesModal } from "@/app/_components/ReservationMoveDatesModal";
 import { useImportSourceLabel, useReservationStatusLabel } from "@/lib/i18n-ui";
@@ -233,6 +234,8 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
           <dd className="font-medium">{reservation.booker_phone || tc("dash")}</dd>
         </div>
       </dl>
+
+      <ReservationFinancialSection reservation={reservation} />
 
       {reservation.pdf_imported_at || reservation.confirmation_pdf_url ? (
         <p>
