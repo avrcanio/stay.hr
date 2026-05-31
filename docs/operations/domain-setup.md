@@ -3,6 +3,7 @@
 Operativne upute: **domene** (booking + recepcija web), **deploy** s GitHuba, **Hospira** reception API (sync-versions).
 
 **Repo na serveru:** `/opt/stacks/stay.hr`  
+**SSH host (produkcija):** `dedicated-hel1` (alias u `~/.ssh/config`, `65.108.196.92`)  
 **Deploy:** `git pull` + `./scripts/deploy.sh` (vidi [Deploy s GitHuba](#deploy-s-githuba))
 
 ---
@@ -236,9 +237,25 @@ Opcije: `--skip-dns`, `--skip-verify`, `--dry-run`.
 
 ## Deploy s GitHuba
 
-Na Hetzner serveru (SSH):
+**Preduvjet:** commit mora biti na `origin` (`git push`) prije remote deploya — inače server `git pull` ne povlači ništa novo.
+
+### Windows (iz lokalnog repoa)
+
+Nakon lokalnog `git pull` / `git push`:
+
+```powershell
+cd stay.hr
+.\scripts\remote-deploy.ps1
+```
+
+Opcije: `-DryRun` (ispiše SSH naredbu), `-Branch main`, `-SshHost dedicated-hel1`, `-RemotePath /opt/stacks/stay.hr`.
+
+Skripta preko SSH na `dedicated-hel1` pokreće `git pull` i `./scripts/deploy.sh` u `/opt/stacks/stay.hr`.
+
+### Ručno na serveru (SSH)
 
 ```bash
+ssh dedicated-hel1
 cd /opt/stacks/stay.hr
 git pull
 ./scripts/deploy.sh
