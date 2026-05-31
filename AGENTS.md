@@ -43,6 +43,8 @@ Python/API changes still require a Django container restart or deploy:
 docker compose restart django
 ```
 
+Remote deploy from Windows (after `git push`): `.\scripts\remote-deploy.ps1` — see [domain-setup.md](docs/operations/domain-setup.md#deploy-s-githuba).
+
 ### Switch to production frontends
 
 Remove or rename `docker-compose.override.yml`, then rebuild and start:
