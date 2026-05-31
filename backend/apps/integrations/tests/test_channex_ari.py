@@ -21,6 +21,7 @@ from apps.integrations.models import (
     ChannexAriOutbox,
     IntegrationConfig,
     RatePlanDay,
+    SalesChannel,
     UnitAvailabilityDay,
 )
 from apps.properties.models import Property, Unit
@@ -123,6 +124,7 @@ class ChannexAriServiceTests(TestCase):
             tenant=self.tenant,
             property=self.property,
             unit=self.unit,
+            sales_channel=SalesChannel.BOOKING_COM,
             code="standard",
             title="Standard",
             channex_room_type_id="18c437d7-13e3-4dbc-9565-48fad4832bf5",
@@ -154,6 +156,33 @@ class ChannexAriServiceTests(TestCase):
         self.assertEqual(value["date_from"], "2026-11-01")
         self.assertEqual(value["date_to"], "2026-11-10")
         self.assertEqual(set(value.keys()), {"property_id", "rate_plan_id", "date_from", "date_to", "rate"})
+
+    def test_apply_rate_updates_direct_no_outbox(self):
+        direct_plan = ChannelRatePlan.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            unit=self.unit,
+            sales_channel=SalesChannel.DIRECT,
+            code="standard",
+            title="Standard direct",
+            default_rate=Decimal("90"),
+        )
+        apply_rate_updates(
+            self.integration,
+            [
+                {
+                    "unit_code": "BCOM-STUDIO",
+                    "rate_plan_code": "standard",
+                    "sales_channel": SalesChannel.DIRECT,
+                    "date_from": "2026-11-01",
+                    "date_to": "2026-11-03",
+                    "rate": "88.00",
+                }
+            ],
+            queue_push=True,
+        )
+        self.assertEqual(RatePlanDay.objects.filter(rate_plan=direct_plan).count(), 3)
+        self.assertFalse(ChannexAriOutbox.objects.filter(kind=ChannexAriOutbox.Kind.RESTRICTIONS).exists())
 
     def test_apply_rate_updates_rate_only_delta(self):
         RatePlanDay.objects.create(
@@ -189,7 +218,7 @@ class ChannexAriServiceTests(TestCase):
             set(value.keys()),
             {"property_id", "rate_plan_id", "date", "rate"},
         )
-        self.assertEqual(value["rate"], "333.00")
+        self.assertEqual(value["rate"], "338.00")
         self.assertNotIn("min_stay_arrival", value)
         self.assertNotIn("stop_sell", value)
 
@@ -314,6 +343,7 @@ class ChannexInventoryFullSyncTests(TestCase):
             tenant=self.tenant,
             property=self.property,
             unit=self.unit,
+            sales_channel=SalesChannel.BOOKING_COM,
             code="standard",
             title="Standard",
             channex_room_type_id="room-r1",

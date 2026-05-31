@@ -92,8 +92,19 @@ class ChannexBookingRevision(TenantScopedModel):
         return f"Channex revision {self.revision_id} → reservation {self.reservation_id}"
 
 
+class SalesChannel(models.TextChoices):
+    DIRECT = "direct", "Direct / stay"
+    BOOKING_COM = "booking_com", "Booking.com"
+    AIRBNB = "airbnb", "Airbnb"
+
+
+PUSH_ENABLED_SALES_CHANNELS = frozenset(
+    {SalesChannel.BOOKING_COM, SalesChannel.AIRBNB},
+)
+
+
 class ChannelRatePlan(TenantScopedModel):
-    """Maps stay.hr unit + rate code to Channex rate plan UUID."""
+    """Unit rate plan per sales channel; Channex UUIDs when push-enabled."""
 
     property = models.ForeignKey(
         "properties.Property",
@@ -105,10 +116,15 @@ class ChannelRatePlan(TenantScopedModel):
         on_delete=models.CASCADE,
         related_name="channel_rate_plans",
     )
+    sales_channel = models.CharField(
+        max_length=32,
+        choices=SalesChannel.choices,
+        default=SalesChannel.BOOKING_COM,
+    )
     code = models.CharField(max_length=32)
     title = models.CharField(max_length=128, blank=True)
-    channex_room_type_id = models.CharField(max_length=36)
-    channex_rate_plan_id = models.CharField(max_length=36)
+    channex_room_type_id = models.CharField(max_length=36, blank=True, default="")
+    channex_rate_plan_id = models.CharField(max_length=36, blank=True, default="")
     default_rate = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     currency = models.CharField(max_length=3, default="GBP")
     is_active = models.BooleanField(default=True)
@@ -116,20 +132,28 @@ class ChannelRatePlan(TenantScopedModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["property_id", "unit_id", "code"]
+        ordering = ["property_id", "unit_id", "sales_channel", "code"]
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant", "property", "unit", "code"],
-                name="integrations_rateplan_unique_tenant_property_unit_code",
+                fields=["tenant", "property", "unit", "code", "sales_channel"],
+                name="integrations_rateplan_unique_tenant_property_unit_code_channel",
             ),
             models.UniqueConstraint(
                 fields=["tenant", "channex_rate_plan_id"],
+                condition=models.Q(channex_rate_plan_id__gt=""),
                 name="integrations_rateplan_unique_tenant_channex_id",
             ),
         ]
 
+    def is_push_enabled(self) -> bool:
+        return (
+            self.sales_channel in PUSH_ENABLED_SALES_CHANNELS
+            and bool(self.channex_rate_plan_id)
+        )
+
     def __str__(self) -> str:
-        return f"{self.unit.code}/{self.code} → {self.channex_rate_plan_id[:8]}"
+        channex = self.channex_rate_plan_id[:8] if self.channex_rate_plan_id else "local"
+        return f"{self.unit.code}/{self.code}@{self.sales_channel} → {channex}"
 
 
 class UnitAvailabilityDay(TenantScopedModel):

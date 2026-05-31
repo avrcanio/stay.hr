@@ -6,7 +6,8 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from apps.integrations.models import ChannelRatePlan, IntegrationConfig, RatePlanDay, UnitAvailabilityDay
+from apps.integrations.channex.ari_service import copy_direct_rate_plans_from_booking_com
+from apps.integrations.models import ChannelRatePlan, IntegrationConfig, RatePlanDay, SalesChannel, UnitAvailabilityDay
 from apps.properties.models import Property, Unit
 from apps.reservations.models import Reservation, ReservationUnit
 from apps.tenants.models import ChannelManager, Tenant, TenantMembership, TenantReceptionSettings
@@ -140,7 +141,9 @@ class ReceptionChannexViewsTests(TestCase):
             "/api/v1/reception/channel/rate-plans/",
             HTTP_HOST="app.stay.hr",
         )
-        plan = ChannelRatePlan.objects.get(tenant=self.tenant, unit=self.unit, code="standard")
+        plan = ChannelRatePlan.objects.get(
+            tenant=self.tenant, unit=self.unit, code="standard", sales_channel=SalesChannel.BOOKING_COM
+        )
         response = self.client.patch(
             "/api/v1/reception/channel/rate-plans/",
             {"updates": [{"id": plan.id, "default_rate": "120.50"}]},
@@ -186,7 +189,9 @@ class ReceptionChannexViewsTests(TestCase):
             "/api/v1/reception/channel/rate-plans/",
             HTTP_HOST="app.stay.hr",
         )
-        plan = ChannelRatePlan.objects.get(tenant=self.tenant, unit=self.unit, code="standard")
+        plan = ChannelRatePlan.objects.get(
+            tenant=self.tenant, unit=self.unit, code="standard", sales_channel=SalesChannel.BOOKING_COM
+        )
         self.client.patch(
             "/api/v1/reception/channel/rate-plans/",
             {"updates": [{"id": plan.id, "default_rate": "88.00"}]},
@@ -210,7 +215,9 @@ class ReceptionChannexViewsTests(TestCase):
             "/api/v1/reception/channel/rate-plans/",
             HTTP_HOST="app.stay.hr",
         )
-        plan = ChannelRatePlan.objects.get(tenant=self.tenant, unit=self.unit, code="standard")
+        plan = ChannelRatePlan.objects.get(
+            tenant=self.tenant, unit=self.unit, code="standard", sales_channel=SalesChannel.BOOKING_COM
+        )
         UnitAvailabilityDay.objects.create(
             tenant=self.tenant,
             unit=self.unit,
@@ -402,7 +409,9 @@ class ReceptionChannexViewsTests(TestCase):
         self.assertGreater(data["rate_days_updated"], 0)
         self.assertEqual(data["availability_days_updated"], 0)
         self.assertEqual(data["push_results"][0]["task_ids"], ["task-r1"])
-        plan = ChannelRatePlan.objects.get(tenant=self.tenant, unit=self.unit, code="standard")
+        plan = ChannelRatePlan.objects.get(
+            tenant=self.tenant, unit=self.unit, code="standard", sales_channel=SalesChannel.BOOKING_COM
+        )
         day = RatePlanDay.objects.get(rate_plan=plan, date=date(2026, 6, 3))
         self.assertEqual(day.rate, Decimal("99.00"))
         self.assertEqual(day.min_stay_arrival, 2)
@@ -634,10 +643,10 @@ class ReceptionChannexViewsTests(TestCase):
         data = response.json()
         self.assertEqual(data["rate_days_updated"], 6)
         studio_plan = ChannelRatePlan.objects.get(
-            tenant=self.tenant, unit=self.unit, code="standard"
+            tenant=self.tenant, unit=self.unit, code="standard", sales_channel=SalesChannel.BOOKING_COM
         )
         holiday_plan = ChannelRatePlan.objects.get(
-            tenant=self.tenant, unit=holiday, code="standard"
+            tenant=self.tenant, unit=holiday, code="standard", sales_channel=SalesChannel.BOOKING_COM
         )
         self.assertEqual(
             RatePlanDay.objects.get(rate_plan=studio_plan, date=date(2026, 7, 2)).rate,
@@ -647,3 +656,108 @@ class ReceptionChannexViewsTests(TestCase):
             RatePlanDay.objects.get(rate_plan=holiday_plan, date=date(2026, 7, 2)).rate,
             Decimal("101.00"),
         )
+
+    @patch("apps.api.reception_channex_views.push_channex_ari")
+    def test_bulk_apply_direct_updates_rates_without_push(self, mock_push):
+        self._login()
+        self.client.get(
+            "/api/v1/reception/channel/rate-plans/",
+            HTTP_HOST="app.stay.hr",
+        )
+        copy_direct_rate_plans_from_booking_com(tenant=self.tenant)
+        response = self.client.post(
+            "/api/v1/reception/channel/bulk-apply/",
+            {
+                "unit_code": "BCOM-STUDIO",
+                "sales_channel": SalesChannel.DIRECT,
+                "date_from": "2026-06-01",
+                "date_to": "2026-06-05",
+                "rates": [{"rate_plan_code": "standard", "rate": "77.00"}],
+            },
+            format="json",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertGreater(data["rate_days_updated"], 0)
+        self.assertEqual(data["push_results"], [])
+        mock_push.assert_not_called()
+        direct_plan = ChannelRatePlan.objects.get(
+            tenant=self.tenant,
+            unit=self.unit,
+            code="standard",
+            sales_channel=SalesChannel.DIRECT,
+        )
+        booking_plan = ChannelRatePlan.objects.get(
+            tenant=self.tenant,
+            unit=self.unit,
+            code="standard",
+            sales_channel=SalesChannel.BOOKING_COM,
+        )
+        self.assertEqual(
+            RatePlanDay.objects.get(rate_plan=direct_plan, date=date(2026, 6, 3)).rate,
+            Decimal("77.00"),
+        )
+        self.assertFalse(
+            RatePlanDay.objects.filter(rate_plan=booking_plan, date=date(2026, 6, 3)).exists()
+        )
+
+    def test_get_rate_plans_direct_channel(self):
+        self._login()
+        self.client.get(
+            "/api/v1/reception/channel/rate-plans/",
+            HTTP_HOST="app.stay.hr",
+        )
+        copy_direct_rate_plans_from_booking_com(tenant=self.tenant)
+        response = self.client.get(
+            "/api/v1/reception/channel/rate-plans/?sales_channel=direct",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["sales_channel"], SalesChannel.DIRECT)
+        self.assertIsNone(data["results"][0]["obp"])
+
+    def test_calendar_channel_ari_filters_by_sales_channel(self):
+        self._login()
+        self.client.get(
+            "/api/v1/reception/channel/rate-plans/",
+            HTTP_HOST="app.stay.hr",
+        )
+        copy_direct_rate_plans_from_booking_com(tenant=self.tenant)
+        booking_plan = ChannelRatePlan.objects.get(
+            tenant=self.tenant,
+            unit=self.unit,
+            code="standard",
+            sales_channel=SalesChannel.BOOKING_COM,
+        )
+        direct_plan = ChannelRatePlan.objects.get(
+            tenant=self.tenant,
+            unit=self.unit,
+            code="standard",
+            sales_channel=SalesChannel.DIRECT,
+        )
+        RatePlanDay.objects.create(
+            tenant=self.tenant,
+            rate_plan=booking_plan,
+            date=date(2026, 6, 15),
+            rate=Decimal("95.00"),
+        )
+        RatePlanDay.objects.create(
+            tenant=self.tenant,
+            rate_plan=direct_plan,
+            date=date(2026, 6, 15),
+            rate=Decimal("80.00"),
+        )
+        booking_response = self.client.get(
+            "/api/v1/reception/calendar/channel-ari/?from=2026-06-01&to=2026-07-01&sales_channel=booking_com",
+            HTTP_HOST="app.stay.hr",
+        )
+        direct_response = self.client.get(
+            "/api/v1/reception/calendar/channel-ari/?from=2026-06-01&to=2026-07-01&sales_channel=direct",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(booking_response.json()["rates"][0]["rate"], "95.00")
+        self.assertEqual(direct_response.json()["rates"][0]["rate"], "80.00")
+        self.assertNotIn("obp_tiers", direct_response.json()["rates"][0])

@@ -12,7 +12,17 @@ import { RoomCalendarDayDetail } from "@/app/_components/RoomCalendarDayDetail";
 import { RoomCalendarGrid } from "@/app/_components/RoomCalendarGrid";
 import { maxDate, ROLLING_WINDOW_DAYS } from "@/lib/calendarLayout";
 import { formatDateRangeLabel } from "@/lib/locale-format";
-import type { AppConfig, CalendarBlock, CalendarReservation, CalendarSelection, ChannelCalendarAri, ChannelRateDay, Room } from "@/lib/types";
+import type {
+  AppConfig,
+  CalendarBlock,
+  CalendarReservation,
+  CalendarSelection,
+  ChannelCalendarAri,
+  ChannelRateDay,
+  Room,
+  SalesChannel,
+} from "@/lib/types";
+import { SALES_CHANNEL_STORAGE_KEY } from "@/lib/types";
 import { normalizeChannelCalendarAri } from "@/lib/channelCalendarAri";
 import { useSyncVersionsPoll } from "@/lib/useSyncVersionsPoll";
 import { addDaysIso, todayIso } from "@/lib/utils";
@@ -54,6 +64,27 @@ export default function RoomCalendarPage() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardPrefill, setWizardPrefill] = useState<BulkWizardPrefill>({});
   const [featureFlags, setFeatureFlags] = useState<AppConfig["feature_flags"]>();
+  const [salesChannel, setSalesChannel] = useState<SalesChannel>("booking_com");
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SALES_CHANNEL_STORAGE_KEY);
+      if (stored === "direct" || stored === "booking_com") {
+        setSalesChannel(stored);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  function handleSalesChannelChange(channel: SalesChannel) {
+    setSalesChannel(channel);
+    try {
+      localStorage.setItem(SALES_CHANNEL_STORAGE_KEY, channel);
+    } catch {
+      // ignore
+    }
+  }
 
   const rangeEnd = addDaysIso(rangeStart, ROLLING_WINDOW_DAYS);
   const today = todayIso();
@@ -91,11 +122,12 @@ export default function RoomCalendarPage() {
       setRooms(roomList);
 
       const to = rangeEnd;
+      const channelQuery = `sales_channel=${encodeURIComponent(salesChannel)}`;
       const channelAriPromise = channelPanel
-        ? fetch(`/api/stay/reception/calendar/channel-ari/?from=${rangeStart}&to=${to}`)
+        ? fetch(`/api/stay/reception/calendar/channel-ari/?from=${rangeStart}&to=${to}&${channelQuery}`)
         : Promise.resolve(null);
       const ratePlansPromise = channelPanel
-        ? fetch("/api/stay/reception/channel/rate-plans/")
+        ? fetch(`/api/stay/reception/channel/rate-plans/?${channelQuery}`)
         : Promise.resolve(null);
 
       const [blockRes, channelAriRes, ratePlansRes, ...roomResults] = await Promise.all([
@@ -139,7 +171,7 @@ export default function RoomCalendarPage() {
         setInitialLoading(false);
       }
     }
-  }, [rangeEnd, rangeStart, t, tc]);
+  }, [rangeEnd, rangeStart, salesChannel, t, tc]);
 
   useEffect(() => {
     void load();
@@ -215,6 +247,32 @@ export default function RoomCalendarPage() {
             {tc("refresh")}
           </button>
           {showChannelAri ? (
+            <div className="flex flex-wrap items-center gap-1 rounded-lg border border-stay-border bg-white p-0.5">
+              <button
+                type="button"
+                className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                  salesChannel === "direct"
+                    ? "bg-stay-blue text-white"
+                    : "text-stay-muted hover:text-stay-navy"
+                }`}
+                onClick={() => handleSalesChannelChange("direct")}
+              >
+                {t("pricingChannelDirect")}
+              </button>
+              <button
+                type="button"
+                className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                  salesChannel === "booking_com"
+                    ? "bg-stay-blue text-white"
+                    : "text-stay-muted hover:text-stay-navy"
+                }`}
+                onClick={() => handleSalesChannelChange("booking_com")}
+              >
+                {t("pricingChannelBookingCom")}
+              </button>
+            </div>
+          ) : null}
+          {showChannelAri ? (
             <button type="button" className="btn" onClick={() => openBulkWizard()}>
               {t("bulkUpdateButton")}
             </button>
@@ -236,6 +294,7 @@ export default function RoomCalendarPage() {
               onSelect={setSelection}
               channelAvailability={showChannelAri ? channelAvailabilityByUnitDate : undefined}
               channelRates={showChannelAri ? channelRatesByUnitDate : undefined}
+              showObpTiers={salesChannel === "booking_com"}
             />
             <RoomCalendarDayDetail
               selection={selection}
@@ -264,6 +323,7 @@ export default function RoomCalendarPage() {
           initialUnitId={wizardPrefill.roomId}
           initialDateFrom={wizardPrefill.dateFrom}
           initialStep={wizardPrefill.initialStep}
+          salesChannel={salesChannel}
           channelRatesByUnitDate={channelRatesByUnitDate}
         />
       ) : null}

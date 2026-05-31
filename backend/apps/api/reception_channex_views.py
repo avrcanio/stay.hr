@@ -22,8 +22,9 @@ from apps.integrations.channex.ari_service import (
 )
 from apps.properties.models import Property, Unit
 from apps.integrations.channex.config import ChannexRuntimeConfig
-from apps.integrations.models import ChannelRatePlan, ChannexAriOutbox, RatePlanDay, UnitAvailabilityDay
+from apps.integrations.models import ChannelRatePlan, ChannexAriOutbox, RatePlanDay, SalesChannel, UnitAvailabilityDay
 from apps.integrations.pricing.obp import get_obp_policy, serialize_obp_policy, serialize_rate_obp_fields
+from apps.integrations.pricing.sales_channel import parse_sales_channel
 from apps.integrations.channex.ari_views import (
     AvailabilityUpdateItemSerializer,
     RateUpdateItemSerializer,
@@ -73,32 +74,36 @@ class ReceptionChannelStatusView(ReceptionReadView, APIView):
         )
 
 
-def _channel_rate_plans_queryset(tenant, integration):
+def _channel_rate_plans_queryset(tenant, integration, sales_channel: str | None = None):
     config = ChannexRuntimeConfig.from_integration_dict(integration.get_config_dict())
     prop = sync_property(tenant, config)
-    return (
-        ChannelRatePlan.objects.filter(
-            tenant=tenant,
-            property=prop,
-            is_active=True,
-        )
-        .select_related("unit")
-        .order_by("unit__code", "code")
+    qs = ChannelRatePlan.objects.filter(
+        tenant=tenant,
+        property=prop,
+        is_active=True,
     )
+    if sales_channel is not None:
+        qs = qs.filter(sales_channel=sales_channel)
+    return qs.select_related("unit").order_by("unit__code", "sales_channel", "code")
 
 
 def _serialize_channel_rate_plan(plan: ChannelRatePlan) -> dict:
-    policy = get_obp_policy(plan.unit.code)
-    return {
+    payload = {
         "id": plan.id,
         "unit_code": plan.unit.code,
         "unit_name": plan.unit.name or plan.unit.code,
+        "sales_channel": plan.sales_channel,
         "code": plan.code,
         "title": plan.title or plan.code,
         "default_rate": format(plan.default_rate.quantize(Decimal("0.01")), "f"),
         "currency": plan.currency,
-        "obp": serialize_obp_policy(policy, plan.default_rate, plan.unit.code),
     }
+    if plan.sales_channel == SalesChannel.BOOKING_COM:
+        policy = get_obp_policy(plan.unit.code)
+        payload["obp"] = serialize_obp_policy(policy, plan.default_rate, plan.unit.code)
+    else:
+        payload["obp"] = None
+    return payload
 
 
 def _serialize_channel_rate_day(row: RatePlanDay) -> dict:
@@ -107,6 +112,7 @@ def _serialize_channel_rate_day(row: RatePlanDay) -> dict:
     payload = {
         "unit_id": row.rate_plan.unit_id,
         "unit_code": unit_code,
+        "sales_channel": row.rate_plan.sales_channel,
         "rate_plan_code": row.rate_plan.code,
         "rate_plan_title": row.rate_plan.title or row.rate_plan.code,
         "currency": row.rate_plan.currency,
@@ -115,7 +121,8 @@ def _serialize_channel_rate_day(row: RatePlanDay) -> dict:
         "stop_sell": row.stop_sell,
         "min_stay_arrival": row.min_stay_arrival or 1,
     }
-    payload.update(serialize_rate_obp_fields(base_rate, unit_code))
+    if row.rate_plan.sales_channel == SalesChannel.BOOKING_COM:
+        payload.update(serialize_rate_obp_fields(base_rate, unit_code))
     return payload
 
 
@@ -136,11 +143,19 @@ class ReceptionChannelRatePlansView(TenantAPIView, APIView):
 
     def get(self, request):
         _guard_channex_tenant(request.tenant)
+        try:
+            sales_channel = parse_sales_channel(request.query_params.get("sales_channel"))
+        except ValueError as exc:
+            raise ValidationError({"sales_channel": str(exc)}) from exc
         integration = get_active_channex_integration(request.tenant.slug)
-        queryset = _channel_rate_plans_queryset(request.tenant, integration)
-        if not queryset.exists():
+        queryset = _channel_rate_plans_queryset(
+            request.tenant, integration, sales_channel=sales_channel
+        )
+        if not queryset.exists() and sales_channel == SalesChannel.BOOKING_COM:
             seed_channel_rate_plans_from_config(integration)
-            queryset = _channel_rate_plans_queryset(request.tenant, integration)
+            queryset = _channel_rate_plans_queryset(
+                request.tenant, integration, sales_channel=sales_channel
+            )
         return Response({"results": [_serialize_channel_rate_plan(plan) for plan in queryset]})
 
     def patch(self, request):
@@ -151,7 +166,15 @@ class ReceptionChannelRatePlansView(TenantAPIView, APIView):
         )
         serializer.is_valid(raise_exception=True)
         integration = get_active_channex_integration(request.tenant.slug)
-        allowed_ids = set(_channel_rate_plans_queryset(request.tenant, integration).values_list("id", flat=True))
+        try:
+            sales_channel = parse_sales_channel(request.query_params.get("sales_channel"))
+        except ValueError as exc:
+            raise ValidationError({"sales_channel": str(exc)}) from exc
+        allowed_ids = set(
+            _channel_rate_plans_queryset(
+                request.tenant, integration, sales_channel=sales_channel
+            ).values_list("id", flat=True)
+        )
         updated = 0
         for item in serializer.validated_data:
             plan_id = item["id"]
@@ -161,7 +184,9 @@ class ReceptionChannelRatePlansView(TenantAPIView, APIView):
                 default_rate=item["default_rate"]
             )
             updated += rows
-        queryset = _channel_rate_plans_queryset(request.tenant, integration)
+        queryset = _channel_rate_plans_queryset(
+            request.tenant, integration, sales_channel=sales_channel
+        )
         return Response(
             {
                 "updated": updated,
@@ -186,6 +211,11 @@ class ReceptionChannelCalendarAriView(ReceptionReadView, APIView):
         if date_to < date_from:
             raise ValidationError({"detail": "to must be on or after from."})
 
+        try:
+            sales_channel = parse_sales_channel(request.query_params.get("sales_channel"))
+        except ValueError as exc:
+            raise ValidationError({"sales_channel": str(exc)}) from exc
+
         availability_rows = UnitAvailabilityDay.objects.filter(
             tenant=request.tenant,
             unit__property=prop,
@@ -196,6 +226,7 @@ class ReceptionChannelCalendarAriView(ReceptionReadView, APIView):
         rate_rows = RatePlanDay.objects.filter(
             tenant=request.tenant,
             rate_plan__property=prop,
+            rate_plan__sales_channel=sales_channel,
             date__gte=date_from,
             date__lt=date_to,
         ).select_related("rate_plan", "rate_plan__unit")
@@ -252,6 +283,11 @@ class ChannelBulkApplySerializer(serializers.Serializer):
     unit_codes = serializers.ListField(
         child=serializers.CharField(), required=False, min_length=1
     )
+    sales_channel = serializers.ChoiceField(
+        choices=SalesChannel.choices,
+        default=SalesChannel.BOOKING_COM,
+        required=False,
+    )
     date_from = serializers.DateField()
     date_to = serializers.DateField()
     rates = ChannelBulkRateItemSerializer(many=True, required=False, default=list)
@@ -296,6 +332,8 @@ class ReceptionChannelBulkApplyView(ReceptionWriteView, APIView):
         data = serializer.validated_data
         integration = get_active_channex_integration(request.tenant.slug)
         unit_codes = data["unit_codes"]
+        sales_channel = data.get("sales_channel") or SalesChannel.BOOKING_COM
+        rate_queue_push = sales_channel == SalesChannel.BOOKING_COM
 
         rate_items: list[dict] = []
         for unit_code in unit_codes:
@@ -303,6 +341,7 @@ class ReceptionChannelBulkApplyView(ReceptionWriteView, APIView):
                 payload: dict = {
                     "unit_code": unit_code,
                     "rate_plan_code": item["rate_plan_code"],
+                    "sales_channel": sales_channel,
                     "date_from": data["date_from"],
                     "date_to": data["date_to"],
                 }
@@ -365,20 +404,26 @@ class ReceptionChannelBulkApplyView(ReceptionWriteView, APIView):
 
         try:
             rate_rows = (
-                apply_rate_updates(integration, rate_items, queue_push=True)
+                apply_rate_updates(integration, rate_items, queue_push=rate_queue_push)
                 if rate_items
                 else []
             )
+            avail_queue_push = bool(availability_items)
             avail_rows = (
-                apply_availability_updates(integration, availability_items, queue_push=True)
+                apply_availability_updates(
+                    integration, availability_items, queue_push=avail_queue_push
+                )
                 if availability_items
                 else []
             )
-            if request.query_params.get("async", "").lower() in {"1", "true", "yes"}:
+            should_push = rate_queue_push or avail_queue_push
+            if should_push and request.query_params.get("async", "").lower() in {"1", "true", "yes"}:
                 flush_channex_ari_outbox_task.delay(request.tenant.slug)
                 pushed = []
-            else:
+            elif should_push:
                 pushed = push_channex_ari(integration)
+            else:
+                pushed = []
         except (ChannexApiError, ChannexBookingIngestError) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 

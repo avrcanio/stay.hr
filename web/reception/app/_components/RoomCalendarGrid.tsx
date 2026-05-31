@@ -49,6 +49,7 @@ type Props = {
   onSelect: (selection: CalendarSelection) => void;
   channelAvailability?: Record<number, Record<string, number>>;
   channelRates?: Record<number, Record<string, ChannelRateDay[]>>;
+  showObpTiers?: boolean;
 };
 
 type BarItem =
@@ -463,6 +464,7 @@ function RatePlanRatesSection({
   locale,
   expanded,
   tierTemplates,
+  showObpTiers,
 }: {
   plan: RoomRatePlan;
   days: CalendarDay[];
@@ -471,6 +473,7 @@ function RatePlanRatesSection({
   locale: string;
   expanded: boolean;
   tierTemplates: ObpTierTemplate[];
+  showObpTiers: boolean;
 }) {
   return (
     <>
@@ -480,9 +483,9 @@ function RatePlanRatesSection({
         today={today}
         ratesByDate={ratesByDate}
         locale={locale}
-        showBaseTierLabel={!expanded}
+        showBaseTierLabel={showObpTiers && !expanded}
       />
-      {expanded
+      {showObpTiers && expanded
         ? tierTemplates.map((tier) => (
             <ObpTierRow
               key={obpTierKey(tier)}
@@ -519,6 +522,7 @@ function RoomRow({
   locale,
   obpExpanded,
   onToggleObp,
+  showObpTiers = true,
 }: {
   room: Room;
   days: CalendarDay[];
@@ -539,6 +543,7 @@ function RoomRow({
   locale: string;
   obpExpanded: boolean;
   onToggleObp: () => void;
+  showObpTiers: boolean;
 }) {
   const t = useTranslations("calendar");
   const roomBlocks = standaloneBlocks(blocks.filter((b) => b.unit_id === room.id));
@@ -580,8 +585,10 @@ function RoomRow({
           <span className="truncate">{room.code}</span>
         </div>
         {ratePlans.map((plan) => {
-          const tierTemplates = obpExpandedTierTemplates(channelRatesByDate, plan.code);
-          const canExpand = tierTemplates.length > 0;
+          const tierTemplates = showObpTiers
+            ? obpExpandedTierTemplates(channelRatesByDate, plan.code)
+            : [];
+          const canExpand = showObpTiers && tierTemplates.length > 0;
           const expanded = obpExpanded && canExpand;
           return (
             <RatePlanLabelSection
@@ -665,8 +672,10 @@ function RoomRow({
         </div>
 
         {ratePlans.map((plan) => {
-          const tierTemplates = obpExpandedTierTemplates(channelRatesByDate, plan.code);
-          const expanded = obpExpanded && tierTemplates.length > 0;
+          const tierTemplates = showObpTiers
+            ? obpExpandedTierTemplates(channelRatesByDate, plan.code)
+            : [];
+          const expanded = showObpTiers && obpExpanded && tierTemplates.length > 0;
           return (
             <RatePlanRatesSection
               key={plan.code}
@@ -677,6 +686,7 @@ function RoomRow({
               locale={locale}
               expanded={expanded}
               tierTemplates={tierTemplates}
+              showObpTiers={showObpTiers}
             />
           );
         })}
@@ -694,6 +704,7 @@ export function RoomCalendarGrid({
   onSelect,
   channelAvailability,
   channelRates,
+  showObpTiers = true,
 }: Props) {
   const locale = useLocale();
   const t = useTranslations("calendar");
@@ -849,6 +860,7 @@ export function RoomCalendarGrid({
             locale={locale}
             obpExpanded={obpExpandedByRoom[room.id] ?? false}
             onToggleObp={() => toggleObpExpanded(room.id)}
+            showObpTiers={showObpTiers}
           />
         ))}
       </div>

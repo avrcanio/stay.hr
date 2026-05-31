@@ -2,7 +2,21 @@
 
 Operativni runbook za postavljanje **jednog** outbound connectora po tenantu: `none` ili `channex`.
 
-**Izvor istine za cijene:** stay.hr (`RatePlanDay` u recepciji → Channel panel) → Channex ARI → Booking.com.
+**Izvor istine za cijene:**
+
+| Cjenik | Model | Push |
+|--------|--------|------|
+| **Booking.com** | `ChannelRatePlan.sales_channel=booking_com` + `RatePlanDay` | Channex ARI → Booking.com |
+| **Direct / stay** | `ChannelRatePlan.sales_channel=direct` + `RatePlanDay` | Nema (lokalno u stay.hr) |
+| **Airbnb** (priprema) | `sales_channel=airbnb` | Faza 2 — Channex UUID po kanalu |
+
+Recepcija → Kalendar: prekidač **Naše cijene** / **Booking.com** filtrira API (`?sales_channel=`).
+
+Direct cjenik se pri migraciji kopira iz postojećih B.com cijena; zatim se uređuje neovisno. Komanda za ručno dopunjavanje:
+
+```bash
+docker compose exec django python manage.py seed_direct_rate_plans --tenant-slug uzorita
+```
 
 **Repo na serveru:** `/opt/stacks/stay.hr`  
 **Admin:** https://admin.stay.hr/admin/  
@@ -288,7 +302,8 @@ Validacija: spremanje `channel_manager=channex` bez aktivnog Channex `Integratio
 | `seed_channex_booking_test_property` | Cert property + units + Channex config |
 | `migrate_channex_cert_to_demo` | Cert bundle na tenant `demo` |
 | `seed_uzorita_channex_config` | Channex config (staging room types) |
-| `seed_channex_rate_plans` | `ChannelRatePlan` redovi iz configa |
+| `seed_channex_rate_plans` | `ChannelRatePlan` redovi iz configa (`sales_channel=booking_com`) |
+| `seed_direct_rate_plans` | Kopira B.com planove u `sales_channel=direct` (+ `RatePlanDay`) |
 | `sync_channex_credentials` | Merge API key / webhook / property ID iz env |
 | `channex_ari_full_sync` | Push 500-day ARI u Channex |
 | `channex_ari_flush` | Retry pending outbox (operativno) |

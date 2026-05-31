@@ -200,8 +200,8 @@ class IntegrationConfigAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
 
 @admin.register(ChannelRatePlan)
 class ChannelRatePlanAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
-    list_display = ("unit", "code", "title", "default_rate", "currency", "is_active")
-    list_filter = ("property", "is_active")
+    list_display = ("unit", "sales_channel", "code", "title", "default_rate", "currency", "is_active")
+    list_filter = ("property", "sales_channel", "is_active")
     search_fields = ("unit__code", "code", "channex_rate_plan_id")
 
 

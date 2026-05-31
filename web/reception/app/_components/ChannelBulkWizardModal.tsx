@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
-import type { ChannelRateDay, ObpPolicy, Room } from "@/lib/types";
+import type { ChannelRateDay, ObpPolicy, Room, SalesChannel } from "@/lib/types";
 import {
   channexPushRateFromPolicy,
   computeObpTiersFromPolicy,
@@ -14,6 +14,7 @@ export type ChannelRatePlanRow = {
   id: number;
   unit_code: string;
   unit_name: string;
+  sales_channel?: SalesChannel;
   code: string;
   title: string;
   default_rate: string;
@@ -66,6 +67,7 @@ type Props = {
   initialUnitId?: number;
   initialDateFrom?: string;
   initialStep?: number;
+  salesChannel?: SalesChannel;
   channelRatesByUnitDate?: Record<number, Record<string, ChannelRateDay[]>>;
 };
 
@@ -125,6 +127,7 @@ export function ChannelBulkWizardModal({
   initialUnitId,
   initialDateFrom,
   initialStep,
+  salesChannel = "booking_com",
   channelRatesByUnitDate,
 }: Props) {
   const locale = useLocale();
@@ -290,6 +293,7 @@ export function ChannelBulkWizardModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           unit_codes: selectedRooms.map((room) => room.code),
+          sales_channel: salesChannel,
           date_from: dateFrom,
           date_to: dateTo,
           rates,
@@ -340,7 +344,8 @@ export function ChannelBulkWizardModal({
       >
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h2 id="bulk-wizard-title" className="font-semibold text-stay-navy">
-            {t("title")}
+            {t("title")} ·{" "}
+            {salesChannel === "direct" ? t("pricingChannelDirect") : t("pricingChannelBookingCom")}
           </h2>
           <button type="button" className="btn-ghost px-2" onClick={handleClose} aria-label={tc("close")}>
             ×
@@ -475,7 +480,9 @@ export function ChannelBulkWizardModal({
                     <thead>
                       <tr className="border-b text-left text-muted">
                         <th className="py-2 pr-3 font-medium">{t("ratePlan")}</th>
-                        <th className="py-2 font-medium">{t("obpBaseRate")}</th>
+                        <th className="py-2 font-medium">
+                          {salesChannel === "direct" ? t("channelRate") : t("obpBaseRate")}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -507,7 +514,8 @@ export function ChannelBulkWizardModal({
                     </tbody>
                   </table>
                 </div>
-                {sharedRatePlans.map((plan) => {
+                {salesChannel === "booking_com"
+                  ? sharedRatePlans.map((plan) => {
                   const rawRate =
                     rateInputs[plan.code]?.trim() ||
                     ratePrefillForSelectedRooms(
@@ -554,7 +562,8 @@ export function ChannelBulkWizardModal({
                       </div>
                     </div>
                   );
-                })}
+                })
+                  : null}
               </div>
             </div>
           ) : null}

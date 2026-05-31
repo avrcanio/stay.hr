@@ -170,9 +170,14 @@ export type ObpPolicy = {
   tiers_at_default_rate: ObpTier[];
 };
 
+export type SalesChannel = "direct" | "booking_com" | "airbnb";
+
+export const SALES_CHANNEL_STORAGE_KEY = "stay.reception.pricingSalesChannel";
+
 export type ChannelRateDay = {
   unit_id: number;
   unit_code: string;
+  sales_channel?: SalesChannel;
   rate_plan_code: string;
   rate_plan_title: string;
   currency: string;

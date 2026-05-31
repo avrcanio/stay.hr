@@ -25,6 +25,7 @@ from apps.integrations.models import (
     ChannexAriOutbox,
     IntegrationConfig,
     RatePlanDay,
+    SalesChannel,
     UnitAvailabilityDay,
 )
 from apps.properties.models import Property, Unit
@@ -33,6 +34,68 @@ from apps.tenants.models import Tenant
 logger = logging.getLogger(__name__)
 
 FULL_SYNC_DAYS = 500
+
+
+def push_enabled_rate_plans_queryset(*, tenant, property, is_active: bool = True):
+    qs = ChannelRatePlan.objects.filter(
+        tenant=tenant,
+        property=property,
+        sales_channel=SalesChannel.BOOKING_COM,
+    )
+    if is_active:
+        qs = qs.filter(is_active=True)
+    return qs.exclude(channex_rate_plan_id="")
+
+
+def copy_direct_rate_plans_from_booking_com(*, tenant=None, property=None) -> int:
+    """Idempotently create direct rate plans (and copy RatePlanDay rows) from booking_com."""
+    booking_plans = ChannelRatePlan.objects.filter(sales_channel=SalesChannel.BOOKING_COM)
+    if tenant is not None:
+        booking_plans = booking_plans.filter(tenant=tenant)
+    if property is not None:
+        booking_plans = booking_plans.filter(property=property)
+
+    created = 0
+    for booking_plan in booking_plans.select_related("unit"):
+        direct_plan, was_created = ChannelRatePlan.objects.get_or_create(
+            tenant_id=booking_plan.tenant_id,
+            property_id=booking_plan.property_id,
+            unit_id=booking_plan.unit_id,
+            code=booking_plan.code,
+            sales_channel=SalesChannel.DIRECT,
+            defaults={
+                "title": booking_plan.title,
+                "default_rate": booking_plan.default_rate,
+                "currency": booking_plan.currency,
+                "is_active": booking_plan.is_active,
+                "channex_room_type_id": "",
+                "channex_rate_plan_id": "",
+            },
+        )
+        if not was_created:
+            continue
+        created += 1
+        day_rows = RatePlanDay.objects.filter(rate_plan_id=booking_plan.id)
+        RatePlanDay.objects.bulk_create(
+            [
+                RatePlanDay(
+                    tenant_id=day.tenant_id,
+                    rate_plan_id=direct_plan.id,
+                    date=day.date,
+                    rate=day.rate,
+                    min_stay_arrival=day.min_stay_arrival,
+                    min_stay_through=day.min_stay_through,
+                    max_stay=day.max_stay,
+                    stop_sell=day.stop_sell,
+                    closed_to_arrival=day.closed_to_arrival,
+                    closed_to_departure=day.closed_to_departure,
+                    synced_at=day.synced_at,
+                )
+                for day in day_rows.iterator(chunk_size=500)
+            ],
+            batch_size=500,
+        )
+    return created
 
 
 def compress_availability_days_to_values(
@@ -125,6 +188,7 @@ def seed_channel_rate_plans_from_config(integration_row: IntegrationConfig) -> i
                 property=prop,
                 unit=unit,
                 code=code,
+                sales_channel=SalesChannel.BOOKING_COM,
                 defaults={
                     **defaults,
                     "default_rate": Decimal(str(rp.get("default_gbp") or "0")),
@@ -267,11 +331,15 @@ def apply_rate_updates(
     for item in updates:
         unit_code = str(item["unit_code"])
         rate_code = str(item["rate_plan_code"])
+        sales_channel = str(
+            item.get("sales_channel") or SalesChannel.BOOKING_COM
+        )
         rate_plan = ChannelRatePlan.objects.select_related("unit").get(
             tenant=tenant,
             property=prop,
             unit__code=unit_code,
             code=rate_code,
+            sales_channel=sales_channel,
             is_active=True,
         )
         day, day_to = _resolve_date_range(item)
@@ -301,6 +369,8 @@ def apply_rate_updates(
             current += timedelta(days=1)
 
         sample = saved[-1]
+        if not rate_plan.is_push_enabled():
+            continue
         push_rate = (
             channex_push_rate_for_unit(unit_code, sample.rate)
             if "rate" in item
@@ -535,7 +605,7 @@ def _build_full_sync_generated(
     restriction_values: list[dict[str, Any]] = []
 
     units = Unit.objects.filter(tenant=tenant, property=prop, is_active=True)
-    rate_plans = ChannelRatePlan.objects.filter(
+    rate_plans = push_enabled_rate_plans_queryset(
         tenant=tenant, property=prop, is_active=True
     ).select_related("unit")
 
@@ -686,7 +756,7 @@ def _build_full_sync_inventory(
     restriction_values: list[dict[str, Any]] = []
 
     units = Unit.objects.filter(tenant=tenant, property=prop, is_active=True)
-    rate_plans = ChannelRatePlan.objects.filter(
+    rate_plans = push_enabled_rate_plans_queryset(
         tenant=tenant, property=prop, is_active=True
     ).select_related("unit")
 

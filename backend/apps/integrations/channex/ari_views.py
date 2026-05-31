@@ -22,6 +22,7 @@ from apps.integrations.models import ChannexAriOutbox
 class RateUpdateItemSerializer(serializers.Serializer):
     unit_code = serializers.CharField()
     rate_plan_code = serializers.CharField()
+    sales_channel = serializers.CharField(required=False)
     date = serializers.DateField(required=False)
     date_from = serializers.DateField(required=False)
     date_to = serializers.DateField(required=False)
