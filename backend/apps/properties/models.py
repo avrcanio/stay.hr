@@ -1,4 +1,7 @@
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models
 
 from apps.core.models import TenantScopedModel
@@ -55,6 +58,14 @@ class Unit(TenantScopedModel):
     capacity_children = models.PositiveSmallIntegerField(default=0)
     capacity_infants = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True)
+    default_nightly_rate = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+    nightly_rate_currency = models.CharField(max_length=3, default="EUR")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

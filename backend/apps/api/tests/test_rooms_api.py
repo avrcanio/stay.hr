@@ -100,6 +100,18 @@ class RoomsAPITests(TestCase):
         self.assertEqual(data[0]["id"], self.unit.id)
         self.assertEqual(data[0]["code"], "101")
         self.assertTrue(data[0]["is_active"])
+        self.assertIsNone(data[0]["default_nightly_rate"])
+        self.assertEqual(data[0]["nightly_rate_currency"], "EUR")
+
+    def test_rooms_list_includes_nightly_rate(self):
+        self.unit.default_nightly_rate = Decimal("95.00")
+        self.unit.save(update_fields=["default_nightly_rate"])
+
+        response = self.client.get("/api/v1/rooms/rooms/?lang=hr", **self.auth)
+        self.assertEqual(response.status_code, 200)
+        row = response.json()[0]
+        self.assertEqual(row["default_nightly_rate"], "95.00")
+        self.assertEqual(row["nightly_rate_currency"], "EUR")
 
     def test_room_calendar(self):
         response = self.client.get(

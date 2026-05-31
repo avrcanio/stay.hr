@@ -102,6 +102,7 @@ class UnitAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         "name",
         "property",
         "tenant",
+        "default_nightly_rate",
         "capacity_max_guests",
         "capacity_adults",
         "capacity_children",
@@ -140,6 +141,15 @@ class UnitAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                 "description": (
                     "Maximum guests, adults, children and infants — per room type, "
                     "not per property."
+                ),
+            },
+        ),
+        (
+            "Pricing",
+            {
+                "fields": (
+                    "default_nightly_rate",
+                    "nightly_rate_currency",
                 ),
             },
         ),

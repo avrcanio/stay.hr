@@ -29,7 +29,15 @@ class UnitListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Unit
-        fields = ("id", "code", "room_type", "room_type_name", "is_active")
+        fields = (
+            "id",
+            "code",
+            "room_type",
+            "room_type_name",
+            "is_active",
+            "default_nightly_rate",
+            "nightly_rate_currency",
+        )
 
     def get_room_type(self, obj):
         return None
