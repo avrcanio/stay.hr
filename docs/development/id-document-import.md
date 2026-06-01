@@ -274,6 +274,7 @@ print(tenant_fcm_tokens(2))
 | Face URL | `backend/apps/reservations/face_photo.py` |
 | OCR ingest (app) | `backend/apps/api/reception_views.py` → `DocumentScanView` |
 | Booking XLS | [booking-xls-import.md](./booking-xls-import.md) |
+| AI runbook (OCR slučajevi 06/2026) | [ai-runbook-ocr-checkin-evisitor-2026-06.md](../operations/ai-runbook-ocr-checkin-evisitor-2026-06.md) |
 | Upload fotografija (API) | `POST .../guests/{id}/document-photos/` |
 
 Legacy Uzorita referenca: `/opt/stacks/uzorita/rooms/code/docs/operations/` (booking-ingest, OCR runbook).
