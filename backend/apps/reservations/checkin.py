@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from apps.core.timezone import property_local_now
 from apps.reservations.models import Reservation, ReservationUnit
 from apps.tenants.models import Tenant
@@ -26,12 +28,14 @@ def unit_has_checked_in_guest(
     tenant: Tenant,
     unit_id: int,
     *,
+    today: date,
     exclude_reservation_id: int | None = None,
 ) -> bool:
     qs = ReservationUnit.objects.filter(
         tenant=tenant,
         unit_id=unit_id,
         reservation__status=Reservation.Status.CHECKED_IN,
+        reservation__check_out__gt=today,
     )
     if exclude_reservation_id is not None:
         qs = qs.exclude(reservation_id=exclude_reservation_id)
@@ -57,6 +61,7 @@ def validate_reservation_check_in(reservation: Reservation, *, tenant: Tenant) -
         if unit_has_checked_in_guest(
             tenant,
             unit_id,
+            today=today,
             exclude_reservation_id=reservation.pk,
         ):
             raise CheckInBlockedError(

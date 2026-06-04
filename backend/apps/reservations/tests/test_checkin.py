@@ -52,7 +52,7 @@ class CheckInValidationTests(TestCase):
         tz = ZoneInfo("Europe/Zagreb")
         fixed = datetime(day.year, day.month, day.day, 10, 0, tzinfo=tz)
         return patch(
-            "apps.reservations.checkin.tenant_local_now",
+            "apps.reservations.checkin.property_local_now",
             return_value=fixed,
         )
 
@@ -89,6 +89,28 @@ class CheckInValidationTests(TestCase):
             with self.assertRaises(CheckInBlockedError) as ctx:
                 validate_reservation_check_in(self.reservation, tenant=self.tenant)
         self.assertEqual(ctx.exception.code, "room_occupied")
+
+    def test_check_in_allowed_when_other_guest_stale_checked_in(self):
+        other = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            booking_code="BK-STALE",
+            check_in=date(2026, 5, 20),
+            check_out=date(2026, 5, 25),
+            status=Reservation.Status.CHECKED_IN,
+            booker_name="Stale Guest",
+            amount=Decimal("90.00"),
+        )
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=other,
+            unit=self.unit,
+            room_name="Soba 101",
+            sort_order=0,
+        )
+
+        with self._mock_today(self.arrival):
+            validate_reservation_check_in(self.reservation, tenant=self.tenant)
 
     def test_check_in_allowed_when_other_reservation_expected_on_same_room(self):
         other = Reservation.objects.create(
