@@ -31,7 +31,10 @@ class GuestMessageDraft(TenantScopedModel):
         on_delete=models.CASCADE,
         related_name="guest_message_drafts",
     )
-    intent = models.CharField(max_length=16, choices=GuestMessageIntent.choices)
+    intent = models.CharField(
+        max_length=16,
+        choices=GuestMessageIntent.choices,
+    )
     hint = models.TextField(blank=True, default="")
     llm_body_text = models.TextField(blank=True, default="")
     final_body_text = models.TextField(blank=True, default="")
@@ -64,7 +67,10 @@ class GuestMessageDraft(TenantScopedModel):
 
     def __str__(self) -> str:
         channel = self.channel or "—"
-        return f"Draft #{self.pk} {self.intent} ({channel}) res={self.reservation_id}"
+        return (
+            f"Draft #{self.pk} {self.intent} ({channel}) "
+            f"res={self.reservation_id}"
+        )
 
     @property
     def edited(self) -> bool:
@@ -76,7 +82,7 @@ class GuestMessageDraft(TenantScopedModel):
 
 
 class GuestOutboundMessage(TenantScopedModel):
-    """Outbound guest message audit log (email send or WhatsApp handoff)."""
+    """Outbound guest message audit (email send or WhatsApp handoff)."""
 
     reservation = models.ForeignKey(
         "reservations.Reservation",
@@ -119,4 +125,7 @@ class GuestOutboundMessage(TenantScopedModel):
         verbose_name_plural = "Guest outbound messages"
 
     def __str__(self) -> str:
-        return f"Outbound #{self.pk} {self.channel} {self.status} res={self.reservation_id}"
+        return (
+            f"Outbound #{self.pk} {self.channel} {self.status} "
+            f"res={self.reservation_id}"
+        )
