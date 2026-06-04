@@ -23,6 +23,11 @@ from apps.api.billing_views import (
     ReservationInvoiceSendEmailView,
     ReservationInvoiceView,
 )
+from apps.api.reception_guest_messages_views import (
+    ReceptionGuestMessageComposeView,
+    ReceptionGuestMessageSendView,
+    ReceptionGuestMessagesView,
+)
 from apps.api.reception_views import (
     BookingPdfImportView,
     DocumentPhotosUploadView,
@@ -101,6 +106,21 @@ urlpatterns = [
         "reservations/<int:reservation_id>/channex-messages/",
         ReceptionReservationChannexMessagesView.as_view(),
         name="reception-reservation-channex-messages",
+    ),
+    path(
+        "reservations/<int:reservation_id>/messages/",
+        ReceptionGuestMessagesView.as_view(),
+        name="reception-reservation-messages",
+    ),
+    path(
+        "reservations/<int:reservation_id>/messages/compose/",
+        ReceptionGuestMessageComposeView.as_view(),
+        name="reception-reservation-messages-compose",
+    ),
+    path(
+        "reservations/<int:reservation_id>/messages/send/",
+        ReceptionGuestMessageSendView.as_view(),
+        name="reception-reservation-messages-send",
     ),
     path(
         "reservations/<int:reservation_id>/guests/",
