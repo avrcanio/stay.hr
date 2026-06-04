@@ -6,6 +6,10 @@ from datetime import date
 from decimal import Decimal
 
 from apps.reservations.models import MonthlyStatisticsOverride, Reservation
+from apps.reservations.occupancy_statistics import (
+    aggregate_monthly_occupancy,
+    occupancy_payload_for_month,
+)
 
 DEFAULT_CURRENCY = "EUR"
 
@@ -225,10 +229,14 @@ def aggregate_monthly_statistics(tenant, year: int) -> dict:
             if override.currency:
                 currency = override.currency
 
+    occupancy = aggregate_monthly_occupancy(tenant, year)
+
     months_payload = []
     for month in range(1, 13):
         current = buckets[month]["current"]
         previous = buckets[month]["previous"]
+        occ_current = occupancy["months"][month]["current"]
+        occ_previous = occupancy["months"][month]["previous"]
         months_payload.append(
             {
                 "month": month,
@@ -241,6 +249,7 @@ def aggregate_monthly_statistics(tenant, year: int) -> dict:
                     "reserved_nights": current["reserved_nights"],
                     "canceled_revenue": _decimal_str(current["canceled_revenue"]),
                     "canceled_nights": current["canceled_nights"],
+                    **occupancy_payload_for_month(occ_current),
                 },
                 "previous": {
                     "revenue": _decimal_str(previous["revenue"]),
@@ -250,6 +259,7 @@ def aggregate_monthly_statistics(tenant, year: int) -> dict:
                     "prior_nights": previous["prior_nights"],
                     "canceled_revenue": _decimal_str(previous["canceled_revenue"]),
                     "canceled_nights": previous["canceled_nights"],
+                    **occupancy_payload_for_month(occ_previous),
                 },
             }
         )
@@ -260,5 +270,6 @@ def aggregate_monthly_statistics(tenant, year: int) -> dict:
         "comparison_year": comparison_year,
         "prior_year": prior_year,
         "currency": currency,
+        "active_units": occupancy["active_units"],
         "months": months_payload,
     }

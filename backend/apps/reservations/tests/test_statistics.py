@@ -3,8 +3,8 @@ from decimal import Decimal
 
 from django.test import TestCase
 
-from apps.properties.models import Property
-from apps.reservations.models import MonthlyStatisticsOverride, Reservation
+from apps.properties.models import Property, Unit
+from apps.reservations.models import MonthlyStatisticsOverride, Reservation, ReservationUnit
 from apps.reservations.statistics import aggregate_monthly_statistics
 from apps.tenants.models import Tenant
 
@@ -18,7 +18,7 @@ class MonthlyStatisticsTests(TestCase):
             slug="uzorita",
         )
 
-    def _create_reservation(self, *, check_in, amount, status, nights=None):
+    def _create_reservation(self, *, check_in, amount, status, nights=None, units_count=None):
         return Reservation.objects.create(
             tenant=self.tenant,
             property=self.property,
@@ -30,6 +30,25 @@ class MonthlyStatisticsTests(TestCase):
             commission_amount=Decimal("10.00"),
             nights_count=nights or 3,
             currency="EUR",
+            units_count=units_count,
+        )
+
+    def _create_unit(self, code: str) -> Unit:
+        return Unit.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            code=code,
+            name=f"Room {code}",
+            is_active=True,
+        )
+
+    def _link_unit(self, reservation: Reservation, unit: Unit) -> ReservationUnit:
+        return ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            unit=unit,
+            sort_order=0,
+            room_name=unit.name,
         )
 
     def test_aggregate_current_and_previous_year(self):
@@ -213,3 +232,106 @@ class MonthlyStatisticsTests(TestCase):
         june_previous = next(m for m in payload["months"] if m["month"] == 6)["previous"]
         self.assertEqual(june_previous["revenue"], "0.00")
         self.assertEqual(june_previous["nights"], 0)
+
+    def test_occupancy_single_unit_realized(self):
+        unit = self._create_unit("R1")
+        reservation = self._create_reservation(
+            check_in=date(2026, 6, 10),
+            amount=Decimal("100.00"),
+            status=Reservation.Status.CHECKED_OUT,
+            nights=3,
+        )
+        self._link_unit(reservation, unit)
+
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        self.assertEqual(payload["active_units"], 1)
+        june = next(m for m in payload["months"] if m["month"] == 6)["current"]
+        self.assertEqual(june["capacity_room_nights"], 30)
+        self.assertEqual(june["occupied_room_nights"], 3)
+        self.assertEqual(june["reserved_room_nights"], 3)
+        self.assertEqual(june["occupancy_realized_pct"], "10.0")
+
+    def test_occupancy_multi_room_reservation(self):
+        u1 = self._create_unit("R1")
+        u2 = self._create_unit("R2")
+        reservation = self._create_reservation(
+            check_in=date(2026, 6, 1),
+            amount=Decimal("200.00"),
+            status=Reservation.Status.CHECKED_IN,
+            nights=3,
+            units_count=2,
+        )
+        self._link_unit(reservation, u1)
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            unit=u2,
+            sort_order=1,
+            room_name=u2.name,
+        )
+
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        june = next(m for m in payload["months"] if m["month"] == 6)["current"]
+        self.assertEqual(june["capacity_room_nights"], 60)
+        self.assertEqual(june["occupied_room_nights"], 6)
+        self.assertEqual(june["reserved_room_nights"], 6)
+
+    def test_occupancy_cross_month_stay(self):
+        unit = self._create_unit("R1")
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            check_in=date(2026, 6, 28),
+            check_out=date(2026, 7, 3),
+            status=Reservation.Status.CHECKED_OUT,
+            booker_name="Cross month",
+            amount=Decimal("100.00"),
+            nights_count=5,
+            currency="EUR",
+        )
+        self._link_unit(reservation, unit)
+
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        june = next(m for m in payload["months"] if m["month"] == 6)["current"]
+        july = next(m for m in payload["months"] if m["month"] == 7)["current"]
+        self.assertEqual(june["occupied_room_nights"], 2)
+        self.assertEqual(july["occupied_room_nights"], 3)
+
+    def test_occupancy_expected_increases_reserved_not_occupied(self):
+        unit = self._create_unit("R1")
+        reservation = self._create_reservation(
+            check_in=date(2026, 6, 1),
+            amount=Decimal("500.00"),
+            status=Reservation.Status.EXPECTED,
+            nights=5,
+        )
+        self._link_unit(reservation, unit)
+
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        june = next(m for m in payload["months"] if m["month"] == 6)["current"]
+        self.assertEqual(june["occupied_room_nights"], 0)
+        self.assertEqual(june["reserved_room_nights"], 5)
+
+    def test_occupancy_override_does_not_change_occupancy(self):
+        unit = self._create_unit("R1")
+        reservation = self._create_reservation(
+            check_in=date(2026, 7, 10),
+            amount=Decimal("300.00"),
+            status=Reservation.Status.CHECKED_IN,
+            nights=2,
+        )
+        self._link_unit(reservation, unit)
+        MonthlyStatisticsOverride.objects.create(
+            tenant=self.tenant,
+            year=2026,
+            month=7,
+            revenue=Decimal("9999.00"),
+            nights=99,
+        )
+
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        july = next(m for m in payload["months"] if m["month"] == 7)["current"]
+        self.assertEqual(july["revenue"], "9999.00")
+        self.assertEqual(july["nights"], 99)
+        self.assertEqual(july["occupied_room_nights"], 2)
+        self.assertEqual(july["reserved_room_nights"], 2)
