@@ -33,6 +33,8 @@ class PropertySummarySerializer(serializers.ModelSerializer):
             "branding",
             "timezone",
             "language",
+            "check_in_time",
+            "check_out_time",
         )
 
 
@@ -101,6 +103,8 @@ class PublicPropertySerializer(serializers.ModelSerializer):
             "branding",
             "timezone",
             "language",
+            "check_in_time",
+            "check_out_time",
         )
 
 

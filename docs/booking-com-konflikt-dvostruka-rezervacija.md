@@ -56,13 +56,14 @@ Na **istu fizičku sobu (Deluxe King Room — R1)** za **isto noćenje** Booking
 | Država | Poljska (PL) |
 | Check-in / Check-out | 30.07.2026 → 31.07.2026 (1 noć) |
 | Odrasli | 2 |
-| Tip sobe | Deluxe King Room (Luxury Room Uzorita - R1) |
+| Tip sobe (Booking.com PDF) | Deluxe King Room (Luxury Room Uzorita - R1) |
+| Tip sobe (stay.hr operativno) | Deluxe King Room (Luxury Room Uzorita - **R2**) |
 | Ukupna cijena | €76.30 |
 | Provizija | €14.73 |
 | Datum rezervacije | **20.05.2026** (5 mjeseci nakon rezervacije A) |
 | Uključeno | Doručak (Genius) |
 
-**Napomena objekta:** Rezervacija B rezervirana je **nakon** potvrde rezervacije A, ali Booking.com ju je i dalje dodijelio na **istu sobu R1** za datume kad je R1 već zauzet rezervacijom A.
+**Napomena objekta:** Rezervacija B rezervirana je **nakon** potvrde rezervacije A, ali Booking.com ju je i dalje dodijelio na **istu sobu R1** za datume kad je R1 već zauzet rezervacijom A. **Operativno rješenje:** gost u **R2**; Booking.com drži R2 blokirano; stay.hr + Channex usklađeni.
 
 ---
 
@@ -81,11 +82,11 @@ Prilozi (PDF iz Booking.com extranet-a):
 
 Molimo **jednu** od sljedećih akcija:
 
-- [ ] **Preseliti** rezervaciju **6523650755** (Wiśniewski) na drugi dostupni tip sobe u istom objektu (npr. Deluxe King Room R2), **ili**
+- [x] **Preseliti** rezervaciju **6523650755** (Wiśniewski) na **Deluxe King Room R2** — Booking.com R2 blokirano; stay.hr + Channex usklađeni (4. 6. 2026.)
 - [ ] **Otkazati** rezervaciju **6523650755** bez penala za objekt, **ili**
 - [ ] **Drugo rješenje** (navedite): _______________________________________________
 
-**Objekt je privremeno smjestio gosta Wiśniewski u alternativnu sobu R2** (fizički dostupna), ali u Booking.com sustavu rezervacija i dalje stoji na R1 — potrebna je korekcija na strani Booking.com / channel managera.
+**Objekt je smjestio gosta Wiśniewski u sobu R2.** Booking.com extranet drži R2 blokirano za 30.–31.7.2026. stay.hr i Channex inventory (availability=0) usklađeni su s tim rješenjem.
 
 ---
 
@@ -106,11 +107,13 @@ Molimo **jednu** od sljedećih akcija:
 
 | Datum | Akcija |
 |-------|--------|
-| ___.___.2026 | Identificiran konflikt u sustavu stay.hr (R1 overlap 30.–31.07.) |
-| ___.___.2026 | Provjeren PDF — obje rezervacije potvrđuju R1 na Booking.com |
-| ___.___.2026 | Wiśniewski privremeno prebačen na R2 u internom sustavu (R2 slobodna) |
-| ___.___.2026 | R2 blokirana u Smoobu za 30.–31.07.2026 |
-| ___.___.2026 | Prijava poslana Booking.com |
+| 22.05.2026 | Identificiran konflikt u sustavu stay.hr (R1 overlap 30.–31.07.) |
+| 22.05.2026 | Provjeren PDF — obje rezervacije potvrđuju R1 na Booking.com |
+| 22.05.2026 | Wiśniewski prebačen na R2 u stay.hr (R2 slobodna) |
+| — | Booking.com R2 blokirano za 30.–31.07.2026 (potvrđeno na kanalu) |
+| 04.06.2026 | stay.hr: Wiśniewski R2 + napomena `OVERBOOKING:` + pdf lock |
+| 04.06.2026 | Channex: R1 i R2 availability=0 gurnuto za 30.–31.07.2026 |
+| ___.___.2026 | Prijava poslana Booking.com (ako još treba formalna potvrda) |
 
 ---
 

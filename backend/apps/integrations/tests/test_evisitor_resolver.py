@@ -1,3 +1,5 @@
+from datetime import time
+
 from django.test import TestCase
 
 from apps.integrations.evisitor.config import EvisitorRuntimeConfig
@@ -61,6 +63,19 @@ class EvisitorResolverTests(TestCase):
         self._create_config(property=self.prop, facility_code="PROP")
         cfg = resolve_evisitor_config(self.tenant, self.prop)
         self.assertEqual(cfg.facility_code, "PROP")
+
+    def test_property_times_override_integration_defaults(self):
+        self._create_config(
+            property=self.prop,
+            default_stay_time_from="14:00",
+            default_stay_time_until="10:00",
+        )
+        self.prop.check_in_time = time(15, 0)
+        self.prop.check_out_time = time(11, 0)
+        self.prop.save(update_fields=["check_in_time", "check_out_time"])
+        cfg = resolve_evisitor_config(self.tenant, self.prop)
+        self.assertEqual(cfg.default_stay_time_from, "15:00")
+        self.assertEqual(cfg.default_stay_time_until, "11:00")
 
     def test_disabled_config_raises(self):
         self._create_config(property=self.prop, enabled=False)

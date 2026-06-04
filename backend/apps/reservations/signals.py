@@ -1,8 +1,8 @@
 from django.db import transaction
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
-from apps.reservations.models import Reservation
+from apps.reservations.models import Reservation, ReservationUnit
 
 
 @receiver(post_save, sender=Reservation)
@@ -105,3 +105,47 @@ def reservation_outbound_on_update(sender, instance: Reservation, created: bool,
             sync_reservation_outbound_task.delay(instance.pk, "sync")
 
     transaction.on_commit(queue_updates)
+
+
+def _queue_availability_if_reservation_active(reservation_id: int) -> None:
+    reservation = Reservation.objects.filter(pk=reservation_id).only("status").first()
+    if reservation is None:
+        return
+    if reservation.status in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}:
+        from apps.integrations.channel_manager.tasks import sync_reservation_outbound_task
+
+        transaction.on_commit(
+            lambda rid=reservation_id: sync_reservation_outbound_task.delay(rid, "remove")
+        )
+        return
+
+    from apps.reservations.channel_availability_sync import (
+        queue_reservation_channel_availability_sync,
+    )
+
+    queue_reservation_channel_availability_sync(reservation_id)
+
+
+@receiver(post_save, sender=ReservationUnit)
+def reservation_unit_outbound_on_save(
+    sender,
+    instance: ReservationUnit,
+    created: bool,
+    **kwargs,
+):
+    if kwargs.get("raw"):
+        return
+    from apps.reservations.channel_availability_sync import unit_availability_sync_suppressed
+
+    if unit_availability_sync_suppressed():
+        return
+    _queue_availability_if_reservation_active(instance.reservation_id)
+
+
+@receiver(post_delete, sender=ReservationUnit)
+def reservation_unit_outbound_on_delete(sender, instance: ReservationUnit, **kwargs):
+    from apps.reservations.channel_availability_sync import unit_availability_sync_suppressed
+
+    if unit_availability_sync_suppressed():
+        return
+    _queue_availability_if_reservation_active(instance.reservation_id)

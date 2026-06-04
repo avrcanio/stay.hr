@@ -69,10 +69,32 @@ def sync_reservation_units(
     reservation: Reservation,
     room_name: str,
 ) -> list[ReservationUnit]:
+    from apps.reservations.channel_availability_sync import suppress_unit_availability_sync
+
     segments = split_room_names(room_name) or [room_name or "Unknown"]
     existing = {u.sort_order: u for u in reservation.units.all()}
     kept_ids: list[int] = []
 
+    with suppress_unit_availability_sync():
+        return _sync_reservation_units_inner(
+            tenant=tenant,
+            property=property,
+            reservation=reservation,
+            segments=segments,
+            existing=existing,
+            kept_ids=kept_ids,
+        )
+
+
+def _sync_reservation_units_inner(
+    *,
+    tenant: Tenant,
+    property: Property,
+    reservation: Reservation,
+    segments: list[str],
+    existing: dict,
+    kept_ids: list[int],
+) -> list[ReservationUnit]:
     for idx, segment in enumerate(segments):
         display_name = segment.strip() or "Unknown"
         unit = resolve_unit(tenant=tenant, property=property, room_name=display_name)

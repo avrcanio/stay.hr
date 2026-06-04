@@ -818,6 +818,12 @@ def upsert_reservation_from_xls_row(
         reservation=reservation,
         adults_count=row.adults_count,
     )
+    from apps.reservations.channel_availability_sync import (
+        queue_sync_if_units_changed,
+        reservation_unit_codes,
+    )
+
+    before_unit_codes = reservation_unit_codes(reservation)
     units = sync_reservation_units(
         tenant=tenant,
         property=property,
@@ -830,6 +836,7 @@ def upsert_reservation_from_xls_row(
         units=units,
         unit_amounts=row.unit_amounts or None,
     )
+    queue_sync_if_units_changed(reservation, before_codes=before_unit_codes)
 
     return XlsImportResult(
         external_id=row.external_id,

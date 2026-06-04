@@ -1,3 +1,4 @@
+from datetime import time
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -15,6 +16,8 @@ class Property(TenantScopedModel):
     branding = models.JSONField(default=dict, blank=True)
     timezone = models.CharField(max_length=64, blank=True)
     language = models.CharField(max_length=10, blank=True)
+    check_in_time = models.TimeField(default=time(15, 0))
+    check_out_time = models.TimeField(default=time(11, 0))
     tourist_tax_zone = models.ForeignKey(
         "tourist_tax.TouristTaxZone",
         null=True,

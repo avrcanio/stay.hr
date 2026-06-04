@@ -1,5 +1,3 @@
-from datetime import time
-
 from django.conf import settings
 from django.db import models
 
@@ -77,8 +75,6 @@ class TenantReceptionSettings(models.Model):
         help_text="Outbound channel connector for this tenant (Channex or manual).",
     )
     auto_checkout_enabled = models.BooleanField(default=False)
-    auto_checkout_time = models.TimeField(default=time(10, 0))
-    auto_checkout_last_run_date = models.DateField(null=True, blank=True)
     guest_contact_email = models.EmailField(
         blank=True,
         help_text="From/Reply-To address for guest booking confirmation and refusal emails.",

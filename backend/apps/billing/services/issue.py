@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from django.db import transaction
 
@@ -11,14 +9,8 @@ from apps.billing.models import Invoice, InvoiceLine, TenantFiscalSettings
 from apps.billing.services.invoice_builder import build_invoice_from_reservation
 from apps.billing.services.pdf import render_invoice_pdf
 from apps.billing.services.zki import calculate_zki
+from apps.core.timezone import tenant_local_now
 from apps.reservations.models import Reservation
-
-DEFAULT_TENANT_TIMEZONE = "Europe/Zagreb"
-
-
-def tenant_local_now(tenant) -> datetime:
-    tz = ZoneInfo(tenant.timezone or DEFAULT_TENANT_TIMEZONE)
-    return datetime.now(tz)
 
 
 def _next_invoice_number(settings: TenantFiscalSettings) -> tuple[int, str]:

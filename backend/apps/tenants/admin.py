@@ -41,8 +41,6 @@ class TenantReceptionSettingsInlineForm(forms.ModelForm):
         fields = (
             "channel_manager",
             "auto_checkout_enabled",
-            "auto_checkout_time",
-            "auto_checkout_last_run_date",
             "guest_contact_email",
             "guest_contact_name",
             "guest_smtp_password",
@@ -63,12 +61,10 @@ class TenantReceptionSettingsInline(admin.StackedInline):
     model = TenantReceptionSettings
     form = TenantReceptionSettingsInlineForm
     extra = 0
-    readonly_fields = ("auto_checkout_last_run_date", "updated_at", "has_guest_smtp_password_display")
+    readonly_fields = ("updated_at", "has_guest_smtp_password_display")
     fields = (
         "channel_manager",
         "auto_checkout_enabled",
-        "auto_checkout_time",
-        "auto_checkout_last_run_date",
         "guest_contact_email",
         "guest_contact_name",
         "guest_smtp_password",

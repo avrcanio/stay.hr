@@ -5,9 +5,10 @@ from zoneinfo import ZoneInfo
 
 from django.test import TestCase
 
+from apps.core.timezone import tenant_local_now
 from apps.properties.models import Property
 from apps.reservations.models import EvisitorGuestStatus, Guest, Reservation
-from apps.reservations.tasks import run_auto_checkouts, tenant_local_now
+from apps.reservations.tasks import run_auto_checkouts
 from apps.tenants.models import Tenant, TenantReceptionSettings
 
 ZAGREB = ZoneInfo("Europe/Zagreb")
@@ -24,18 +25,20 @@ class AutoCheckoutTaskTests(TestCase):
             tenant=self.tenant,
             name="Uzorita",
             slug="uzorita",
+            check_in_time=time(15, 0),
+            check_out_time=time(11, 0),
         )
         self.settings = TenantReceptionSettings.objects.create(
             tenant=self.tenant,
             auto_checkout_enabled=True,
-            auto_checkout_time=time(10, 0),
         )
         self.today = date(2026, 5, 21)
-        self.run_at = datetime(2026, 5, 21, 10, 30, tzinfo=ZAGREB)
+        self.run_at = datetime(2026, 5, 21, 11, 30, tzinfo=ZAGREB)
 
     def _create_reservation(
         self,
         *,
+        property: Property | None = None,
         check_out: date | None = None,
         status: str = Reservation.Status.CHECKED_IN,
         booking_code: str = "BK-AUTO",
@@ -44,7 +47,7 @@ class AutoCheckoutTaskTests(TestCase):
     ) -> Reservation:
         reservation = Reservation.objects.create(
             tenant=self.tenant,
-            property=self.property,
+            property=property or self.property,
             booking_code=booking_code,
             check_in=self.today - timedelta(days=2),
             check_out=check_out or self.today,
@@ -66,8 +69,8 @@ class AutoCheckoutTaskTests(TestCase):
     def _run_task(self, when: datetime | None = None):
         fixed = when or self.run_at
         with patch(
-            "apps.reservations.tasks.tenant_local_now",
-            side_effect=lambda tenant: fixed,
+            "apps.reservations.tasks.property_local_now",
+            return_value=fixed,
         ):
             return run_auto_checkouts()
 
@@ -86,10 +89,9 @@ class AutoCheckoutTaskTests(TestCase):
         result = self._run_task()
 
         reservation.refresh_from_db()
-        self.settings.refresh_from_db()
         self.assertEqual(reservation.status, Reservation.Status.CHECKED_OUT)
-        self.assertEqual(self.settings.auto_checkout_last_run_date, self.today)
         self.assertEqual(result["checked_out"], 1)
+        self.assertEqual(result["tenants_processed"], 1)
         mock_evisitor_checkout.assert_called_once()
         mock_status_push.assert_called_once_with(
             reservation.pk,
@@ -106,21 +108,17 @@ class AutoCheckoutTaskTests(TestCase):
         result = self._run_task()
 
         reservation.refresh_from_db()
-        self.settings.refresh_from_db()
         self.assertEqual(reservation.status, Reservation.Status.CHECKED_IN)
-        self.assertIsNone(self.settings.auto_checkout_last_run_date)
         self.assertEqual(result["tenants_processed"], 0)
 
     def test_before_auto_checkout_time(self):
         reservation = self._create_reservation()
-        early = datetime(2026, 5, 21, 9, 45, tzinfo=ZAGREB)
+        early = datetime(2026, 5, 21, 10, 45, tzinfo=ZAGREB)
 
         result = self._run_task(when=early)
 
         reservation.refresh_from_db()
-        self.settings.refresh_from_db()
         self.assertEqual(reservation.status, Reservation.Status.CHECKED_IN)
-        self.assertIsNone(self.settings.auto_checkout_last_run_date)
         self.assertEqual(result["tenants_processed"], 0)
 
     @patch("apps.core.tasks.notify_auto_checkout_summary.delay")
@@ -137,10 +135,9 @@ class AutoCheckoutTaskTests(TestCase):
         result = self._run_task()
 
         reservation.refresh_from_db()
-        self.settings.refresh_from_db()
         self.assertEqual(reservation.status, Reservation.Status.CHECKED_IN)
-        self.assertEqual(self.settings.auto_checkout_last_run_date, self.today)
         self.assertEqual(result["skipped"], 1)
+        self.assertEqual(result["tenants_processed"], 1)
         mock_evisitor_checkout.assert_not_called()
         mock_summary_push.assert_called_once()
         skipped = mock_summary_push.call_args.args[1]
@@ -157,6 +154,7 @@ class AutoCheckoutTaskTests(TestCase):
         reservation.refresh_from_db()
         self.assertEqual(reservation.status, Reservation.Status.CHECKED_IN)
         self.assertEqual(result["skipped"], 1)
+        self.assertEqual(result["tenants_processed"], 1)
         mock_evisitor_checkout.assert_not_called()
         skipped = mock_summary_push.call_args.args[1]
         self.assertEqual(skipped[0]["reason"], "evisitor_none")
@@ -172,6 +170,7 @@ class AutoCheckoutTaskTests(TestCase):
         reservation.refresh_from_db()
         self.assertEqual(reservation.status, Reservation.Status.CHECKED_IN)
         self.assertEqual(result["checked_out"], 0)
+        self.assertEqual(result["tenants_processed"], 0)
         mock_evisitor_checkout.assert_not_called()
 
     @patch("apps.core.tasks.notify_auto_checkout_summary.delay")
@@ -205,6 +204,55 @@ class AutoCheckoutTaskTests(TestCase):
         self.tenant.save(update_fields=["timezone"])
         now = tenant_local_now(self.tenant)
         self.assertIsNotNone(now.tzinfo)
+
+    @patch("apps.core.tasks.notify_auto_checkout_summary.delay")
+    @patch("apps.core.tasks.notify_reservation_status_changed.delay")
+    @patch("apps.reservations.checkout.checkout_reservation_guests_in_evisitor")
+    def test_multi_property_checkout_times(
+        self,
+        mock_evisitor_checkout,
+        mock_status_push,
+        mock_summary_push,
+    ):
+        early_prop = Property.objects.create(
+            tenant=self.tenant,
+            name="Early",
+            slug="early",
+            check_out_time=time(11, 0),
+        )
+        late_prop = Property.objects.create(
+            tenant=self.tenant,
+            name="Late",
+            slug="late",
+            check_out_time=time(14, 0),
+        )
+        early_res = self._create_reservation(
+            property=early_prop,
+            booking_code="BK-EARLY",
+        )
+        late_res = self._create_reservation(
+            property=late_prop,
+            booking_code="BK-LATE",
+        )
+        mock_evisitor_checkout.return_value = []
+
+        at_1130 = datetime(2026, 5, 21, 11, 30, tzinfo=ZAGREB)
+        result = self._run_task(when=at_1130)
+
+        early_res.refresh_from_db()
+        late_res.refresh_from_db()
+        self.assertEqual(early_res.status, Reservation.Status.CHECKED_OUT)
+        self.assertEqual(late_res.status, Reservation.Status.CHECKED_IN)
+        self.assertEqual(result["checked_out"], 1)
+
+        at_1430 = datetime(2026, 5, 21, 14, 30, tzinfo=ZAGREB)
+        mock_evisitor_checkout.reset_mock()
+        mock_status_push.reset_mock()
+        result_late = self._run_task(when=at_1430)
+
+        late_res.refresh_from_db()
+        self.assertEqual(late_res.status, Reservation.Status.CHECKED_OUT)
+        self.assertEqual(result_late["checked_out"], 1)
 
     @patch("apps.core.tasks.notify_auto_checkout_summary.delay")
     @patch("apps.core.tasks.notify_reservation_status_changed.delay")

@@ -17,6 +17,7 @@ from apps.integrations.models import ChannexBookingRevision, IntegrationConfig
 from apps.properties.models import Property, Unit
 from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
+from apps.integrations.channex.booking_room_mismatch import check_channex_revision_room_mismatch
 from apps.reservations.overbooking import flag_ingest_overbooking
 from apps.tenants.models import Tenant
 
@@ -413,6 +414,7 @@ def _upsert_reservation_from_revision(
         and units_count
     ):
         flag_ingest_overbooking(reservation)
+        check_channex_revision_room_mismatch(reservation, attrs)
 
     return reservation, created
 

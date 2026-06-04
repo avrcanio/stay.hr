@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from celery import shared_task
 
+from apps.core.timezone import property_local_now, tenant_local_now
 from apps.integrations.evisitor.exceptions import (
     EvisitorApiError,
     EvisitorConfigError,
@@ -15,16 +14,11 @@ from apps.integrations.evisitor.summary import evisitor_summary_for_guests
 from apps.reservations.checkout import CheckoutBlockedError, perform_reservation_checkout
 from apps.reservations.guest_slots import guests_for_checkout
 from apps.reservations.models import Reservation
-from apps.tenants.models import Tenant, TenantReceptionSettings
+from apps.tenants.models import TenantReceptionSettings
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TENANT_TIMEZONE = "Europe/Zagreb"
-
-
-def tenant_local_now(tenant: Tenant) -> datetime:
-    tz = ZoneInfo(tenant.timezone or DEFAULT_TENANT_TIMEZONE)
-    return datetime.now(tz)
+__all__ = ["run_auto_checkouts", "tenant_local_now", "property_local_now"]
 
 
 def _skip_reason_for_summary(summary: str) -> str:
@@ -39,6 +33,14 @@ def _skipped_entry(reservation: Reservation, reason: str) -> dict:
         "booking_code": reservation.booking_code or str(reservation.pk),
         "reason": reason,
     }
+
+
+def _is_due_for_auto_checkout(reservation: Reservation) -> bool:
+    prop = reservation.property
+    now = property_local_now(prop)
+    if now.date() != reservation.check_out:
+        return False
+    return now.time() >= prop.check_out_time
 
 
 @shared_task
@@ -60,25 +62,23 @@ def run_auto_checkouts() -> dict:
 
     for settings in settings_list:
         tenant = settings.tenant
-        now_local = tenant_local_now(tenant)
-        today_local = now_local.date()
-
-        if settings.auto_checkout_last_run_date == today_local:
-            continue
-
-        if now_local.time() < settings.auto_checkout_time:
-            continue
-
-        result["tenants_processed"] += 1
         skipped: list[dict] = []
+        tenant_active = False
 
-        reservations = Reservation.objects.filter(
-            tenant=tenant,
-            status=Reservation.Status.CHECKED_IN,
-            check_out=today_local,
-        ).prefetch_related("guests")
+        reservations = (
+            Reservation.objects.filter(
+                tenant=tenant,
+                status=Reservation.Status.CHECKED_IN,
+            )
+            .select_related("property", "tenant")
+            .prefetch_related("guests")
+        )
 
         for reservation in reservations:
+            if not _is_due_for_auto_checkout(reservation):
+                continue
+
+            tenant_active = True
             summary = evisitor_summary_for_guests(
                 guests_for_checkout(reservation),
                 reference_date=reservation.check_in,
@@ -119,11 +119,11 @@ def run_auto_checkouts() -> dict:
             )
             result["checked_out"] += 1
 
+        if tenant_active:
+            result["tenants_processed"] += 1
+
         if skipped:
             notify_auto_checkout_summary.delay(tenant.pk, skipped)
             result["skipped"] += len(skipped)
-
-        settings.auto_checkout_last_run_date = today_local
-        settings.save(update_fields=["auto_checkout_last_run_date", "updated_at"])
 
     return result

@@ -984,6 +984,12 @@ class BookingPdfImportView(ReceptionWriteView, APIView):
             save=True,
         )
 
+        from apps.reservations.channel_availability_sync import (
+            queue_reservation_channel_availability_sync,
+        )
+
+        queue_reservation_channel_availability_sync(reservation.pk)
+
         reservation = _reservation_queryset(request.tenant).filter(pk=reservation.pk).first()
         payload = ReservationTimelineSerializer(
             reservation,

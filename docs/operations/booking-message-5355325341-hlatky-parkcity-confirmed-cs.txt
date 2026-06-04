@@ -1,0 +1,14 @@
+KANAL: Booking.com Extranet → Poruke (copy-paste nakon što Toni potvrdi ParkCity i check-in).
+Email: mhlatk.698553@guest.booking.com
+Jezik: Czech
+Preduvjet: upuniti CHECKIN_VRIJEME i SNIDANE_CAS kad Toni potvrdi (ili ostaviti generički tekst ispod).
+
+---
+
+Děkujeme, pane Hlatky (a paní Ilono). Check-in 6. 6. 2026: ParkCity Rooms, Bana Josipa Jelačića 62, Šibenik (tel. +385 98 932 2440). Snídaně u nás v Luxury Room Uzorita B&B — prosíme o preferovaný čas. Toni, +385 99 838 8513
+
+---
+
+Verze s vremenom (zamijeni placeholder kad Toni potvrdi):
+
+Děkujeme, pane Hlatky (a paní Ilono). Váš check-in 6. 6. 2026 v [CHECKIN_VRIJEME]: ParkCity Rooms, Bana Josipa Jelačića 62, Šibenik (tel. +385 98 932 2440). Snídaně u nás v Luxury Room Uzorita B&B — [SNIDANE_CAS nebo „prosíme o preferovaný čas“]. Toni, +385 99 838 8513

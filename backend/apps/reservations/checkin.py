@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from apps.core.timezone import property_local_now
 from apps.reservations.models import Reservation, ReservationUnit
-from apps.reservations.tasks import tenant_local_now
 from apps.tenants.models import Tenant
 
 
@@ -39,7 +39,7 @@ def unit_has_checked_in_guest(
 
 
 def validate_reservation_check_in(reservation: Reservation, *, tenant: Tenant) -> None:
-    today = tenant_local_now(tenant).date()
+    today = property_local_now(reservation.property).date()
     if today != reservation.check_in:
         raise CheckInBlockedError(
             "wrong_date",

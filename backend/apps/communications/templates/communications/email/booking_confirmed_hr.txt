@@ -5,7 +5,7 @@ Vaša rezervacija je potvrđena.
 Kod rezervacije: {{ booking_code }}
 Objekt: {{ property_name }}
 {% if room_label %}Soba: {{ room_label }}
-{% endif %}Dolazak: {{ check_in }}
-Odlazak: {{ check_out }}
+{% endif %}Dolazak: {{ check_in_display }}
+Odlazak: {{ check_out_display }}
 
 Vidimo se uskoro!

@@ -75,6 +75,12 @@ npm run dev
 
 Set `STAY_API_INTERNAL_URL` and `STAY_BOOKING_API_TOKEN` in `.env` / shell. See [web/README.md](web/README.md).
 
+### Overbooking / multi-room (Uzorita)
+
+- Runbook: [`docs/operations/multi-room-overbooking-checklist.md`](docs/operations/multi-room-overbooking-checklist.md)
+- Reconcile: `python manage.py reconcile_booking_units --tenant-id 2`
+- Daily scan: Celery `detect_overbooking_daily` (06:00, tenant 2)
+
 ### Key paths
 
 - Booking app: `web/booking/`

@@ -250,12 +250,20 @@ class IntegrationConfigAdminForm(forms.ModelForm):
         self._config_char_field(
             "default_stay_time_from",
             label="Default stay time from",
-            initial=str(config.get("default_stay_time_from") or "14:00"),
+            initial=str(config.get("default_stay_time_from") or "15:00"),
+            help_text=(
+                "Fallback when no Property is set. For reservations, Property "
+                "check_in_time / check_out_time take precedence."
+            ),
         )
         self._config_char_field(
             "default_stay_time_until",
             label="Default stay time until",
-            initial=str(config.get("default_stay_time_until") or "10:00"),
+            initial=str(config.get("default_stay_time_until") or "11:00"),
+            help_text=(
+                "Fallback when no Property is set. For reservations, Property "
+                "check_in_time / check_out_time take precedence."
+            ),
         )
 
     def clean(self):

@@ -8,6 +8,9 @@ from apps.integrations.channel_manager.dispatch import (
     confirm_web_booking_if_ready,
     sync_reservation_outbound,
 )
+from apps.integrations.channex.reservation_availability_service import (
+    push_reservation_channex_availability_unconditional,
+)
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
 from apps.integrations.channel_manager.resolver import get_channel_manager
 from apps.reservations.booking_lifecycle import is_web_pending_booking, refuse_web_booking
@@ -66,5 +69,37 @@ def sync_reservation_outbound_task(
         logger.exception(
             "outbound reservation sync failed",
             extra={"reservation_id": reservation_id, "action": action},
+        )
+        raise self.retry(exc=exc) from exc
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def push_reservation_availability_task(self, reservation_id: int) -> dict:
+    """Push Channex ARI after unit assignment changes (PDF/XLS/manual)."""
+    reservation = (
+        Reservation.objects.filter(pk=reservation_id)
+        .select_related("tenant", "property")
+        .first()
+    )
+    if reservation is None:
+        return {"skipped": True, "reason": "not_found", "reservation_id": reservation_id}
+
+    try:
+        result = push_reservation_channex_availability_unconditional(reservation)
+        logger.info(
+            "reservation availability push completed",
+            extra={"reservation_id": reservation_id, "result": result},
+        )
+        return result
+    except (ChannexApiError, ChannexBookingIngestError) as exc:
+        logger.warning(
+            "reservation availability push skipped",
+            extra={"reservation_id": reservation_id, "reason": str(exc)},
+        )
+        return {"skipped": True, "reason": str(exc), "reservation_id": reservation_id}
+    except Exception as exc:
+        logger.exception(
+            "reservation availability push failed",
+            extra={"reservation_id": reservation_id},
         )
         raise self.retry(exc=exc) from exc

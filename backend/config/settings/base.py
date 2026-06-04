@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import environ
+from celery.schedules import crontab
 
 env = environ.Env(
     DJANGO_DEBUG=(bool, False),
@@ -184,6 +185,11 @@ CELERY_BEAT_SCHEDULE = {
     "auto-checkout": {
         "task": "apps.reservations.tasks.run_auto_checkouts",
         "schedule": 900.0,
+    },
+    "detect-overbooking-daily": {
+        "task": "apps.reservations.overbooking_tasks.detect_overbooking_daily",
+        "schedule": crontab(hour=6, minute=0),
+        "kwargs": {"tenant_id": 2},
     },
 }
 

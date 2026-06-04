@@ -79,6 +79,12 @@ class PropertyAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             },
         ),
         (
+            "Dolazak / odlazak",
+            {
+                "fields": ("check_in_time", "check_out_time"),
+            },
+        ),
+        (
             "Turistička pristojba",
             {
                 "fields": ("tourist_tax_zone", "tourist_tax_category"),

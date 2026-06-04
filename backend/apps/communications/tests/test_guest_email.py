@@ -6,6 +6,7 @@ from cryptography.fernet import Fernet
 from django.test import TestCase, override_settings
 
 from apps.communications.guest_email import (
+    _email_context,
     send_booking_canceled_email,
     send_booking_confirmed_email,
     should_send_guest_canceled_email,
@@ -16,6 +17,35 @@ from apps.tenants.models import Tenant, TenantReceptionSettings
 from apps.tenants.smtp import smtp_host_for_email
 
 TEST_FERNET_KEY = Fernet.generate_key().decode()
+
+
+@override_settings(STAY_INTEGRATION_FERNET_KEY=TEST_FERNET_KEY)
+class GuestEmailStayContextTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Uzorita", slug="uzorita-ctx", default_language="hr")
+        self.property = Property.objects.create(
+            tenant=self.tenant,
+            name="Uzorita",
+            slug="uzorita",
+        )
+        self.reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            booking_code="CTX01",
+            check_in=date(2026, 6, 6),
+            check_out=date(2026, 6, 8),
+            status=Reservation.Status.EXPECTED,
+            booker_name="Guest",
+            booker_email="guest@example.com",
+            amount=Decimal("100.00"),
+        )
+
+    def test_email_context_includes_property_times(self):
+        ctx = _email_context(self.reservation)
+        self.assertEqual(ctx["check_in_display"], "2026-06-06 od 15:00")
+        self.assertEqual(ctx["check_out_display"], "2026-06-08 do 11:00")
+        self.assertEqual(ctx["check_in_time"], "15:00")
+        self.assertEqual(ctx["check_out_time"], "11:00")
 
 
 @override_settings(STAY_INTEGRATION_FERNET_KEY=TEST_FERNET_KEY)

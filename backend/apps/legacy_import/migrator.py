@@ -346,9 +346,9 @@ class UzoritaLegacyMigrator:
             "default_payment_category": os.getenv(
                 "UZORITA_EVISITOR_DEFAULT_PAYMENT_CATEGORY", "14"
             ).strip(),
-            "default_stay_time_from": os.getenv("UZORITA_EVISITOR_DEFAULT_STAY_TIME_FROM", "14:00").strip(),
+            "default_stay_time_from": os.getenv("UZORITA_EVISITOR_DEFAULT_STAY_TIME_FROM", "15:00").strip(),
             "default_stay_time_until": os.getenv(
-                "UZORITA_EVISITOR_DEFAULT_STAY_TIME_UNTIL", "10:00"
+                "UZORITA_EVISITOR_DEFAULT_STAY_TIME_UNTIL", "11:00"
             ).strip(),
         }
 

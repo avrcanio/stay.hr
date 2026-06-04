@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from django.db.models import F, Q
 
 from apps.integrations.evisitor.config import EvisitorRuntimeConfig
@@ -38,4 +40,10 @@ def resolve_evisitor_config(tenant: Tenant, property: Property | None) -> Evisit
     runtime = EvisitorRuntimeConfig.from_integration_dict(row.get_config_dict())
     if not runtime.enabled:
         raise EvisitorConfigError("eVisitor integracija nije uključena za ovaj objekt.")
+    if property is not None:
+        runtime = replace(
+            runtime,
+            default_stay_time_from=property.check_in_time.strftime("%H:%M"),
+            default_stay_time_until=property.check_out_time.strftime("%H:%M"),
+        )
     return runtime

@@ -125,6 +125,10 @@ class ChannexClient:
             json={"no_show_report": {"waived_fees": waived_fees}},
         )
 
+    def cancel_booking(self, booking_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Cancel via Booking CRS API (requires Booking CRS app on property)."""
+        return self._request("PUT", f"/bookings/{booking_id}", json=payload)
+
     @staticmethod
     def extract_task_ids(response: dict[str, Any]) -> list[str]:
         task_ids: list[str] = []

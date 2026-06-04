@@ -51,6 +51,26 @@ def _sender_for_reservation(reservation: Reservation) -> tuple[str, str]:
     return formatted, from_email
 
 
+def _format_time_hm(value) -> str:
+    return value.strftime("%H:%M")
+
+
+def _stay_display_labels(reservation: Reservation) -> tuple[str, str]:
+    prop = reservation.property
+    lang = _language_for_reservation(reservation)
+    check_in_time = _format_time_hm(prop.check_in_time)
+    check_out_time = _format_time_hm(prop.check_out_time)
+    if lang == "hr":
+        return (
+            f"{reservation.check_in.isoformat()} od {check_in_time}",
+            f"{reservation.check_out.isoformat()} do {check_out_time}",
+        )
+    return (
+        f"{reservation.check_in.isoformat()} from {check_in_time}",
+        f"{reservation.check_out.isoformat()} until {check_out_time}",
+    )
+
+
 def _email_context(reservation: Reservation) -> dict:
     units = list(
         ReservationUnit.objects.filter(reservation=reservation).select_related("unit")
@@ -59,11 +79,18 @@ def _email_context(reservation: Reservation) -> dict:
     if not room_label and units:
         room_label = units[0].room_name or (units[0].unit.code if units[0].unit else "")
 
+    check_in_display, check_out_display = _stay_display_labels(reservation)
+    prop = reservation.property
+
     return {
         "booker_name": reservation.booker_name,
         "booking_code": reservation.booking_code,
         "check_in": reservation.check_in.isoformat(),
         "check_out": reservation.check_out.isoformat(),
+        "check_in_display": check_in_display,
+        "check_out_display": check_out_display,
+        "check_in_time": _format_time_hm(prop.check_in_time),
+        "check_out_time": _format_time_hm(prop.check_out_time),
         "property_name": reservation.property.name,
         "room_label": room_label,
         "currency": reservation.currency or "EUR",

@@ -1,0 +1,27 @@
+KANAL: SMS (ručno s mobitela ili SMS gatewaya).
+Booking: 5355325341 — Michael Hlatky
+Broj (copy-paste): +4201796686044
+Broj (s razmacima): +420 1796686044
+Napomena: nema WhatsApp/Telegram na ovom broju.
+
+Segmenti: SMS s dijakritikou (Unicode) ≈ 70 znaků/segment; bez dijakritike (GSM-7) ≈ 160 znaků/segment.
+
+Redoslijed: prvo pošalji punu poruku s booking-message-5355325341-michael-hlatky-cs.txt na Booking.com, zatim SMS kao podsjetnik.
+
+---
+
+VERZIJA A — s dijakritikou (preporuka, ~2–3 segmenta Unicode)
+
+Vážený pane Hlatky, Luxury Room Uzorita B&B: omlouváme se – kvůli přebookování na Booking.com vás 6.–8. 6. 2026 nemůžeme ubytovat v potvrzeném pokoji R1. Nabízíme ParkCity (2 min pěšky) + snídaně u nás, bez příplatku. Podrobnosti jsme poslali na Booking.com – prosíme odpověď tam. Toni +385 99 838 8513
+
+---
+
+VERZIJA A — bez dijakritike (GSM-7, ~1–2 segmenta)
+
+Vazeny pane Hlatky, Luxury Room Uzorita: kvuli prebookingu na Booking.com vas 6.-8.6.2026 nemuzeme ubytovat v pokoji R1. Nabizime ParkCity (2 min) + snidane u nas bez priplatku. Podrobnosti na Booking.com – prosime odpoved tam. Toni +385998388513
+
+---
+
+VERZIJA B — punija (opcionalno, 3–4 segmenta; samo ako treba adresa u SMS-u)
+
+Vazeny pane Hlatky, Luxury Room Uzorita B&B: kvuli prebookingu vas 6.-8.6. nemuzeme ubytovat v R1. Nabizime ParkCity Rooms, Bana Josipa Jelacica 62, Sibenik (2 min pesky) + snidane u nas, bez priplatku. Detail na Booking.com inboxu. Prosim odpoved tam nebo volejte +385998388513. Toni

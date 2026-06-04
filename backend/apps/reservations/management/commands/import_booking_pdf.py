@@ -107,11 +107,18 @@ class Command(BaseCommand):
             adults_count=row.adults_count,
         )
 
+        from apps.reservations.channel_availability_sync import (
+            queue_reservation_channel_availability_sync,
+        )
+
+        queue_reservation_channel_availability_sync(reservation.pk)
+
         verb = "created" if result.created else "updated"
         self.stdout.write(
             self.style.SUCCESS(
                 f"Import {verb}: reservation id={reservation.id} "
                 f"booking={reservation.booking_code} "
-                f"import_source={reservation.import_source}"
+                f"import_source={reservation.import_source} "
+                f"(Channex ARI sync queued)"
             )
         )
