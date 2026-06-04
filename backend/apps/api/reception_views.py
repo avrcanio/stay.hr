@@ -240,11 +240,15 @@ class ReservationTimelineListView(ReceptionReadView, generics.ListAPIView):
         booked_to = self._parse_date("booked_to")
         if booked_from and booked_to:
             start, end = property_day_range(booked_from, booked_to)
-            queryset = queryset.filter(
-                booked_at__isnull=False,
-                booked_at__gte=start,
-                booked_at__lt=end,
-            ).order_by("-booked_at", "-id")
+            queryset = (
+                queryset.filter(
+                    booked_at__isnull=False,
+                    booked_at__gte=start,
+                    booked_at__lt=end,
+                )
+                .exclude(status=Reservation.Status.CANCELED)
+                .order_by("-booked_at", "-id")
+            )
         else:
             canceled_from = self._parse_date("canceled_from")
             canceled_to = self._parse_date("canceled_to")
