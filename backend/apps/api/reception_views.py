@@ -9,7 +9,7 @@ from datetime import date as date_type
 
 from django.conf import settings
 from django.core.files.base import ContentFile
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Case, Count, DateTimeField, F, Prefetch, Q, When
 from django.http import FileResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -217,6 +217,10 @@ class ReceptionMonthlyStatisticsView(ReceptionReadView):
 class ReservationTimelineListView(ReceptionReadView, generics.ListAPIView):
     serializer_class = ReservationTimelineSerializer
 
+    def _include_canceled(self) -> bool:
+        raw = (self.request.query_params.get("include_canceled") or "").strip().lower()
+        return raw in ("1", "true", "yes")
+
     def get_queryset(self):
         queryset = _reservation_queryset(self.request.tenant).order_by("check_in", "id")
 
@@ -238,7 +242,45 @@ class ReservationTimelineListView(ReceptionReadView, generics.ListAPIView):
 
         booked_from = self._parse_date("booked_from")
         booked_to = self._parse_date("booked_to")
-        if booked_from and booked_to:
+        canceled_from = self._parse_date("canceled_from")
+        canceled_to = self._parse_date("canceled_to")
+        has_booked_range = booked_from and booked_to
+        has_canceled_range = canceled_from and canceled_to
+        combined_mode = self._include_canceled() or (
+            has_booked_range and has_canceled_range
+        )
+
+        if has_booked_range and combined_mode:
+            booked_start, booked_end = property_day_range(booked_from, booked_to)
+            booked_q = Q(
+                booked_at__isnull=False,
+                booked_at__gte=booked_start,
+                booked_at__lt=booked_end,
+            ) & ~Q(status=Reservation.Status.CANCELED)
+            if has_canceled_range:
+                cancel_start, cancel_end = property_day_range(
+                    canceled_from, canceled_to
+                )
+            else:
+                cancel_start, cancel_end = booked_start, booked_end
+            canceled_q = Q(
+                status=Reservation.Status.CANCELED,
+                canceled_at__isnull=False,
+                canceled_at__gte=cancel_start,
+                canceled_at__lt=cancel_end,
+            )
+            queryset = (
+                queryset.filter(booked_q | canceled_q)
+                .annotate(
+                    activity_at=Case(
+                        When(status=Reservation.Status.CANCELED, then=F("canceled_at")),
+                        default=F("booked_at"),
+                        output_field=DateTimeField(),
+                    )
+                )
+                .order_by("-activity_at", "-id")
+            )
+        elif has_booked_range:
             start, end = property_day_range(booked_from, booked_to)
             queryset = (
                 queryset.filter(
@@ -249,32 +291,29 @@ class ReservationTimelineListView(ReceptionReadView, generics.ListAPIView):
                 .exclude(status=Reservation.Status.CANCELED)
                 .order_by("-booked_at", "-id")
             )
+        elif has_canceled_range:
+            start, end = property_day_range(canceled_from, canceled_to)
+            queryset = queryset.filter(
+                status=Reservation.Status.CANCELED,
+                canceled_at__isnull=False,
+                canceled_at__gte=start,
+                canceled_at__lt=end,
+            ).order_by("-canceled_at", "-id")
         else:
-            canceled_from = self._parse_date("canceled_from")
-            canceled_to = self._parse_date("canceled_to")
-            if canceled_from and canceled_to:
-                start, end = property_day_range(canceled_from, canceled_to)
+            period_from = self._parse_date("period_from")
+            period_to = self._parse_date("period_to")
+            if period_from and period_to:
                 queryset = queryset.filter(
-                    status=Reservation.Status.CANCELED,
-                    canceled_at__isnull=False,
-                    canceled_at__gte=start,
-                    canceled_at__lt=end,
-                ).order_by("-canceled_at", "-id")
-            else:
-                period_from = self._parse_date("period_from")
-                period_to = self._parse_date("period_to")
-                if period_from and period_to:
-                    queryset = queryset.filter(
-                        Q(status=Reservation.Status.CHECKED_IN)
-                        | Q(
-                            check_in__gte=period_from,
-                            check_in__lte=period_to,
-                        )
-                        | Q(
-                            check_out__gte=period_from,
-                            check_out__lte=period_to,
-                        )
+                    Q(status=Reservation.Status.CHECKED_IN)
+                    | Q(
+                        check_in__gte=period_from,
+                        check_in__lte=period_to,
                     )
+                    | Q(
+                        check_out__gte=period_from,
+                        check_out__lte=period_to,
+                    )
+                )
 
         search = self.request.query_params.get("search", "").strip()
         if search:

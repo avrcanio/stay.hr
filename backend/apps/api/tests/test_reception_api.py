@@ -264,6 +264,192 @@ class ReceptionAPITests(TestCase):
         ids = {row["id"] for row in resp.json()}
         self.assertEqual(ids, {booked_today.id})
 
+    def test_timeline_booked_today_with_include_canceled(self):
+        zagreb = ZoneInfo("Europe/Zagreb")
+        today = date(2026, 6, 4)
+        tomorrow = today + timedelta(days=1)
+        booked_at = timezone.make_aware(
+            datetime(2026, 6, 4, 10, 0),
+            timezone=zagreb,
+        )
+
+        active_booked = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="ext-combined-active",
+            booking_code="BK-CA",
+            check_in=date(2026, 8, 10),
+            check_out=date(2026, 8, 12),
+            status=Reservation.Status.EXPECTED,
+            booker_name="Active Booked",
+            booked_at=booked_at,
+        )
+        canceled_today = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="ext-combined-canceled",
+            booking_code="BK-CC",
+            check_in=date(2026, 8, 1),
+            check_out=date(2026, 8, 3),
+            status=Reservation.Status.CANCELED,
+            booker_name="Cancel Today",
+            booked_at=timezone.make_aware(
+                datetime(2026, 6, 1, 12, 0),
+                timezone=zagreb,
+            ),
+            canceled_at=timezone.make_aware(
+                datetime(2026, 6, 4, 15, 0),
+                timezone=zagreb,
+            ),
+        )
+
+        resp = self.client.get(
+            "/api/v1/reception/reservations/",
+            {
+                "booked_from": today.isoformat(),
+                "booked_to": tomorrow.isoformat(),
+                "include_canceled": "1",
+            },
+            **self.auth,
+        )
+        self.assertEqual(resp.status_code, 200)
+        ids = {row["id"] for row in resp.json()}
+        self.assertEqual(ids, {active_booked.id, canceled_today.id})
+
+    def test_timeline_include_canceled_ilija_like(self):
+        zagreb = ZoneInfo("Europe/Zagreb")
+        june_4 = date(2026, 6, 4)
+        june_5 = date(2026, 6, 5)
+        june_6 = june_5 + timedelta(days=1)
+
+        ilija_like = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="ext-ilija-like",
+            booking_code="BK-832",
+            check_in=date(2027, 8, 4),
+            check_out=date(2027, 8, 5),
+            status=Reservation.Status.CANCELED,
+            booker_name="ilija saric",
+            booked_at=timezone.make_aware(
+                datetime(2026, 6, 4, 10, 0),
+                timezone=zagreb,
+            ),
+            canceled_at=timezone.make_aware(
+                datetime(2026, 6, 5, 0, 11, 56),
+                timezone=zagreb,
+            ),
+        )
+
+        resp_june_4 = self.client.get(
+            "/api/v1/reception/reservations/",
+            {
+                "booked_from": june_4.isoformat(),
+                "booked_to": june_5.isoformat(),
+                "include_canceled": "1",
+            },
+            **self.auth,
+        )
+        self.assertEqual(resp_june_4.status_code, 200)
+        ids_june_4 = {row["id"] for row in resp_june_4.json()}
+        self.assertNotIn(ilija_like.id, ids_june_4)
+
+        resp_june_5 = self.client.get(
+            "/api/v1/reception/reservations/",
+            {
+                "booked_from": june_5.isoformat(),
+                "booked_to": june_6.isoformat(),
+                "include_canceled": "1",
+            },
+            **self.auth,
+        )
+        self.assertEqual(resp_june_5.status_code, 200)
+        ids_june_5 = {row["id"] for row in resp_june_5.json()}
+        self.assertEqual(ids_june_5, {ilija_like.id})
+
+    def test_timeline_booked_and_canceled_params_implicit_combined(self):
+        zagreb = ZoneInfo("Europe/Zagreb")
+        today = date(2026, 6, 4)
+        tomorrow = today + timedelta(days=1)
+
+        canceled_today = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="ext-implicit-cancel",
+            booking_code="BK-IC",
+            check_in=date(2026, 9, 1),
+            check_out=date(2026, 9, 3),
+            status=Reservation.Status.CANCELED,
+            booker_name="Implicit Cancel",
+            canceled_at=timezone.make_aware(
+                datetime(2026, 6, 4, 9, 0),
+                timezone=zagreb,
+            ),
+        )
+
+        resp = self.client.get(
+            "/api/v1/reception/reservations/",
+            {
+                "booked_from": today.isoformat(),
+                "booked_to": tomorrow.isoformat(),
+                "canceled_from": today.isoformat(),
+                "canceled_to": tomorrow.isoformat(),
+            },
+            **self.auth,
+        )
+        self.assertEqual(resp.status_code, 200)
+        ids = {row["id"] for row in resp.json()}
+        self.assertIn(canceled_today.id, ids)
+
+    def test_timeline_booked_without_include_canceled_unchanged(self):
+        zagreb = ZoneInfo("Europe/Zagreb")
+        today = date(2026, 6, 4)
+        tomorrow = today + timedelta(days=1)
+        booked_at = timezone.make_aware(
+            datetime(2026, 6, 4, 8, 0),
+            timezone=zagreb,
+        )
+
+        canceled_same_day = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="ext-regression-canceled",
+            booking_code="BK-RC",
+            check_in=date(2026, 8, 4),
+            check_out=date(2026, 8, 5),
+            status=Reservation.Status.CANCELED,
+            booker_name="Booked Then Canceled",
+            booked_at=booked_at,
+            canceled_at=timezone.make_aware(
+                datetime(2026, 6, 4, 12, 0),
+                timezone=zagreb,
+            ),
+        )
+        active_booked = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="ext-regression-active",
+            booking_code="BK-RA",
+            check_in=date(2026, 8, 10),
+            check_out=date(2026, 8, 12),
+            status=Reservation.Status.EXPECTED,
+            booker_name="Active Booked",
+            booked_at=booked_at,
+        )
+
+        resp = self.client.get(
+            "/api/v1/reception/reservations/",
+            {
+                "booked_from": today.isoformat(),
+                "booked_to": tomorrow.isoformat(),
+            },
+            **self.auth,
+        )
+        self.assertEqual(resp.status_code, 200)
+        ids = {row["id"] for row in resp.json()}
+        self.assertEqual(ids, {active_booked.id})
+        self.assertNotIn(canceled_same_day.id, ids)
+
     @patch("apps.reservations.checkin.property_local_now")
     @patch("apps.core.tasks.notify_reservation_status_changed.delay")
     def test_reservation_detail_and_patch_status(self, mock_notify_status, mock_local_now):
