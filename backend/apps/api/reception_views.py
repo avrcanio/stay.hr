@@ -47,6 +47,7 @@ from apps.reservations.document_photo_storage import (
     id_recognition_sample_filename,
 )
 from apps.reservations.face_photo import guest_face_photo_document
+from apps.reservations.query import property_day_range
 from apps.reservations.models import (
     DocumentScanLog,
     DocumentScanStatus,
@@ -235,14 +236,41 @@ class ReservationTimelineListView(ReceptionReadView, generics.ListAPIView):
         if check_in_to:
             queryset = queryset.filter(check_in__lte=check_in_to)
 
-        period_from = self._parse_date("period_from")
-        period_to = self._parse_date("period_to")
-        if period_from and period_to:
+        booked_from = self._parse_date("booked_from")
+        booked_to = self._parse_date("booked_to")
+        if booked_from and booked_to:
+            start, end = property_day_range(booked_from, booked_to)
             queryset = queryset.filter(
-                Q(status=Reservation.Status.CHECKED_IN)
-                | Q(check_in__gte=period_from, check_in__lte=period_to)
-                | Q(check_out__gte=period_from, check_out__lte=period_to)
-            )
+                booked_at__isnull=False,
+                booked_at__gte=start,
+                booked_at__lt=end,
+            ).order_by("-booked_at", "-id")
+        else:
+            canceled_from = self._parse_date("canceled_from")
+            canceled_to = self._parse_date("canceled_to")
+            if canceled_from and canceled_to:
+                start, end = property_day_range(canceled_from, canceled_to)
+                queryset = queryset.filter(
+                    status=Reservation.Status.CANCELED,
+                    canceled_at__isnull=False,
+                    canceled_at__gte=start,
+                    canceled_at__lt=end,
+                ).order_by("-canceled_at", "-id")
+            else:
+                period_from = self._parse_date("period_from")
+                period_to = self._parse_date("period_to")
+                if period_from and period_to:
+                    queryset = queryset.filter(
+                        Q(status=Reservation.Status.CHECKED_IN)
+                        | Q(
+                            check_in__gte=period_from,
+                            check_in__lte=period_to,
+                        )
+                        | Q(
+                            check_out__gte=period_from,
+                            check_out__lte=period_to,
+                        )
+                    )
 
         search = self.request.query_params.get("search", "").strip()
         if search:

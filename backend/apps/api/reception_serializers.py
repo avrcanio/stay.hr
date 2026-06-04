@@ -197,6 +197,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
             "payment_status_key",
             "nights_count",
             "booked_at",
+            "canceled_at",
             "source",
             "import_source",
             "pdf_imported_at",
