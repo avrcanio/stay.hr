@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import type { ChannexReview } from "@/lib/types";
+import { ReviewContentText } from "@/app/_components/ReviewContentText";
 
 type Props = {
   reservationId: number;
@@ -33,6 +34,7 @@ function otaLabel(ota: string): string {
 export function GuestReviewsPanel({ reservationId, compact = false }: Props) {
   const t = useTranslations("guestReviews");
   const tc = useTranslations("common");
+  const locale = useLocale();
   const [reviews, setReviews] = useState<ChannexReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -46,7 +48,9 @@ export function GuestReviewsPanel({ reservationId, compact = false }: Props) {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${baseUrl}?sync=auto`);
+      const res = await fetch(`${baseUrl}?sync=auto&lang=${encodeURIComponent(locale)}&translate=1`, {
+        cache: "no-store",
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { detail?: string }).detail || t("loadFailed"));
@@ -58,7 +62,7 @@ export function GuestReviewsPanel({ reservationId, compact = false }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, t]);
+  }, [baseUrl, locale, t]);
 
   useEffect(() => {
     void loadReviews();
@@ -148,7 +152,9 @@ export function GuestReviewsPanel({ reservationId, compact = false }: Props) {
             </div>
           ) : null}
 
-          {review.content ? <p className="whitespace-pre-wrap text-sm">{review.content}</p> : null}
+          {review.content || review.content_localized ? (
+            <ReviewContentText review={review} />
+          ) : null}
 
           {review.reply ? (
             <div className="rounded-md border-l-4 border-stay-blue bg-white p-2 text-sm">

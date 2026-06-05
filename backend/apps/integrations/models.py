@@ -403,6 +403,7 @@ class ChannexReview(TenantScopedModel):
     ota_review_id = models.CharField(max_length=128, blank=True)
     guest_name = models.CharField(max_length=255, blank=True)
     content = models.TextField(blank=True)
+    content_translations = models.JSONField(default=dict, blank=True)
     reply = models.TextField(blank=True)
     overall_score = models.DecimalField(
         max_digits=5,

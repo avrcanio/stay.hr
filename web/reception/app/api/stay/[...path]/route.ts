@@ -62,6 +62,11 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
   const responseHeaders: Record<string, string> = {
     "Content-Type": contentType,
   };
+  const relativePath = pathSegments.filter(Boolean).join("/");
+  if (relativePath.includes("reception/reviews")) {
+    responseHeaders["Cache-Control"] = "no-store, no-cache, must-revalidate";
+    responseHeaders["Pragma"] = "no-cache";
+  }
   if (isBinary && upstream.headers.get("cache-control")) {
     responseHeaders["Cache-Control"] = upstream.headers.get("cache-control")!;
   }

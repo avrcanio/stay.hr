@@ -9,6 +9,7 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from apps.ai.translate import translation_available, translate_text
 from apps.integrations.channex.client import ChannexClient
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
@@ -149,9 +150,12 @@ def upsert_channex_review_from_payload(
     had_content = bool((existing.content or "").strip())
     new_content = field_values["content"]
     content_just_arrived = bool(new_content) and not had_content
+    content_changed = new_content != (existing.content or "")
 
     for key, value in field_values.items():
         setattr(existing, key, value)
+    if content_changed:
+        existing.content_translations = {}
     existing.integration = integration
     existing.save()
     return existing, False, content_just_arrived
@@ -250,8 +254,7 @@ def sync_reviews_from_channex(
                     "filter[property_id]": config.property_id,
                     "pagination[page]": page,
                     "pagination[limit]": page_size,
-                    "order[by]": "received_at",
-                    "order[direction]": "desc",
+                    "order[inserted_at]": "desc",
                 }
             )
             rows = _extract_review_rows(response)
@@ -452,11 +455,59 @@ def submit_airbnb_guest_review(
             client.close()
 
 
-def serialize_channex_review(row: ChannexReview) -> dict[str, Any]:
+def _cached_localized_content(row: ChannexReview, lang: str) -> tuple[str, bool] | None:
+    target = lang.split("-")[0].lower()
+    cache = row.content_translations if isinstance(row.content_translations, dict) else {}
+    cached = cache.get(target)
+    if not isinstance(cached, str) or not cached.strip():
+        return None
+    original = row.content or ""
+    return cached, cached.strip() != original.strip()
+
+
+def _localized_review_content(row: ChannexReview, lang: str) -> tuple[str, bool]:
+    """Return (display_text, is_translated) for the requested UI language."""
+    original = row.content or ""
+    if not original.strip():
+        return original, False
+
+    target = lang.split("-")[0].lower()
+    cache = row.content_translations if isinstance(row.content_translations, dict) else {}
+    cached = cache.get(target)
+    if isinstance(cached, str) and cached.strip():
+        return cached, cached.strip() != original.strip()
+
+    translated = translate_text(original, target)
+    is_translated = translated.strip() != original.strip()
+    if translated.strip():
+        cache = dict(cache)
+        cache[target] = translated
+        row.content_translations = cache
+        row.save(update_fields=["content_translations", "updated_at"])
+    return translated, is_translated
+
+
+def serialize_channex_review(
+    row: ChannexReview,
+    *,
+    lang: str | None = None,
+    translate: bool = False,
+) -> dict[str, Any]:
     reservation = row.reservation
     booking_code = None
     if reservation is not None:
         booking_code = reservation.booking_code or str(reservation.pk)
+
+    content_localized = row.content
+    content_is_translated = False
+    display_language = lang
+    if lang and (row.content or "").strip():
+        cached = _cached_localized_content(row, lang)
+        if cached is not None:
+            content_localized, content_is_translated = cached
+        elif translate:
+            content_localized, content_is_translated = _localized_review_content(row, lang)
+
     return {
         "id": row.pk,
         "channex_review_id": row.channex_review_id,
@@ -469,6 +520,10 @@ def serialize_channex_review(row: ChannexReview) -> dict[str, Any]:
         "scores": row.scores,
         "tags": row.tags,
         "content": row.content,
+        "content_localized": content_localized,
+        "content_is_translated": content_is_translated,
+        "display_language": display_language,
+        "translation_available": translation_available(),
         "reply": row.reply or None,
         "is_replied": row.is_replied,
         "is_hidden": row.is_hidden,
