@@ -91,6 +91,28 @@ def _encode_image_bytes(data: bytes, mime: str = "image/jpeg") -> str:
     return f"data:{mime};base64,{b64}"
 
 
+def _openai_error_message(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+        err = payload.get("error") or {}
+        message = (err.get("message") or "").strip()
+        code = (err.get("code") or "").strip()
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        message = ""
+        code = ""
+    if code == "missing_scope":
+        return (
+            "OCR API key nema dozvolu za vision (missing scope model.request). "
+            "Na platform.openai.com/api-keys kreiraj ključ s punim pristupom "
+            "ili uključenim Chat Completions / model.request."
+        )
+    if message:
+        return f"OCR API error: {message}"
+    if response.status_code == 401:
+        return "OCR API unauthorized (check API key)"
+    return f"OCR API error ({response.status_code})"
+
+
 def complete_vision_json(
     *,
     user_text: str,
@@ -154,8 +176,6 @@ def complete_vision_json(
     except httpx.HTTPError as exc:
         raise DocumentOcrError(f"OCR HTTP error: {exc}") from exc
 
-    if response.status_code == 401:
-        raise DocumentOcrError("OCR API unauthorized (check API key)")
     if response.status_code == 429:
         raise DocumentOcrError("OCR rate limit exceeded")
     if response.status_code >= 400:
@@ -163,7 +183,7 @@ def complete_vision_json(
             "OCR API error",
             extra={"status": response.status_code, "body": response.text[:500]},
         )
-        raise DocumentOcrError(f"OCR API error ({response.status_code})")
+        raise DocumentOcrError(_openai_error_message(response))
 
     data = response.json()
     try:
