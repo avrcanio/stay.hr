@@ -388,9 +388,6 @@
     "hiddenAirbnb": "Skriveno dok ne ocijenite gosta (Airbnb)",
     "airbnbGuestReviewHint": "Za Airbnb prvo ocijenite gosta u mobilnoj aplikaciji.",
     "openInbox": "Sve recenzije objekta",
-    "openReservation": "Rezervacija {code}",
-    "showOriginal": "Prikaži original",
-    "showTranslation": "Prikaži prijevod",
-    "translatedLabel": "Automatski prijevod (OpenAI)"
+    "openReservation": "Rezervacija {code}"
   }
 }

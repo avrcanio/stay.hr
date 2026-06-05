@@ -2,11 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useTranslations, useLocale } from "next-intl";
+import { useTranslations } from "next-intl";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
-import { ReviewContentText } from "@/app/_components/ReviewContentText";
 import type { AppConfig, ChannexReview, ChannexReviewsListResponse } from "@/lib/types";
-import { reviewDisplayContent } from "@/lib/review-display";
 
 function formatReviewTime(iso: string | null): string {
   if (!iso) return "";
@@ -31,7 +29,6 @@ function otaLabel(ota: string): string {
 export default function ReviewsPage() {
   const t = useTranslations("guestReviews");
   const tc = useTranslations("common");
-  const locale = useLocale();
   const [tenantName, setTenantName] = useState("");
   const [reviews, setReviews] = useState<ChannexReview[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,49 +52,25 @@ export default function ReviewsPage() {
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({
-        sync: "auto",
-        page: "1",
-        page_size: "50",
-        lang: locale,
-        translate: "1",
-      });
+      const params = new URLSearchParams({ sync: "auto", page: "1", page_size: "50" });
       if (unrepliedOnly) params.set("unreplied", "1");
-      const res = await fetch(`/api/stay/reception/reviews/?${params.toString()}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(`/api/stay/reception/reviews/?${params.toString()}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { detail?: string }).detail || t("loadFailed"));
       }
       const data = (await res.json()) as ChannexReviewsListResponse;
       setReviews(data.reviews ?? []);
+      if (selected) {
+        const updated = data.reviews.find((row) => row.id === selected.id);
+        if (updated) setSelected(updated);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t("loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [locale, t, unrepliedOnly]);
-
-  const loadReviewDetail = useCallback(
-    async (reviewId: number) => {
-      const res = await fetch(
-        `/api/stay/reception/reviews/${reviewId}/?lang=${encodeURIComponent(locale)}&translate=1`,
-        { cache: "no-store" },
-      );
-      if (!res.ok) return null;
-      return (await res.json()) as ChannexReview;
-    },
-    [locale],
-  );
-
-  async function handleSelectReview(review: ChannexReview) {
-    setSelected(review);
-    setReplyText("");
-    setActionMessage("");
-    const detailed = await loadReviewDetail(review.id);
-    if (detailed) setSelected(detailed);
-  }
+  }, [selected, t, unrepliedOnly]);
 
   useEffect(() => {
     void loadReviews();
@@ -119,10 +92,10 @@ export default function ReviewsPage() {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { detail?: string }).detail || t("replyFailed"));
       }
+      const updated = (await res.json()) as ChannexReview;
+      setSelected(updated);
       setReplyText("");
       setActionMessage(t("replySuccess"));
-      const detailed = await loadReviewDetail(selected.id);
-      if (detailed) setSelected(detailed);
       await loadReviews();
     } catch (err) {
       setActionMessage(err instanceof Error ? err.message : t("replyFailed"));
@@ -165,7 +138,11 @@ export default function ReviewsPage() {
                 <button
                   key={review.id}
                   type="button"
-                  onClick={() => void handleSelectReview(review)}
+                  onClick={() => {
+                    setSelected(review);
+                    setReplyText("");
+                    setActionMessage("");
+                  }}
                   className={`w-full rounded-lg border p-3 text-left transition ${
                     selected?.id === review.id ? "border-stay-blue bg-stay-blue-light/30" : "bg-white hover:bg-slate-50"
                   }`}
@@ -180,7 +157,7 @@ export default function ReviewsPage() {
                     ) : null}
                   </div>
                   <p className="mt-1 line-clamp-2 text-sm text-muted">
-                    {reviewDisplayContent(review) || t("noContentYet")}
+                    {review.content || t("noContentYet")}
                   </p>
                   <p className="mt-1 text-xs text-muted">{formatReviewTime(review.received_at)}</p>
                   {review.reservation_id ? (
@@ -209,8 +186,8 @@ export default function ReviewsPage() {
                   ) : null}
                 </div>
                 {selected.guest_name ? <p className="text-sm">{selected.guest_name}</p> : null}
-                {selected.content || selected.content_localized ? (
-                  <ReviewContentText review={selected} />
+                {selected.content ? (
+                  <p className="whitespace-pre-wrap text-sm">{selected.content}</p>
                 ) : (
                   <p className="text-sm text-muted">{t("noContentYet")}</p>
                 )}

@@ -388,9 +388,6 @@
     "hiddenAirbnb": "Hidden until you rate the guest (Airbnb)",
     "airbnbGuestReviewHint": "For Airbnb, rate the guest in the mobile app first.",
     "openInbox": "All property reviews",
-    "openReservation": "Reservation {code}",
-    "showOriginal": "Show original",
-    "showTranslation": "Show translation",
-    "translatedLabel": "Auto-translated (OpenAI)"
+    "openReservation": "Reservation {code}"
   }
 }

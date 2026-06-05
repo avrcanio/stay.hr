@@ -101,49 +101,6 @@ class ReceptionReviewsTests(TestCase):
         self.assertEqual(data["total"], 1)
         self.assertEqual(len(data["reviews"]), 1)
         self.assertEqual(data["reviews"][0]["content"], "Excellent stay")
-        self.assertEqual(data["reviews"][0]["content_localized"], "Excellent stay")
-        self.assertFalse(data["reviews"][0]["content_is_translated"])
-
-    @patch("apps.integrations.channex.review_service.translate_text")
-    def test_review_detail_translates_to_ui_language(self, mock_translate):
-        mock_translate.return_value = "Odličan boravak"
-        self._login()
-        response = self.client.get(
-            f"/api/v1/reception/reviews/{self.review.pk}/?lang=hr&translate=1",
-            HTTP_HOST="app.stay.hr",
-        )
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(data["content"], "Excellent stay")
-        self.assertEqual(data["content_localized"], "Odličan boravak")
-        self.assertTrue(data["content_is_translated"])
-        mock_translate.assert_called_once()
-
-        self.review.refresh_from_db()
-        self.assertEqual(self.review.content_translations.get("hr"), "Odličan boravak")
-
-        mock_translate.reset_mock()
-        response = self.client.get(
-            f"/api/v1/reception/reviews/{self.review.pk}/?lang=hr&translate=1",
-            HTTP_HOST="app.stay.hr",
-        )
-        self.assertEqual(response.status_code, 200)
-        mock_translate.assert_not_called()
-
-    @patch("apps.integrations.channex.review_service.translate_text")
-    def test_list_reviews_uses_cached_translation(self, mock_translate):
-        self.review.content_translations = {"hr": "Odličan boravak"}
-        self.review.save(update_fields=["content_translations"])
-        self._login()
-        response = self.client.get(
-            "/api/v1/reception/reviews/?sync=0&lang=hr&translate=0",
-            HTTP_HOST="app.stay.hr",
-        )
-        self.assertEqual(response.status_code, 200)
-        data = response.json()["reviews"][0]
-        self.assertEqual(data["content_localized"], "Odličan boravak")
-        self.assertTrue(data["content_is_translated"])
-        mock_translate.assert_not_called()
 
     def test_reservation_reviews(self):
         self._login()

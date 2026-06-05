@@ -5,7 +5,6 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.api.language import parse_translate_flag, resolve_request_language
 from apps.api.permissions import DenyAdminScopes, HasReceptionAccess
 from apps.api.reception_channex_views import _guard_channex_tenant
 from apps.api.views import TenantAPIView
@@ -21,15 +20,6 @@ from apps.integrations.channex.review_service import (
     submit_airbnb_guest_review,
 )
 from apps.reservations.models import Reservation
-
-
-def _serialize_review(request, row, *, translate_default: bool) -> dict:
-    lang = resolve_request_language(request, tenant=request.tenant)
-    translate = parse_translate_flag(
-        request.query_params.get("translate"),
-        default=translate_default,
-    )
-    return serialize_channex_review(row, lang=lang, translate=translate)
 
 
 class ChannexReviewReplySerializer(serializers.Serializer):
@@ -93,9 +83,7 @@ class ReceptionReviewsListView(TenantAPIView, APIView):
                 "page": page,
                 "page_size": page_size,
                 "total": total,
-                "reviews": [
-                    _serialize_review(request, row, translate_default=True) for row in rows
-                ],
+                "reviews": [serialize_channex_review(row) for row in rows],
             }
         )
 
@@ -109,7 +97,7 @@ class ReceptionReviewDetailView(TenantAPIView, APIView):
         row = get_review_for_tenant(request.tenant, review_id)
         if row is None:
             raise NotFound("Review not found.")
-        return Response(_serialize_review(request, row, translate_default=True))
+        return Response(serialize_channex_review(row))
 
 
 class ReceptionReviewReplyView(TenantAPIView, APIView):
@@ -137,7 +125,7 @@ class ReceptionReviewReplyView(TenantAPIView, APIView):
         except ChannexApiError as exc:
             raise ValidationError(str(exc)) from exc
 
-        return Response(_serialize_review(request, row, translate_default=True))
+        return Response(serialize_channex_review(row))
 
 
 class ReceptionReviewGuestReviewView(TenantAPIView, APIView):
@@ -174,7 +162,7 @@ class ReceptionReviewGuestReviewView(TenantAPIView, APIView):
         except ChannexApiError as exc:
             raise ValidationError(str(exc)) from exc
 
-        return Response(_serialize_review(request, row, translate_default=True))
+        return Response(serialize_channex_review(row))
 
 
 class ReceptionReservationReviewsView(TenantAPIView, APIView):
@@ -215,8 +203,6 @@ class ReceptionReservationReviewsView(TenantAPIView, APIView):
         return Response(
             {
                 "reservation_id": reservation.pk,
-                "reviews": [
-                    _serialize_review(request, row, translate_default=True) for row in rows
-                ],
+                "reviews": [serialize_channex_review(row) for row in rows],
             }
         )

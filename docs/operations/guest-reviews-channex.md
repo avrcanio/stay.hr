@@ -40,8 +40,8 @@ docker compose exec django python manage.py sync_channex_reviews --tenant-slug=u
 
 | Method | Path |
 |--------|------|
-| GET | `/api/v1/reception/reviews/` — property inbox (`?unreplied=1`, `?ota=BookingCom`, `?sync=auto\|1\|0`, `?lang=hr`, `?translate=0\|1`) |
-| GET | `/api/v1/reception/reviews/{id}/` — detail; `?lang=` + `?translate=1` lokalizira tekst recenzije |
+| GET | `/api/v1/reception/reviews/` — property inbox (`?unreplied=1`, `?ota=BookingCom`, `?sync=auto\|1\|0`) |
+| GET | `/api/v1/reception/reviews/{id}/` |
 | POST | `/api/v1/reception/reviews/{id}/reply/` — body `{"reply": "..."}` |
 | POST | `/api/v1/reception/reviews/{id}/guest-review/` — Airbnb rate guest |
 | GET | `/api/v1/reception/reservations/{id}/reviews/` |
@@ -52,28 +52,6 @@ docker compose exec django python manage.py sync_channex_reviews --tenant-slug=u
 |---------|----------|
 | Web recepcija | Nav **Recenzije** → `/reviews`; panel on reservation detail |
 | Hospira tablet | **Više → Recenzije gostiju**; summary on reservation detail |
-
-## Translation (OpenAI)
-
-Guest review text can be auto-translated to the reception UI language (web recepcija cookie `stay_locale`, Hospira app locale, or `Accept-Language`).
-
-Query params:
-
-| Param | Values | Default |
-|-------|--------|---------|
-| `lang` | `hr`, `en`, `de`, `es`, `fr`, `it` | `Accept-Language` → tenant `default_language` |
-| `translate` | `0` / `1` | list inbox: `0`; detail + reservation panel: `1` |
-
-Response fields: `content` (original OTA text), `content_localized`, `content_is_translated`, `translation_available`.
-
-Uses the same OpenAI key as guest message compose (`GUEST_COMPOSE_LLM_API_KEY`). Translations are cached in `ChannexReview.content_translations`.
-
-Hospira example:
-
-```http
-GET /api/v1/reception/reviews/42/?lang=hr&translate=1
-Accept-Language: hr-HR
-```
 
 ## Push notifications
 
