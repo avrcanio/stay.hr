@@ -28,6 +28,12 @@ from apps.api.reception_guest_messages_views import (
     ReceptionGuestMessageSendView,
     ReceptionGuestMessagesView,
 )
+from apps.api.reception_document_intake_views import (
+    DocumentIntakeBatchView,
+    DocumentIntakeJobApplyView,
+    DocumentIntakeJobDetailView,
+    DocumentIntakeJobProcessView,
+)
 from apps.api.reception_views import (
     BookingPdfImportView,
     DocumentPhotosUploadView,
@@ -46,6 +52,26 @@ from apps.api.reception_views import (
 )
 
 urlpatterns = [
+    path(
+        "document-intake/batch/",
+        DocumentIntakeBatchView.as_view(),
+        name="reception-document-intake-batch",
+    ),
+    path(
+        "document-intake/jobs/<int:job_id>/process/",
+        DocumentIntakeJobProcessView.as_view(),
+        name="reception-document-intake-process",
+    ),
+    path(
+        "document-intake/jobs/<int:job_id>/",
+        DocumentIntakeJobDetailView.as_view(),
+        name="reception-document-intake-detail",
+    ),
+    path(
+        "document-intake/jobs/<int:job_id>/apply/",
+        DocumentIntakeJobApplyView.as_view(),
+        name="reception-document-intake-apply",
+    ),
     path("health/", ReceptionHealthView.as_view(), name="reception-health"),
     path(
         "sync-versions/",

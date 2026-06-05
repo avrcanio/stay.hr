@@ -375,6 +375,62 @@ class DocumentScanLog(TenantScopedModel):
         return f"DocumentScanLog #{self.pk} guest={self.guest_id}"
 
 
+class DocumentIntakeJobStatus(models.TextChoices):
+    QUEUED = "queued", "Queued"
+    PROCESSING = "processing", "Processing"
+    DONE = "done", "Done"
+    FAILED = "failed", "Failed"
+    APPLIED = "applied", "Applied"
+
+
+def document_intake_image_upload_to(instance, filename: str) -> str:
+    tenant_id = getattr(instance, "tenant_id", None) or "unknown"
+    job_id = getattr(instance, "job_id", None) or "unknown"
+    return f"document_intake/{tenant_id}/{job_id}/{filename}"
+
+
+class DocumentIntakeJob(TenantScopedModel):
+    """Batch of shared document photos awaiting OCR and guest matching."""
+
+    status = models.CharField(
+        max_length=16,
+        choices=DocumentIntakeJobStatus.choices,
+        default=DocumentIntakeJobStatus.QUEUED,
+    )
+    device_id = models.CharField(max_length=128, blank=True, default="")
+    ocr_result = models.JSONField(default=dict, blank=True)
+    matches = models.JSONField(default=list, blank=True)
+    applied_result = models.JSONField(default=list, blank=True)
+    error_message = models.TextField(blank=True, default="")
+    processed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+
+    def __str__(self) -> str:
+        return f"DocumentIntakeJob #{self.pk} status={self.status}"
+
+
+class DocumentIntakeImage(TenantScopedModel):
+    job = models.ForeignKey(
+        DocumentIntakeJob,
+        on_delete=models.CASCADE,
+        related_name="images",
+    )
+    image = models.ImageField(upload_to=document_intake_image_upload_to)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    detected_side = models.CharField(max_length=16, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self) -> str:
+        return f"DocumentIntakeImage #{self.pk} job={self.job_id}"
+
+
 class MonthlyStatisticsOverride(TenantScopedModel):
     """Ručni mjesečni prihod/noći/provizija; nadjačava automatski zbroj iz rezervacija."""
 
