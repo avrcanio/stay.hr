@@ -362,6 +362,7 @@ def list_reviews_for_property(
     client: ChannexClient | None = None,
 ) -> tuple[list[ChannexReview], int]:
     tenant = integration_row.tenant
+    relink_unlinked_channex_reviews(tenant)
     qs = _reviews_queryset(tenant)
     if unreplied_only:
         qs = qs.filter(is_replied=False)
@@ -411,6 +412,7 @@ def _booking_ids_for_reservation(reservation: Reservation) -> list[str]:
 
 
 def get_review_for_tenant(tenant: Tenant, review_pk: int) -> ChannexReview | None:
+    relink_unlinked_channex_reviews(tenant)
     return (
         _reviews_queryset(tenant)
         .filter(pk=review_pk)

@@ -525,6 +525,9 @@ def process_channex_booking_revision(
                 reservation_id
             )
         )
+        from apps.integrations.channex.review_service import relink_unlinked_channex_reviews
+
+        transaction.on_commit(lambda t=tenant: relink_unlinked_channex_reviews(t))
         return reservation
     finally:
         if owns_client and client is not None:

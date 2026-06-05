@@ -104,6 +104,36 @@ class ReceptionReviewsTests(TestCase):
         self.assertEqual(data["reviews"][0]["reservation_ref"], "5307026805")
         self.assertTrue(data["reviews"][0]["reservation_linkable"])
 
+    def test_list_reviews_relinks_unlinked_review(self):
+        unlinked = ChannexReview.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=None,
+            channex_review_id="review-uuid-unlinked",
+            ota="BookingCom",
+            ota_reservation_id="5307026805",
+            content="Late-linked review",
+            overall_score=Decimal("8.0"),
+            is_replied=False,
+            received_at=timezone.now(),
+        )
+        self.assertIsNone(unlinked.reservation_id)
+
+        self._login()
+        response = self.client.get(
+            "/api/v1/reception/reviews/?sync=0",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        unlinked_payload = next(
+            item for item in data["reviews"] if item["id"] == unlinked.pk
+        )
+        self.assertEqual(unlinked_payload["reservation_id"], self.reservation.pk)
+        self.assertTrue(unlinked_payload["reservation_linkable"])
+        unlinked.refresh_from_db()
+        self.assertEqual(unlinked.reservation_id, self.reservation.pk)
+
     def test_review_links_by_ota_reservation_id(self):
         from apps.integrations.channex.review_service import upsert_channex_review_from_payload
 
