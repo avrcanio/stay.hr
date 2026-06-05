@@ -13,6 +13,7 @@ from apps.communications.guest_message_send import (
     build_message_channels,
     default_email_subject,
     send_guest_message,
+    _booking_channel_available,
 )
 from apps.communications.models import (
     GuestMessageChannel,
@@ -119,9 +120,35 @@ def _timeline_for_reservation(reservation: Reservation) -> list[dict]:
     return [item for _, item in rows]
 
 
+def _sync_channex_messages_for_timeline(reservation: Reservation, *, sync_param: str) -> None:
+    if sync_param == "0" or not _booking_channel_available(reservation):
+        return
+    from apps.integrations.channex.ari_service import get_active_channex_integration
+    from apps.integrations.channex.booking_service import ChannexBookingIngestError
+    from apps.integrations.channex.client import ChannexApiError
+    from apps.integrations.channex.message_service import list_messages_for_reservation
+
+    try:
+        integration = get_active_channex_integration(reservation.tenant.slug)
+    except ChannexBookingIngestError:
+        return
+
+    try:
+        list_messages_for_reservation(
+            integration,
+            reservation,
+            sync_if_empty=sync_param == "auto",
+            force_sync=sync_param == "1",
+        )
+    except (ChannexBookingIngestError, ChannexApiError):
+        return
+
+
 class ReceptionGuestMessagesView(ReceptionReadView, APIView):
     def get(self, request, reservation_id: int):
         reservation = _reservation_or_404(request.tenant, reservation_id)
+        sync_param = request.query_params.get("sync", "auto")
+        _sync_channex_messages_for_timeline(reservation, sync_param=sync_param)
         return Response(_timeline_for_reservation(reservation))
 
 

@@ -44,6 +44,18 @@ Base: `/api/v1/reception/reservations/{id}/messages/`
 GET /api/v1/reception/reservations/798/messages/
 ```
 
+Query `sync` (Channex rezervacije):
+
+| Vrijednost | Ponašanje |
+|------------|-----------|
+| `auto` (default) | Ako u bazi nema Channex poruka, povući ih iz Channex API-ja |
+| `1` | Uvijek osvježi iz Channex API-ja (pull-to-refresh) |
+| `0` | Samo lokalna baza, bez Channex API poziva |
+
+```http
+GET /api/v1/reception/reservations/798/messages/?sync=1
+```
+
 Response: sortirani niz (asc po `created_at`):
 
 ```json

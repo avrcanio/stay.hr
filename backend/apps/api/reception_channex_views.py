@@ -624,7 +624,7 @@ class ReceptionReservationChannexMessagesView(TenantAPIView, APIView):
         except ChannexBookingIngestError as exc:
             raise ValidationError(str(exc)) from exc
 
-        sync_if_empty = request.query_params.get("sync", "auto") != "0"
+        sync_param = request.query_params.get("sync", "auto")
         try:
             from apps.integrations.channex.message_service import (
                 list_messages_for_reservation,
@@ -634,7 +634,8 @@ class ReceptionReservationChannexMessagesView(TenantAPIView, APIView):
             rows = list_messages_for_reservation(
                 integration,
                 reservation,
-                sync_if_empty=sync_if_empty,
+                sync_if_empty=sync_param == "auto",
+                force_sync=sync_param == "1",
             )
         except ChannexBookingIngestError as exc:
             raise ValidationError(str(exc)) from exc

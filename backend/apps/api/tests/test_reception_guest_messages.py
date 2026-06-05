@@ -497,6 +497,52 @@ class ReceptionGuestMessagesAPITests(TestCase):
         self.assertEqual(data[0]["direction"], "inbound")
         self.assertEqual(data[0]["body_text"], "Hello from guest")
 
+    @patch("apps.integrations.channex.message_service.ChannexClient")
+    def test_timeline_syncs_channex_when_empty(self, mock_client_cls):
+        from unittest.mock import MagicMock
+
+        from apps.integrations.channex.booking_service import channex_external_id
+        from apps.integrations.models import IntegrationConfig
+        from apps.tenants.models import ChannelManager, TenantReceptionSettings
+
+        TenantReceptionSettings.objects.create(
+            tenant=self.tenant,
+            channel_manager=ChannelManager.CHANNEX,
+        )
+        IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
+        self.reservation.import_source = "channex"
+        booking_id = "timeline-booking-uuid"
+        self.reservation.external_id = channex_external_id(booking_id)
+        self.reservation.save(update_fields=["import_source", "external_id"])
+
+        mock_client = MagicMock()
+        mock_client.list_booking_messages.return_value = {
+            "data": [
+                {
+                    "id": "remote-timeline-msg",
+                    "attributes": {
+                        "message": "Guest reply from Booking.com",
+                        "sender": "guest",
+                        "booking_id": booking_id,
+                        "inserted_at": "2026-05-27T08:10:00.000000",
+                    },
+                }
+            ]
+        }
+        mock_client_cls.return_value = mock_client
+
+        response = self.client.get(f"{self.base}/", **self.auth)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["source"], "booking")
+        self.assertEqual(data[0]["direction"], "inbound")
+        self.assertEqual(data[0]["body_text"], "Guest reply from Booking.com")
+
     @patch.dict(os.environ, {}, clear=False)
     def test_compose_direct_platform_has_email_not_booking(self):
         os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)

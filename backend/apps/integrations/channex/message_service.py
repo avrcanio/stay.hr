@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone as dt_timezone
 from typing import Any
+
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from apps.integrations.channex.booking_service import (
     channex_external_id,
@@ -44,8 +48,26 @@ def _flatten_message_payload(payload: dict[str, Any]) -> dict[str, Any]:
         merged = dict(attrs)
         if payload.get("id") and not merged.get("id"):
             merged["id"] = payload["id"]
+        thread = (payload.get("relationships") or {}).get("message_thread") or {}
+        thread_data = thread.get("data") if isinstance(thread, dict) else None
+        if isinstance(thread_data, dict) and thread_data.get("id"):
+            merged.setdefault("message_thread_id", str(thread_data["id"]))
         return merged
     return payload
+
+
+def _message_created_at(payload: dict[str, Any]) -> datetime | None:
+    for key in ("inserted_at", "created_at"):
+        raw = payload.get(key)
+        if not raw:
+            continue
+        parsed = parse_datetime(str(raw).replace("Z", "+00:00"))
+        if parsed is None:
+            continue
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, dt_timezone.utc)
+        return parsed
+    return None
 
 
 def _message_body(payload: dict[str, Any]) -> str:
@@ -94,19 +116,24 @@ def upsert_channex_message_from_payload(
         reservation = find_reservation_for_channex_booking(tenant, booking_id)
 
     sender = _message_sender(flat)
-    row = ChannexMessage.objects.create(
-        tenant=tenant,
-        integration=integration,
-        reservation=reservation,
-        channex_booking_id=booking_id,
-        message_thread_id=str(flat.get("message_thread_id") or "").strip(),
-        channex_message_id=message_id,
-        direction=_direction_for_sender(sender),
-        sender=sender,
-        body=_message_body(flat),
-        have_attachment=bool(flat.get("have_attachment")),
-        raw_payload=flat,
-    )
+    create_kwargs: dict[str, Any] = {
+        "tenant": tenant,
+        "integration": integration,
+        "reservation": reservation,
+        "channex_booking_id": booking_id,
+        "message_thread_id": str(flat.get("message_thread_id") or "").strip(),
+        "channex_message_id": message_id,
+        "direction": _direction_for_sender(sender),
+        "sender": sender,
+        "body": _message_body(flat),
+        "have_attachment": bool(flat.get("have_attachment")),
+        "raw_payload": flat,
+    }
+    inserted_at = _message_created_at(flat)
+    row = ChannexMessage.objects.create(**create_kwargs)
+    if inserted_at is not None:
+        ChannexMessage.objects.filter(pk=row.pk).update(created_at=inserted_at)
+        row.created_at = inserted_at
     if reservation is None and booking_id:
         logger.warning(
             "channex message stored without reservation link",
@@ -195,23 +222,21 @@ def list_messages_for_reservation(
     reservation: Reservation,
     *,
     sync_if_empty: bool = True,
+    force_sync: bool = False,
     client: ChannexClient | None = None,
 ) -> list[ChannexMessage]:
-    rows = list(
-        ChannexMessage.objects.filter(
-            tenant=reservation.tenant,
-            reservation=reservation,
-        ).order_by("-created_at")
+    qs = ChannexMessage.objects.filter(
+        tenant=reservation.tenant,
+        reservation=reservation,
     )
-    if rows or not sync_if_empty:
-        return rows
-    if not parse_channex_booking_id(reservation.external_id):
-        return rows
-    return sync_booking_messages_from_channex(
-        integration_row,
-        reservation,
-        client=client,
-    )
+    booking_id = parse_channex_booking_id(reservation.external_id)
+    if booking_id and (force_sync or (sync_if_empty and not qs.exists())):
+        sync_booking_messages_from_channex(
+            integration_row,
+            reservation,
+            client=client,
+        )
+    return list(qs.order_by("-created_at"))
 
 
 def send_message_for_reservation(
