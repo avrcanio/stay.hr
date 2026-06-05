@@ -28,6 +28,7 @@ from apps.api.reception_guest_messages_views import (
     ReceptionGuestMessageSendView,
     ReceptionGuestMessagesView,
 )
+from apps.api.reception_message_threads_views import ReceptionMessageThreadsListView
 from apps.api.reception_reviews_views import (
     ReceptionReservationReviewsView,
     ReceptionReviewComposeReplyView,
@@ -155,6 +156,11 @@ urlpatterns = [
         "reservations/<int:reservation_id>/messages/send/",
         ReceptionGuestMessageSendView.as_view(),
         name="reception-reservation-messages-send",
+    ),
+    path(
+        "message-threads/",
+        ReceptionMessageThreadsListView.as_view(),
+        name="reception-message-threads-list",
     ),
     path(
         "reviews/",

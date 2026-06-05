@@ -15,17 +15,18 @@ from apps.communications.guest_message_send import (
     send_guest_message,
     _booking_channel_available,
 )
+from apps.communications.guest_message_timeline import (
+    serialize_channex,
+    serialize_outbound,
+    timeline_for_reservation,
+)
 from apps.communications.models import (
     GuestMessageChannel,
     GuestMessageDraft,
     GuestMessageIntent,
-    GuestOutboundMessage,
 )
-from apps.integrations.models import ChannexMessage, WhatsAppMessage
+from apps.integrations.models import ChannexMessage
 from apps.reservations.models import Reservation
-
-WA_ID_OFFSET = 2_000_000_000
-CHANNEX_ID_OFFSET = 3_000_000_000
 
 
 class GuestMessageComposeSerializer(serializers.Serializer):
@@ -53,79 +54,11 @@ def _reservation_or_404(tenant, reservation_id: int) -> Reservation:
     return reservation
 
 
-def _serialize_outbound(outbound: GuestOutboundMessage) -> dict:
-    app = outbound.api_application
-    return {
-        "id": outbound.pk,
-        "source": "outbound",
-        "direction": "outbound",
-        "channel": outbound.channel,
-        "body_text": outbound.body_text,
-        "created_at": outbound.created_at.isoformat(),
-        "status": outbound.status,
-        "sent_by_name": app.name if app else None,
-        "from_email": None,
-        "wa_me_url": outbound.wa_me_url or None,
-    }
-
-
-def _serialize_whatsapp(msg: WhatsAppMessage) -> dict:
-    return {
-        "id": WA_ID_OFFSET + msg.pk,
-        "source": "whatsapp",
-        "direction": msg.direction,
-        "channel": "whatsapp",
-        "body_text": msg.body or "",
-        "created_at": msg.created_at.isoformat(),
-        "status": None,
-        "sent_by_name": None,
-        "from_email": None,
-        "wa_me_url": None,
-    }
-
-
-def _serialize_channex(msg: ChannexMessage) -> dict:
-    direction = "inbound" if msg.sender == ChannexMessage.Sender.GUEST else "outbound"
-    return {
-        "id": CHANNEX_ID_OFFSET + msg.pk,
-        "source": "booking",
-        "direction": direction,
-        "channel": "booking",
-        "body_text": msg.body or "",
-        "created_at": msg.created_at.isoformat(),
-        "status": None,
-        "sent_by_name": None,
-        "from_email": None,
-        "wa_me_url": None,
-    }
-
-
-def _timeline_for_reservation(reservation: Reservation) -> list[dict]:
-    rows: list[tuple[str, dict]] = []
-
-    for outbound in GuestOutboundMessage.objects.filter(reservation=reservation).select_related(
-        "api_application"
-    ):
-        rows.append((outbound.created_at.isoformat(), _serialize_outbound(outbound)))
-
-    for msg in WhatsAppMessage.objects.filter(reservation=reservation):
-        if (msg.body or "").strip():
-            rows.append((msg.created_at.isoformat(), _serialize_whatsapp(msg)))
-
-    for msg in ChannexMessage.objects.filter(reservation=reservation):
-        if (msg.body or "").strip():
-            rows.append((msg.created_at.isoformat(), _serialize_channex(msg)))
-
-    rows.sort(key=lambda r: r[0])
-    return [item for _, item in rows]
-
-
 def _sync_channex_messages_for_timeline(reservation: Reservation, *, sync_param: str) -> None:
     if sync_param == "0" or not _booking_channel_available(reservation):
         return
     from apps.integrations.channex.ari_service import get_active_channex_integration
-    from apps.integrations.channex.booking_service import ChannexBookingIngestError
-    from apps.integrations.channex.client import ChannexApiError
+    from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
     from apps.integrations.channex.message_service import list_messages_for_reservation
 
     try:
@@ -149,7 +82,7 @@ class ReceptionGuestMessagesView(ReceptionReadView, APIView):
         reservation = _reservation_or_404(request.tenant, reservation_id)
         sync_param = request.query_params.get("sync", "auto")
         _sync_channex_messages_for_timeline(reservation, sync_param=sync_param)
-        return Response(_timeline_for_reservation(reservation))
+        return Response(timeline_for_reservation(reservation))
 
 
 class ReceptionGuestMessageComposeView(ReceptionWriteView, APIView):
@@ -225,14 +158,14 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
 
         if isinstance(result, ChannexMessage):
             app = getattr(request, "api_application", None)
-            payload = _serialize_channex(result)
+            payload = serialize_channex(result)
             payload["status"] = "sent"
             payload["sent_by_name"] = app.name if app else None
             payload["edited"] = draft.edited
             return Response(payload, status=status.HTTP_201_CREATED)
 
         outbound = result
-        payload = _serialize_outbound(outbound)
+        payload = serialize_outbound(outbound)
         if channel == GuestMessageChannel.WHATSAPP:
             payload["wa_me_url"] = outbound.wa_me_url
         payload["edited"] = draft.edited

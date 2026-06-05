@@ -34,6 +34,7 @@ Operativni runbook za slanje i primanje poruka gostima iz stay.hr recepcije (web
 
 | Metoda | Ruta |
 |--------|------|
+| GET | `/api/v1/reception/message-threads/` — inbox (kartice po rezervaciji) |
 | GET | `/api/v1/reception/reservations/{id}/messages/` — unified chat timeline |
 | POST | `/api/v1/reception/reservations/{id}/messages/compose/` |
 | POST | `/api/v1/reception/reservations/{id}/messages/send/` — body: `{ draft_id, channel, body_text }` |

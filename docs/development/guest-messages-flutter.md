@@ -88,7 +88,59 @@ flowchart TB
 
 **Reservation prefix:** `/reception/reservations/{reservationId}/messages/`
 
+**Inbox prefix:** `/reception/message-threads/` (property-wide thread list)
+
 > **Ne koristiti** legacy `/channex-messages/` u novom UI-ju — unified timeline je na `/messages/`.
+
+---
+
+### GET — inbox (thread list)
+
+```http
+GET /api/v1/reception/message-threads/
+GET /api/v1/reception/message-threads/?needs_reply=1&sync=auto
+```
+
+| Query | Svrha |
+|-------|--------|
+| `page`, `page_size` | Paginacija (default 25) |
+| `needs_reply=1` | Samo threadovi gdje je zadnja poruka **inbound** |
+| `arriving_today=1` | Check-in danas (Europe/Zagreb) |
+| `sync=auto\|1\|0` | Opcionalno osvježi Channex poruke prije agregacije |
+
+**Response:**
+
+```json
+{
+  "page": 1,
+  "page_size": 25,
+  "total": 3,
+  "needs_reply_count": 1,
+  "threads": [
+    {
+      "reservation_id": 798,
+      "booker_name": "Daniela Heczko",
+      "check_in": "2026-06-05",
+      "check_out": "2026-06-06",
+      "room_name": "Luxury Room Uzorita B&B",
+      "status": "expected",
+      "arrives_today": true,
+      "last_message_at": "2026-06-05T17:20:00+00:00",
+      "last_message_preview": "Dear Daniela…",
+      "last_channel": "booking",
+      "last_direction": "inbound",
+      "needs_reply": true
+    }
+  ]
+}
+```
+
+**Flutter UX (Hospira):**
+
+- Bottom nav srednji slot: **Recenzije** ↔ **Poruke** (ponovni tap dok je aktivan)
+- Default kanal slanja: **WhatsApp** ako `channels.whatsapp.available`, inače `booking` → `email`
+- Promjena kanala: **long-press** na Send → bottom sheet
+- AI compose: gumb u inputu → sheet (Check-in / Reply / Custom)
 
 ---
 
@@ -662,8 +714,8 @@ Integriraj u postojeći reservation detail — ne gradi zaseban tab bar ako već
 ### 5. FCM
 
 - [ ] Inbound Channex poruka → push „Nova poruka"
-- [ ] Tap → otvara messages ekran te rezervacije
-- [ ] Otvoren messages ekran → auto-refresh timeline
+- [ ] Tap → otvara **MessageThreadScreen** (`/reservations/{id}/messages`)
+- [ ] Tab Poruke aktivan → inbox refresh + badge `needs_reply_count`
 
 ### 6. Greške
 
