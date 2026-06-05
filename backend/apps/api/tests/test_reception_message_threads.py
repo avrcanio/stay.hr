@@ -141,6 +141,7 @@ class ReceptionMessageThreadsAPITests(TestCase):
             channel=GuestMessageChannel.WHATSAPP,
             body_text="We replied",
             status=GuestOutboundMessageStatus.HANDOFF_WHATSAPP,
+            created_at=timezone.now(),
         )
         WhatsAppMessage.objects.create(
             tenant=self.tenant,
@@ -149,6 +150,7 @@ class ReceptionMessageThreadsAPITests(TestCase):
             wa_id="385911234567",
             direction=WhatsAppMessage.Direction.INBOUND,
             body="Thanks",
+            created_at=timezone.now() - timezone.timedelta(minutes=5),
         )
 
         response = self.client.get(
