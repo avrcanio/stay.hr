@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from rest_framework import serializers
+from rest_framework import serializers, status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.api.language import parse_translate_flag, resolve_request_language
 from apps.api.permissions import DenyAdminScopes, HasReceptionAccess
 from apps.api.reception_channex_views import _guard_channex_tenant
 from apps.api.views import TenantAPIView
@@ -12,6 +13,7 @@ from apps.integrations.channex.ari_service import get_active_channex_integration
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
 from apps.integrations.channex.review_service import (
     DEFAULT_PAGE_SIZE,
+    compose_review_reply,
     get_review_for_tenant,
     list_reviews_for_property,
     list_reviews_for_reservation,
@@ -22,8 +24,22 @@ from apps.integrations.channex.review_service import (
 from apps.reservations.models import Reservation
 
 
+def _serialize_review(request, row, *, translate_default: bool) -> dict:
+    lang = resolve_request_language(request, tenant=request.tenant)
+    translate = parse_translate_flag(
+        request.query_params.get("translate"),
+        default=translate_default,
+    )
+    return serialize_channex_review(row, lang=lang, translate=translate)
+
+
 class ChannexReviewReplySerializer(serializers.Serializer):
     reply = serializers.CharField(max_length=4000, trim_whitespace=True)
+
+
+class ChannexReviewComposeReplySerializer(serializers.Serializer):
+    hint = serializers.CharField(max_length=2000, required=False, allow_blank=True)
+    language = serializers.CharField(max_length=8, required=False, allow_blank=True)
 
 
 class ChannexGuestReviewScoreSerializer(serializers.Serializer):
@@ -83,7 +99,9 @@ class ReceptionReviewsListView(TenantAPIView, APIView):
                 "page": page,
                 "page_size": page_size,
                 "total": total,
-                "reviews": [serialize_channex_review(row) for row in rows],
+                "reviews": [
+                    _serialize_review(request, row, translate_default=True) for row in rows
+                ],
             }
         )
 
@@ -97,7 +115,40 @@ class ReceptionReviewDetailView(TenantAPIView, APIView):
         row = get_review_for_tenant(request.tenant, review_id)
         if row is None:
             raise NotFound("Review not found.")
-        return Response(serialize_channex_review(row))
+        return Response(_serialize_review(request, row, translate_default=True))
+
+
+class ReceptionReviewComposeReplyView(TenantAPIView, APIView):
+    permission_classes = [HasReceptionAccess, DenyAdminScopes]
+    required_scopes = ["reception:write"]
+
+    def post(self, request, review_id: int):
+        _guard_channex_tenant(request.tenant)
+        row = get_review_for_tenant(request.tenant, review_id)
+        if row is None:
+            raise NotFound("Review not found.")
+
+        serializer = ChannexReviewComposeReplySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            body_text, llm_used, language = compose_review_reply(
+                row,
+                hint=data.get("hint") or "",
+                language=(data.get("language") or "").strip() or None,
+            )
+        except ChannexBookingIngestError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        return Response(
+            {
+                "body_text": body_text,
+                "language": language,
+                "llm_used": llm_used,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ReceptionReviewReplyView(TenantAPIView, APIView):
@@ -125,7 +176,7 @@ class ReceptionReviewReplyView(TenantAPIView, APIView):
         except ChannexApiError as exc:
             raise ValidationError(str(exc)) from exc
 
-        return Response(serialize_channex_review(row))
+        return Response(_serialize_review(request, row, translate_default=True))
 
 
 class ReceptionReviewGuestReviewView(TenantAPIView, APIView):
@@ -162,7 +213,7 @@ class ReceptionReviewGuestReviewView(TenantAPIView, APIView):
         except ChannexApiError as exc:
             raise ValidationError(str(exc)) from exc
 
-        return Response(serialize_channex_review(row))
+        return Response(_serialize_review(request, row, translate_default=True))
 
 
 class ReceptionReservationReviewsView(TenantAPIView, APIView):
@@ -203,6 +254,8 @@ class ReceptionReservationReviewsView(TenantAPIView, APIView):
         return Response(
             {
                 "reservation_id": reservation.pk,
-                "reviews": [serialize_channex_review(row) for row in rows],
+                "reviews": [
+                    _serialize_review(request, row, translate_default=True) for row in rows
+                ],
             }
         )

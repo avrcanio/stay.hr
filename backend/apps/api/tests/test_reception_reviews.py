@@ -102,6 +102,40 @@ class ReceptionReviewsTests(TestCase):
         self.assertEqual(len(data["reviews"]), 1)
         self.assertEqual(data["reviews"][0]["content"], "Excellent stay")
 
+    @patch("apps.integrations.channex.review_service.translate_text")
+    def test_review_translation_cached(self, mock_translate):
+        mock_translate.return_value = "Odličan boravak"
+        self._login()
+        url = f"/api/v1/reception/reviews/{self.review.pk}/?lang=hr&translate=1"
+        response = self.client.get(url, HTTP_HOST="app.stay.hr")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["content_localized"], "Odličan boravak")
+        self.assertTrue(data["content_is_translated"])
+        mock_translate.assert_called_once()
+
+        mock_translate.reset_mock()
+        response2 = self.client.get(url, HTTP_HOST="app.stay.hr")
+        self.assertEqual(response2.status_code, 200)
+        self.assertEqual(response2.json()["content_localized"], "Odličan boravak")
+        mock_translate.assert_not_called()
+
+    @patch("apps.integrations.channex.review_service.complete_chat")
+    @patch("apps.integrations.channex.review_service.llm_configured", return_value=True)
+    def test_compose_reply(self, _mock_llm, mock_chat):
+        mock_chat.return_value = "Thank you for staying with us!"
+        self._login()
+        response = self.client.post(
+            f"/api/v1/reception/reviews/{self.review.pk}/compose-reply/",
+            {"hint": "mention breakfast"},
+            format="json",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data["body_text"], "Thank you for staying with us!")
+        self.assertTrue(data["llm_used"])
+
     def test_reservation_reviews(self):
         self._login()
         response = self.client.get(

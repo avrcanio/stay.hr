@@ -388,6 +388,17 @@
     "hiddenAirbnb": "Skriveno dok ne ocijenite gosta (Airbnb)",
     "airbnbGuestReviewHint": "Za Airbnb prvo ocijenite gosta u mobilnoj aplikaciji.",
     "openInbox": "Sve recenzije objekta",
-    "openReservation": "Rezervacija {code}"
+    "openReservation": "Rezervacija {code}",
+    "displayLanguage": "Jezik",
+    "linkedReservation": "Rezervacija {code}",
+    "replyStartAction": "Odgovori",
+    "replyCancel": "Odustani",
+    "composeFailed": "Generiranje odgovora nije uspjelo.",
+    "composeReady": "Tekst je spreman — uredite po potrebi i pošaljite.",
+    "composeHintOptional": "Upute za LLM (opcionalno)…",
+    "generateAction": "Generiraj",
+    "showOriginal": "Prikaži original",
+    "showTranslation": "Prikaži prijevod",
+    "translatedLabel": "Automatski prijevod (OpenAI)"
   }
 }

@@ -9,6 +9,9 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from apps.ai.provider import GuestComposeError, complete_chat, llm_configured
+from apps.ai.translate import translation_available, translate_text
+from apps.api.language import normalize_app_language
 from apps.integrations.channex.client import ChannexClient
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
@@ -149,9 +152,12 @@ def upsert_channex_review_from_payload(
     had_content = bool((existing.content or "").strip())
     new_content = field_values["content"]
     content_just_arrived = bool(new_content) and not had_content
+    content_changed = new_content != (existing.content or "")
 
     for key, value in field_values.items():
         setattr(existing, key, value)
+    if content_changed:
+        existing.content_translations = {}
     existing.integration = integration
     existing.save()
     return existing, False, content_just_arrived
@@ -452,11 +458,135 @@ def submit_airbnb_guest_review(
             client.close()
 
 
-def serialize_channex_review(row: ChannexReview) -> dict[str, Any]:
+def _cached_localized_content(row: ChannexReview, lang: str) -> tuple[str, bool] | None:
+    target = lang.split("-")[0].lower()
+    cache = row.content_translations if isinstance(row.content_translations, dict) else {}
+    cached = cache.get(target)
+    if not isinstance(cached, str) or not cached.strip():
+        return None
+    original = row.content or ""
+    return cached, cached.strip() != original.strip()
+
+
+def _localized_review_content(row: ChannexReview, lang: str) -> tuple[str, bool]:
+    """Return (display_text, is_translated) for the requested UI language."""
+    original = row.content or ""
+    if not original.strip():
+        return original, False
+
+    target = lang.split("-")[0].lower()
+    cache = row.content_translations if isinstance(row.content_translations, dict) else {}
+    cached = cache.get(target)
+    if isinstance(cached, str) and cached.strip():
+        return cached, cached.strip() != original.strip()
+
+    translated = translate_text(original, target)
+    is_translated = translated.strip() != original.strip()
+    if translated.strip():
+        cache = dict(cache)
+        cache[target] = translated
+        row.content_translations = cache
+        row.save(update_fields=["content_translations", "updated_at"])
+    return translated, is_translated
+
+
+def _property_display_name(row: ChannexReview) -> str:
+    reservation = row.reservation
+    if reservation is None:
+        return ""
+    prop = getattr(reservation, "property", None)
+    if prop is not None and getattr(prop, "name", ""):
+        return str(prop.name).strip()
+    return ""
+
+
+def compose_review_reply(
+    row: ChannexReview,
+    *,
+    hint: str = "",
+    language: str | None = None,
+) -> tuple[str, bool, str]:
+    """Return (body_text, llm_used, language) for a public OTA review reply draft."""
+    if not review_reply_allowed(row):
+        raise ChannexBookingIngestError("This review cannot be replied to.")
+
+    original = (row.content or "").strip()
+    reply_lang = normalize_app_language(language) if language else "en"
+    if not language and original:
+        reply_lang = "en"
+
+    property_name = _property_display_name(row)
+    scores_text = ""
+    if isinstance(row.scores, list) and row.scores:
+        parts = []
+        for item in row.scores:
+            if isinstance(item, dict):
+                category = item.get("category") or item.get("name") or ""
+                score = item.get("score") or item.get("rating")
+                if category:
+                    parts.append(f"{category}: {score}")
+        scores_text = "; ".join(parts)
+
+    system = (
+        "You write professional, warm public replies to OTA guest reviews for a small hotel. "
+        "Reply in the same language as the guest review text. "
+        "Keep it concise (2–4 sentences), thank the guest, address specific points when mentioned, "
+        "no markdown, no placeholder brackets."
+    )
+    user_parts = [
+        f"OTA: {row.ota or 'unknown'}",
+        f"Guest review: {original or '(no text yet)'}",
+    ]
+    if row.overall_score is not None:
+        user_parts.append(f"Overall score: {row.overall_score}/10")
+    if scores_text:
+        user_parts.append(f"Category scores: {scores_text}")
+    if property_name:
+        user_parts.append(f"Property: {property_name}")
+    if row.guest_name:
+        user_parts.append(f"Guest name: {row.guest_name}")
+    if hint.strip():
+        user_parts.append(f"Staff hint: {hint.strip()}")
+    if language:
+        user_parts.append(f"Write the reply in language code: {reply_lang}")
+
+    fallback = (
+        "Thank you for your review and for staying with us. "
+        "We appreciate your feedback and hope to welcome you again."
+    )
+
+    if not llm_configured():
+        return fallback, False, reply_lang
+
+    try:
+        body = complete_chat(system, "\n".join(user_parts)).strip()
+    except GuestComposeError:
+        return fallback, False, reply_lang
+
+    return (body or fallback), True, reply_lang
+
+
+def serialize_channex_review(
+    row: ChannexReview,
+    *,
+    lang: str | None = None,
+    translate: bool = False,
+) -> dict[str, Any]:
     reservation = row.reservation
     booking_code = None
     if reservation is not None:
         booking_code = reservation.booking_code or str(reservation.pk)
+
+    content_localized = row.content
+    content_is_translated = False
+    display_language = lang
+    if lang and (row.content or "").strip():
+        cached = _cached_localized_content(row, lang)
+        if cached is not None:
+            content_localized, content_is_translated = cached
+        elif translate:
+            content_localized, content_is_translated = _localized_review_content(row, lang)
+
     return {
         "id": row.pk,
         "channex_review_id": row.channex_review_id,
@@ -469,6 +599,10 @@ def serialize_channex_review(row: ChannexReview) -> dict[str, Any]:
         "scores": row.scores,
         "tags": row.tags,
         "content": row.content,
+        "content_localized": content_localized,
+        "content_is_translated": content_is_translated,
+        "display_language": display_language,
+        "translation_available": translation_available(),
         "reply": row.reply or None,
         "is_replied": row.is_replied,
         "is_hidden": row.is_hidden,

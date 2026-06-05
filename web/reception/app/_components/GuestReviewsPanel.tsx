@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
+import { ReviewContentText } from "@/app/_components/ReviewContentText";
 import type { ChannexReview } from "@/lib/types";
+import { reviewDisplayContent } from "@/lib/review-display";
 
 type Props = {
   reservationId: number;
@@ -36,9 +38,7 @@ export function GuestReviewsPanel({ reservationId, compact = false }: Props) {
   const [reviews, setReviews] = useState<ChannexReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [replyText, setReplyText] = useState<Record<number, string>>({});
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [actionMessage, setActionMessage] = useState("");
+  const [displayLang, setDisplayLang] = useState("hr");
 
   const baseUrl = `/api/stay/reception/reservations/${reservationId}/reviews`;
 
@@ -46,7 +46,8 @@ export function GuestReviewsPanel({ reservationId, compact = false }: Props) {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${baseUrl}?sync=auto`);
+      const params = new URLSearchParams({ sync: "auto", lang: displayLang, translate: "1" });
+      const res = await fetch(`${baseUrl}?${params.toString()}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { detail?: string }).detail || t("loadFailed"));
@@ -58,35 +59,11 @@ export function GuestReviewsPanel({ reservationId, compact = false }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, t]);
+  }, [baseUrl, displayLang, t]);
 
   useEffect(() => {
     void loadReviews();
   }, [loadReviews]);
-
-  async function handleReply(review: ChannexReview) {
-    const text = (replyText[review.id] || "").trim();
-    if (!text) return;
-    setBusyId(review.id);
-    setActionMessage("");
-    try {
-      const res = await fetch(`/api/stay/reception/reviews/${review.id}/reply/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reply: text }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { detail?: string }).detail || t("replyFailed"));
-      }
-      setActionMessage(t("replySuccess"));
-      await loadReviews();
-    } catch (err) {
-      setActionMessage(err instanceof Error ? err.message : t("replyFailed"));
-    } finally {
-      setBusyId(null);
-    }
-  }
 
   if (loading && reviews.length === 0) {
     return (
@@ -112,17 +89,37 @@ export function GuestReviewsPanel({ reservationId, compact = false }: Props) {
 
   return (
     <section className="space-y-3 rounded-lg border p-3">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-semibold">{t("title")}</h2>
-        {!compact ? (
-          <button type="button" className="btn-ghost text-sm" onClick={() => void loadReviews()} disabled={loading}>
-            {tc("refresh")}
-          </button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {!compact ? (
+            <select
+              className="input input-sm"
+              value={displayLang}
+              onChange={(event) => setDisplayLang(event.target.value)}
+              aria-label={t("displayLanguage")}
+            >
+              {["hr", "en", "de", "es", "fr", "it"].map((code) => (
+                <option key={code} value={code}>
+                  {code.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {!compact ? (
+            <button type="button" className="btn-ghost text-sm" onClick={() => void loadReviews()} disabled={loading}>
+              {tc("refresh")}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {reviews.map((review) => (
-        <article key={review.id} className="space-y-2 rounded-lg border bg-stay-surface/40 p-3">
+        <Link
+          key={review.id}
+          href={`/reservations/${reservationId}/reviews/${review.id}`}
+          className="block space-y-2 rounded-lg border bg-stay-surface/40 p-3 transition hover:bg-slate-50"
+        >
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="rounded-full bg-stay-blue-light px-2 py-0.5 font-medium text-stay-blue">
               {otaLabel(review.ota)}
@@ -133,64 +130,19 @@ export function GuestReviewsPanel({ reservationId, compact = false }: Props) {
             {review.received_at ? (
               <span className="text-muted">{formatReviewTime(review.received_at)}</span>
             ) : null}
+            {!review.is_replied ? (
+              <span className="text-xs text-amber-800">{t("needsReply")}</span>
+            ) : null}
             {review.is_hidden ? (
               <span className="text-xs text-amber-700">{t("hiddenAirbnb")}</span>
             ) : null}
           </div>
 
-          {review.scores.length > 0 ? (
-            <div className="flex flex-wrap gap-2 text-xs text-muted">
-              {review.scores.map((score) => (
-                <span key={score.category}>
-                  {score.category}: {score.score}
-                </span>
-              ))}
-            </div>
-          ) : null}
-
-          {review.content ? <p className="whitespace-pre-wrap text-sm">{review.content}</p> : null}
-
-          {review.reply ? (
-            <div className="rounded-md border-l-4 border-stay-blue bg-white p-2 text-sm">
-              <p className="text-xs font-medium text-muted">{t("yourReply")}</p>
-              <p className="whitespace-pre-wrap">{review.reply}</p>
-            </div>
-          ) : null}
-
-          {review.can_reply ? (
-            <div className="space-y-2">
-              {review.expired_at ? (
-                <p className="text-xs text-muted">
-                  {t("replyDeadline", { date: formatReviewTime(review.expired_at) })}
-                </p>
-              ) : null}
-              <textarea
-                className="input min-h-[80px] w-full text-sm"
-                value={replyText[review.id] || ""}
-                onChange={(event) =>
-                  setReplyText((prev) => ({ ...prev, [review.id]: event.target.value }))
-                }
-                placeholder={t("replyPlaceholder")}
-                disabled={busyId === review.id}
-              />
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => void handleReply(review)}
-                disabled={busyId === review.id || !(replyText[review.id] || "").trim()}
-              >
-                {busyId === review.id ? tc("loading") : t("replyAction")}
-              </button>
-            </div>
-          ) : null}
-
-          {review.can_submit_guest_review ? (
-            <p className="text-sm text-amber-800">{t("airbnbGuestReviewHint")}</p>
-          ) : null}
-        </article>
+          <p className="line-clamp-2 text-sm text-muted">
+            {reviewDisplayContent(review).trim() || t("noContentYet")}
+          </p>
+        </Link>
       ))}
-
-      {actionMessage ? <p className="text-sm text-muted">{actionMessage}</p> : null}
 
       {compact ? (
         <Link href="/reviews" className="text-sm font-medium text-stay-blue hover:underline">

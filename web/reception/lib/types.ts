@@ -133,6 +133,10 @@ export type ChannexReview = {
   scores: ChannexReviewScore[];
   tags: string[];
   content: string;
+  content_localized?: string | null;
+  content_is_translated?: boolean;
+  display_language?: string | null;
+  translation_available?: boolean;
   reply: string | null;
   is_replied: boolean;
   is_hidden: boolean;

@@ -388,6 +388,17 @@
     "hiddenAirbnb": "Hidden until you rate the guest (Airbnb)",
     "airbnbGuestReviewHint": "For Airbnb, rate the guest in the mobile app first.",
     "openInbox": "All property reviews",
-    "openReservation": "Reservation {code}"
+    "openReservation": "Reservation {code}",
+    "displayLanguage": "Language",
+    "linkedReservation": "Reservation {code}",
+    "replyStartAction": "Reply",
+    "replyCancel": "Cancel",
+    "composeFailed": "Could not generate reply.",
+    "composeReady": "Text is ready — edit if needed and send.",
+    "composeHintOptional": "Instructions for AI (optional)…",
+    "generateAction": "Generate",
+    "showOriginal": "Show original",
+    "showTranslation": "Show translation",
+    "translatedLabel": "Auto-translated (OpenAI)"
   }
 }

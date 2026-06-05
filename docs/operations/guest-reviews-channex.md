@@ -40,18 +40,26 @@ docker compose exec django python manage.py sync_channex_reviews --tenant-slug=u
 
 | Method | Path |
 |--------|------|
-| GET | `/api/v1/reception/reviews/` — property inbox (`?unreplied=1`, `?ota=BookingCom`, `?sync=auto\|1\|0`) |
-| GET | `/api/v1/reception/reviews/{id}/` |
+| GET | `/api/v1/reception/reviews/` — property inbox (`?unreplied=1`, `?ota=BookingCom`, `?sync=auto\|1\|0`, `?lang=hr`, `?translate=1`) |
+| GET | `/api/v1/reception/reviews/{id}/` — same `lang` / `translate` query params |
 | POST | `/api/v1/reception/reviews/{id}/reply/` — body `{"reply": "..."}` |
+| POST | `/api/v1/reception/reviews/{id}/compose-reply/` — body `{"hint": "...", "language": "..."}` (optional) → `{body_text, language, llm_used}` |
 | POST | `/api/v1/reception/reviews/{id}/guest-review/` — Airbnb rate guest |
-| GET | `/api/v1/reception/reservations/{id}/reviews/` |
+| GET | `/api/v1/reception/reservations/{id}/reviews/` — `lang` / `translate` supported |
+
+Review text fields in list/detail responses:
+
+- `content` — OTA original
+- `content_localized` — text in requested `lang` (cached in `ChannexReview.content_translations`)
+- `content_is_translated` — whether localized text differs from original
+- `translation_available` — OpenAI translate configured
 
 ## UI
 
 | Surface | Location |
 |---------|----------|
-| Web recepcija | Nav **Recenzije** → `/reviews`; panel on reservation detail |
-| Hospira tablet | **Više → Recenzije gostiju**; summary on reservation detail |
+| Web recepcija | Nav **Recenzije** → `/reviews` (read-only inbox); reply on `/reservations/[id]/reviews/[reviewId]` |
+| Hospira tablet | Tab **Recenzije** (read-only); reply on reservation → review detail |
 
 ## Push notifications
 
@@ -70,7 +78,7 @@ Tablet: Postavke → obavijest **Recenzija gosta**.
 | 6 | Airbnb POST guest-review (hidden review) | |
 | 7 | Expired `expired_at` → API rejects reply | |
 | 8 | Web + Flutter show same data | |
-| 9 | Push tap → reviews inbox | |
+| 9 | Push tap → review detail (or inbox fallback) | |
 
 ## Troubleshooting
 

@@ -30,6 +30,7 @@ from apps.api.reception_guest_messages_views import (
 )
 from apps.api.reception_reviews_views import (
     ReceptionReservationReviewsView,
+    ReceptionReviewComposeReplyView,
     ReceptionReviewDetailView,
     ReceptionReviewGuestReviewView,
     ReceptionReviewReplyView,
@@ -169,6 +170,11 @@ urlpatterns = [
         "reviews/<int:review_id>/reply/",
         ReceptionReviewReplyView.as_view(),
         name="reception-review-reply",
+    ),
+    path(
+        "reviews/<int:review_id>/compose-reply/",
+        ReceptionReviewComposeReplyView.as_view(),
+        name="reception-review-compose-reply",
     ),
     path(
         "reviews/<int:review_id>/guest-review/",
