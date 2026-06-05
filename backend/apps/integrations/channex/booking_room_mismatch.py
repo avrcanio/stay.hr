@@ -128,7 +128,7 @@ def reconcile_reservation_units(reservation: Reservation) -> dict:
     """Compare stay.hr units to latest stored Channex revision."""
     revision = (
         ChannexBookingRevision.objects.filter(reservation=reservation)
-        .order_by("-created_at")
+        .order_by("-acknowledged_at")
         .first()
     )
     mapped = _count_mapped_units(reservation)

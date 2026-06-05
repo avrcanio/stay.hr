@@ -60,6 +60,20 @@ Email na `@guest.booking.com` (tenant SMTP) radi i bez Messaging appa; extranet 
 
 ---
 
+## Lipanj 2026. — R1 overbooking 4. 6. (Helmuth / Wolfgang)
+
+- Konflikt riješen operativno: Helmuth (#814) → **canceled**, smješten ParkCity; Wolfgang (#106) → R1+R2 check-in Uzorita.
+- stay.hr usklađen 5. 6.: Wolfgang R1+R2, Kees (#70) R1+R2, Lada (#159) R2+R3+R6 — svi `booking_pdf` lock.
+- Vidi [situacija-lipanj-2026-r1-helmuth-overbooking.md](situacija-lipanj-2026-r1-helmuth-overbooking.md).
+
+## Lipanj 2026. — R1 overbooking 5. 6. (Daniela / Kees)
+
+- Konflikt riješen operativno: Daniela (#837) → **ParkCity**, uklonjena s R1 u stay.hr; Kees (#70) → R1+R2 check-in Uzorita.
+- `detect_overbooking` R1 5.–6. 6.: **0** (ostaju srpanjski R2/R3 konflikti).
+- Vidi [situacija-lipanj-2026-r1-daniela-overbooking.md](situacija-lipanj-2026-r1-daniela-overbooking.md).
+
+---
+
 ## Otvoreni B.com otkazi (stanje 4. 6. 2026.)
 
 stay.hr lokalno `canceled` — **extranet/support još potreban** na Booking.com:

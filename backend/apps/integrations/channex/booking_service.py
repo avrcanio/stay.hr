@@ -15,6 +15,7 @@ from apps.integrations.channex.config import ChannexBookingTestRoomLink, Channex
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
 from apps.integrations.models import ChannexBookingRevision, IntegrationConfig
 from apps.properties.models import Property, Unit
+from apps.reservations.channel_sync import is_pdf_authoritative
 from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.integrations.channex.booking_room_mismatch import check_channex_revision_room_mismatch
@@ -339,44 +340,51 @@ def _upsert_reservation_from_revision(
     if not isinstance(rooms, list):
         rooms = []
 
-    reservation.units.all().delete()
-    units_count = 0
-    for index, room in enumerate(rooms):
-        if not isinstance(room, dict):
-            continue
-        room_type_id = str(room.get("room_type_id") or "").strip()
-        room_link = config.room_link_for_channex_room_type_id(room_type_id)
-        unit = _unit_for_room_link(tenant, property, room_link) if room_link else None
-        if unit is None and room_link is not None:
-            logger.warning(
-                "channex booking room not mapped to stay unit",
-                extra={
-                    "tenant_slug": tenant.slug,
-                    "property_slug": property.slug,
-                    "room_type_id": room_type_id,
-                    "unit_code": room_link.unit_code,
-                    "booking_id": booking_id,
-                },
-            )
-        room_name = (
-            (room_link.channex_title if room_link else "")
-            or str(room.get("room_type_name") or "")
-            or room_type_id
-            or f"Room {index + 1}"
-        )
-        ReservationUnit.objects.create(
-            tenant=tenant,
+    pdf_locked = is_pdf_authoritative(reservation)
+    if pdf_locked:
+        units_count = ReservationUnit.objects.filter(
             reservation=reservation,
-            unit=unit,
-            sort_order=index,
-            room_name=room_name,
-            amount=_parse_decimal(room.get("amount")),
-        )
-        units_count += 1
+            unit_id__isnull=False,
+        ).count()
+    else:
+        reservation.units.all().delete()
+        units_count = 0
+        for index, room in enumerate(rooms):
+            if not isinstance(room, dict):
+                continue
+            room_type_id = str(room.get("room_type_id") or "").strip()
+            room_link = config.room_link_for_channex_room_type_id(room_type_id)
+            unit = _unit_for_room_link(tenant, property, room_link) if room_link else None
+            if unit is None and room_link is not None:
+                logger.warning(
+                    "channex booking room not mapped to stay unit",
+                    extra={
+                        "tenant_slug": tenant.slug,
+                        "property_slug": property.slug,
+                        "room_type_id": room_type_id,
+                        "unit_code": room_link.unit_code,
+                        "booking_id": booking_id,
+                    },
+                )
+            room_name = (
+                (room_link.channex_title if room_link else "")
+                or str(room.get("room_type_name") or "")
+                or room_type_id
+                or f"Room {index + 1}"
+            )
+            ReservationUnit.objects.create(
+                tenant=tenant,
+                reservation=reservation,
+                unit=unit,
+                sort_order=index,
+                room_name=room_name,
+                amount=_parse_decimal(room.get("amount")),
+            )
+            units_count += 1
 
-    if units_count:
-        reservation.units_count = units_count
-        reservation.save(update_fields=["units_count", "updated_at"])
+        if units_count:
+            reservation.units_count = units_count
+            reservation.save(update_fields=["units_count", "updated_at"])
 
     if customer and reservation.status not in {
         Reservation.Status.CANCELED,

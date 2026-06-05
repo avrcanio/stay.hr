@@ -16,7 +16,7 @@ Booking.com overbooking na **R1** za noć **4.–5. 6. 2026.** Kasnija rezervaci
 | stay.hr id | **814** | 106 |
 | Check-in/out | 4.–5. 6. 2026. | 4.–5. 6. 2026. |
 | Soba B.com | R1 | R1 + R2 |
-| Soba stay.hr | R1 | **R1 + R2** (PDF lock) |
+| Soba stay.hr | R1 | **R1 + R2** (PDF lock, potvrđeno 5. 6. 2026.) |
 | Iznos stay.hr | €60,52 | €180,15 |
 | `import_source` | `booking_pdf` | `booking_pdf` |
 | Rezervirano | 1. 6. 2026. | ožujak / starija |
@@ -199,7 +199,7 @@ Schade, dass die Alternative nicht passt. Bitte stornieren Sie Reservierung 6725
 - [x] Podaci gosta provjereni (814 / 6725524010)
 - [x] Email gostu (DE+EN) poslan na hpohle.408216@guest.booking.com (tenant SMTP)
 - [ ] Poruka na Booking.com extranet Messages (opcionalno — Channex API 403)
-- [ ] Booking.com support / disruption prijavljeno
+- [ ] Booking.com support / disruption prijavljeno (copy-paste: [booking-com-report-6725524010-overbooking.txt](booking-com-report-6725524010-overbooking.txt) — **5. 6. 2026. tekst provjeren, čeka ručni submit u extranetu**)
 - [x] Napomena OVERBOOKING u stay.hr (814)
 - [ ] ParkCity: telefonski dogovor check-in
 - [ ] Wolfgang: check-in R1+R2 (stay.hr usklađen s PDF-om); Helmuth: **ne** check-in Uzorita
