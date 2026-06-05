@@ -89,6 +89,7 @@ Tap (background) ili foreground SnackBar **Otvori** (s `review_id` u payloadu) �
 | Reviews not in webhook | Add `review` / `updated_review` events on webhook |
 | No reservation link | Booking not yet in stay.hr; review stays in property inbox |
 | Airbnb reply disabled | Hidden review — submit **guest-review** first |
+| Reply shown as dict string in app | Run `sync_channex_reviews --tenant-slug=…` (includes reply repair) |
 
 ## Deploy
 

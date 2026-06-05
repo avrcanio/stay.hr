@@ -172,3 +172,29 @@ class ChannexReviewWebhookTests(TestCase):
         self.assertEqual(ChannexReview.objects.count(), 1)
         row = ChannexReview.objects.get(channex_review_id=self.review_id)
         self.assertEqual(row.content, "Great stay, thank you!")
+
+    def test_updated_review_normalizes_dict_reply(self):
+        record_channex_webhook(
+            integration_row=self.integration,
+            tenant=self.tenant,
+            event="review",
+            property_id="prop-uuid-123",
+            body={"payload": self.payload},
+        )
+
+        updated = {
+            **self.payload,
+            "reply": {"reply": "Hvala vam na ocjeni"},
+            "is_replied": False,
+        }
+        record_channex_webhook(
+            integration_row=self.integration,
+            tenant=self.tenant,
+            event="updated_review",
+            property_id="prop-uuid-123",
+            body={"payload": updated},
+        )
+
+        row = ChannexReview.objects.get(channex_review_id=self.review_id)
+        self.assertEqual(row.reply, "Hvala vam na ocjeni")
+        self.assertTrue(row.is_replied)

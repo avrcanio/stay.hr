@@ -374,7 +374,7 @@ def sync_reviews_from_channex(
                     "filter[property_id]": config.property_id,
                     "pagination[page]": page,
                     "pagination[limit]": page_size,
-                    "order[by]": "received_at",
+                    "order[by]": "inserted_at",
                     "order[direction]": "desc",
                 }
             )
