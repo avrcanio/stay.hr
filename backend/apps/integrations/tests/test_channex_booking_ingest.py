@@ -554,3 +554,55 @@ class ChannexBookingIngestTests(TestCase):
         self.assertEqual(stats["skipped_no_lookup_code"], 1)
         mock_client.find_booking_by_ota_reservation_code.assert_not_called()
         mock_client.get_booking.assert_not_called()
+
+    @patch(
+        "apps.integrations.channex.reservation_availability_service.push_channex_inventory_after_ingest"
+    )
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_second_revision_preserves_units_when_channex_under_reports(
+        self, mock_client_cls, mock_push_inventory
+    ):
+        """Multi-room corrected in stay.hr must not be wiped by a thin Channex revision."""
+        unit_r2 = Unit.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            code="BCOM-R2",
+            name="R2",
+            capacity_max_guests=2,
+            capacity_adults=2,
+        )
+        second_revision_id = "22222222-2222-2222-2222-222222222222"
+
+        mock_client = MagicMock()
+        mock_client.get_booking_revision.return_value = self.revision_payload
+        mock_client_cls.return_value = mock_client
+
+        reservation = process_channex_booking_revision(
+            self.integration,
+            self.revision_id,
+        )
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            unit=unit_r2,
+            sort_order=1,
+            room_name="R2",
+        )
+        reservation.units_count = 2
+        reservation.save(update_fields=["units_count", "updated_at"])
+
+        mock_client.reset_mock()
+        mock_client.get_booking_revision.return_value = self.revision_payload
+
+        process_channex_booking_revision(
+            self.integration,
+            second_revision_id,
+        )
+
+        codes = sorted(
+            ReservationUnit.objects.filter(reservation=reservation, unit_id__isnull=False)
+            .values_list("unit__code", flat=True)
+        )
+        self.assertEqual(codes, ["BCOM-R2", "BCOM-STUDIO"])
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.units_count, 2)

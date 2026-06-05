@@ -27,6 +27,33 @@ def _count_mapped_units(reservation: Reservation) -> int:
     ).count()
 
 
+def should_preserve_units_on_channex_ingest(
+    *,
+    reservation: Reservation,
+    created: bool,
+    channex_rooms_count: int,
+    incoming_status: str,
+) -> bool:
+    """
+    Keep stay.hr units when a later Channex revision under-reports rooms.
+
+    Channex is the channel manager but its booking revision payload can list
+    fewer rooms than Booking.com sold (or than stay.hr already corrected via
+    XLS/PDF). Blind delete+recreate would drop mapped units and reopen calendar.
+    """
+    if is_pdf_authoritative(reservation):
+        return True
+    if created:
+        return False
+    if incoming_status in {
+        Reservation.Status.CANCELED,
+        Reservation.Status.NO_SHOW,
+    }:
+        return False
+    mapped = _count_mapped_units(reservation)
+    return mapped > 0 and channex_rooms_count < mapped
+
+
 def detect_stay_hr_unit_gaps(reservation: Reservation) -> list[str]:
     """Detect multi-room count in stay.hr without a matching ReservationUnit row."""
     mapped = _count_mapped_units(reservation)

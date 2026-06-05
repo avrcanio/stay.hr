@@ -21,6 +21,7 @@ from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.integrations.channex.booking_room_mismatch import (
     check_channex_revision_room_mismatch,
     flag_channex_ingest_room_warnings,
+    should_preserve_units_on_channex_ingest,
 )
 from apps.reservations.overbooking import flag_ingest_overbooking
 from apps.tenants.models import Tenant
@@ -343,12 +344,30 @@ def _upsert_reservation_from_revision(
     if not isinstance(rooms, list):
         rooms = []
 
+    channex_rooms_count = sum(1 for room in rooms if isinstance(room, dict))
+    preserve_units = should_preserve_units_on_channex_ingest(
+        reservation=reservation,
+        created=created,
+        channex_rooms_count=channex_rooms_count,
+        incoming_status=mapped_status,
+    )
+
     pdf_locked = is_pdf_authoritative(reservation)
-    if pdf_locked:
+    if pdf_locked or preserve_units:
         units_count = ReservationUnit.objects.filter(
             reservation=reservation,
             unit_id__isnull=False,
         ).count()
+        if preserve_units and not pdf_locked:
+            logger.warning(
+                "channex ingest preserved stay.hr units (revision under-reports rooms)",
+                extra={
+                    "reservation_id": reservation.pk,
+                    "booking_code": reservation.booking_code,
+                    "channex_rooms_count": channex_rooms_count,
+                    "mapped_units": units_count,
+                },
+            )
     else:
         reservation.units.all().delete()
         units_count = 0
@@ -420,7 +439,6 @@ def _upsert_reservation_from_revision(
             adults_count=reservation.adults_count,
         )
 
-    channex_rooms_count = sum(1 for room in rooms if isinstance(room, dict))
     if reservation.status not in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}:
         flag_channex_ingest_room_warnings(
             reservation,
