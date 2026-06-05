@@ -37,7 +37,7 @@ def _reservation_ids_with_messages(tenant: Tenant) -> set[int]:
 
 
 def _room_name_for_reservation(reservation: Reservation) -> str:
-    units = list(reservation.reservation_units.all())
+    units = list(reservation.units.all())
     if not units:
         return ""
     first = units[0]
@@ -110,7 +110,7 @@ def list_message_threads_for_tenant(
     reservations = list(
         Reservation.objects.filter(tenant=tenant, pk__in=reservation_ids)
         .select_related("property")
-        .prefetch_related("reservation_units", "reservation_units__unit")
+        .prefetch_related("units", "units__unit")
         .order_by("-updated_at")
     )
 
