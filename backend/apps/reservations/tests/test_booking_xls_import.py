@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.properties.models import Property
+from apps.properties.models import Property, Unit
 from apps.reservations.booking_pdf_import import parse_booking_pdf_text
 from apps.reservations.booking_xls_import import (
     BookingXlsRow,
@@ -14,7 +14,7 @@ from apps.reservations.booking_xls_import import (
     upsert_reservation_from_xls_row,
 )
 from apps.reservations.guest_slots import PLACEHOLDER_FIRST, PLACEHOLDER_LAST, PLACEHOLDER_NAME
-from apps.reservations.models import Guest, Reservation
+from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.tenants.models import Tenant
 
 IMPORTS = Path(__file__).resolve().parents[4] / ".imports"
@@ -391,6 +391,61 @@ class BookingXlsImportSkipExistingTests(TestCase):
         guest.refresh_from_db()
         self.assertEqual(guest.nationality, "ES")
         self.assertEqual(guest.document_country_iso2, "ES")
+
+    def test_fill_empty_syncs_rooms_when_xls_has_more_units(self):
+        unit_r1 = Unit.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            code="R1",
+            name="R1",
+        )
+        unit_r2 = Unit.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            code="R2",
+            name="R2",
+        )
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="5036489024",
+            booking_code="5036489024",
+            check_in=date(2026, 6, 4),
+            check_out=date(2026, 6, 5),
+            booker_name="Wolfgang Gross",
+            units_count=1,
+            status=Reservation.Status.EXPECTED,
+            import_source="booking_xls",
+        )
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            unit=unit_r2,
+            room_name="Luxury Room Uzorita - R2",
+        )
+        row = _sample_row(
+            external_id="5036489024",
+            booker_name="Gross, Wolfgang",
+            guest_names=["Wolfgang Gross"],
+            units_count=2,
+            room_name="Luxury Room Uzorita - R1, Luxury Room Uzorita - R2",
+            total_amount=Decimal("180.15"),
+        )
+        result = upsert_reservation_from_xls_row(
+            tenant=self.tenant,
+            property=self.property,
+            row=row,
+            existing_mode="fill_empty",
+        )
+        self.assertTrue(result.merged)
+        reservation.refresh_from_db()
+        codes = list(
+            ReservationUnit.objects.filter(reservation=reservation)
+            .order_by("sort_order")
+            .values_list("unit__code", flat=True)
+        )
+        self.assertEqual(codes, ["R1", "R2"])
+        self.assertEqual(reservation.units_count, 2)
 
     def test_skips_xls_when_pdf_locked(self):
         pdf_at = timezone.now()

@@ -63,7 +63,8 @@ docker compose run --rm -v /opt/stacks/stay.hr:/host/stay:ro django \
 
 **Sobe / jedinice**
 
-- Pri `--fill-empty` na postojećoj rezervaciji **ne** radi se ponovni sync soba iz XLS-a (postojeći raspored ostaje).
+- Pri `--fill-empty` na postojećoj rezervaciji sobe se **syncaju samo ako** XLS ima **više** soba nego `ReservationUnit` u stay.hr (npr. B.com R1+R2, PMS samo R2). PDF-lock rezervacije se ne diraju.
+- Kad se sobe dopune, automatski se queue-a Channex ARI push (sprječava channel overbooking).
 
 **Nova rezervacija**
 

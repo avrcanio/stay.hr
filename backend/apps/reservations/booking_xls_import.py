@@ -28,6 +28,7 @@ from apps.reservations.models import EvisitorGuestStatus
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.reservations.reservation_units import (
     apply_unit_amounts_from_total,
+    split_room_names,
     sync_reservation_units,
 )
 from apps.tenants.models import Tenant
@@ -678,6 +679,67 @@ def _reservation_field_updates_from_row(
     return updates
 
 
+def _count_mapped_units(reservation: Reservation) -> int:
+    return ReservationUnit.objects.filter(
+        reservation=reservation,
+        unit_id__isnull=False,
+    ).count()
+
+
+def _maybe_sync_rooms_on_fill_empty(
+    *,
+    tenant: Tenant,
+    property: Property,
+    reservation: Reservation,
+    row: BookingXlsRow,
+) -> bool:
+    """
+    When XLS shows more rooms than stay.hr has mapped, sync units and push Channex.
+
+    Prevents channel overbooking when legacy rows only held one ReservationUnit.
+    """
+    if is_pdf_authoritative(reservation):
+        return False
+    if reservation.status in {
+        Reservation.Status.CANCELED,
+        Reservation.Status.NO_SHOW,
+    }:
+        return False
+
+    room_segments = split_room_names(row.room_name)
+    if not room_segments:
+        return False
+
+    xls_units = row.units_count or len(room_segments)
+    mapped_before = _count_mapped_units(reservation)
+    if len(room_segments) <= mapped_before and xls_units <= mapped_before:
+        return False
+
+    from apps.reservations.channel_availability_sync import (
+        queue_sync_if_units_changed,
+        reservation_unit_codes,
+    )
+
+    before_codes = reservation_unit_codes(reservation)
+    if xls_units > (reservation.units_count or 0):
+        reservation.units_count = xls_units
+        reservation.save(update_fields=["units_count", "updated_at"])
+
+    units = sync_reservation_units(
+        tenant=tenant,
+        property=property,
+        reservation=reservation,
+        room_name=row.room_name,
+    )
+    apply_unit_amounts_from_total(
+        reservation=reservation,
+        total_amount=row.total_amount or reservation.amount,
+        units=units,
+        unit_amounts=row.unit_amounts or None,
+    )
+    return queue_sync_if_units_changed(reservation, before_codes=before_codes)
+
+
 @transaction.atomic
 def upsert_reservation_from_xls_row(
     *,
@@ -768,6 +830,12 @@ def upsert_reservation_from_xls_row(
             tenant=tenant,
             reservation=existing,
             adults_count=row.adults_count or existing.adults_count,
+        )
+        _maybe_sync_rooms_on_fill_empty(
+            tenant=tenant,
+            property=property,
+            reservation=existing,
+            row=row,
         )
         return XlsImportResult(
             external_id=row.external_id,

@@ -70,7 +70,7 @@ Prilozi u `.imports/conflicts/2026-07-24/`:
 
 Molimo **otkazati bez penala za objekt** (ako extranet otkaz nije već napravljen):
 
-- [ ] Rezervacija **5238895494** (Pierre LE VAILLANT, R1, 24.–25.7.2026)
+- [x] Rezervacija **5238895494** (Pierre LE VAILLANT, R1, 24.–25.7.2026) — **otkazano** (`cancelled_by_guest` na B.com, XLS srpanj 5. 6.)
 - [ ] Rezervacija **5398124917** (Eduardo de las Heras, R3, 24.–25.7.2026)
 
 **Razlog:** overbooking greška — objekt je već bio prodan u cijelosti rezervacijom **5796838012** (1.3.2026).
@@ -101,4 +101,5 @@ Molimo **otkazati bez penala za objekt** (ako extranet otkaz nije već napravlje
 | 4.6.2026 | Email FR/ES poslan na guest.booking.com (tenant SMTP) |
 | 4.6.2026 | Poruke FR/ES pripremljene; Channex send 403 |
 | 4.6.2026 | Channex cancel 403 — stay.hr #798/#807 `canceled` lokalno; **B.com extranet otkaz pending** |
-| ___.___.2026 | Otkaz 5238895494 i 5398124917 potvrđen na B.com |
+| 5.6.2026 | Pierre 5238895494 — otkaz potvrđen na B.com (`cancelled_by_guest`, XLS srpanj) |
+| ___.___.2026 | Eduardo 5398124917 — otkaz potvrđen na B.com |

@@ -9,6 +9,8 @@ from apps.reservations.models import Reservation, ReservationUnit
 logger = logging.getLogger(__name__)
 
 CHANNEX_ROOMS_MISMATCH_NOTE = "CHANNEX_ROOMS_MISMATCH:"
+CHANNEX_EMPTY_ROOMS_NOTE = "CHANNEX_EMPTY_ROOMS:"
+MULTI_ROOM_SUSPECT_NOTE = "MULTI_ROOM_SUSPECT:"
 
 
 def _count_channex_rooms(attrs: dict) -> int:
@@ -23,6 +25,18 @@ def _count_mapped_units(reservation: Reservation) -> int:
         reservation=reservation,
         unit_id__isnull=False,
     ).count()
+
+
+def detect_stay_hr_unit_gaps(reservation: Reservation) -> list[str]:
+    """Detect multi-room count in stay.hr without a matching ReservationUnit row."""
+    mapped = _count_mapped_units(reservation)
+    units_count = reservation.units_count or 0
+    issues: list[str] = []
+    if units_count >= 2 and mapped < units_count:
+        issues.append(
+            f"units_count={units_count} ali samo {mapped} mapped unit — provjeri PDF import"
+        )
+    return issues
 
 
 def detect_channex_room_mismatch(
@@ -44,10 +58,7 @@ def detect_channex_room_mismatch(
             f"Channex multi-room ({channex_rooms_count}) ali samo {mapped} mapped unit u stay.hr"
         )
 
-    if units_count >= 2 and mapped <= 1:
-        issues.append(
-            f"units_count={units_count} ali samo {mapped} mapped unit — provjeri PDF import"
-        )
+    issues.extend(detect_stay_hr_unit_gaps(reservation))
 
     if is_pdf_authoritative(reservation) and channex_rooms_count < mapped:
         issues.append(
@@ -110,6 +121,85 @@ def flag_channex_room_mismatch(
         },
     )
     _notify_channex_room_mismatch(reservation, issues)
+    mapped = _count_mapped_units(reservation)
+    if mapped >= 2 and channex_rooms_count < mapped:
+        try:
+            from apps.integrations.channex.reservation_availability_service import (
+                push_reservation_channex_availability_unconditional,
+            )
+
+            push_reservation_channex_availability_unconditional(reservation)
+        except Exception:
+            logger.exception(
+                "channex ARI auto-push failed after room mismatch",
+                extra={"reservation_id": reservation.pk},
+            )
+    return issues
+
+
+def _append_reservation_warning_note(
+    reservation: Reservation,
+    *,
+    prefix: str,
+    message: str,
+) -> None:
+    if prefix in (reservation.notes or ""):
+        return
+    line = f"{prefix} {message}"
+    existing = (reservation.notes or "").strip()
+    reservation.notes = f"{existing}\n{line}".strip() if existing else line
+    reservation.save(update_fields=["notes", "updated_at"])
+
+
+def flag_channex_ingest_room_warnings(
+    reservation: Reservation,
+    *,
+    channex_rooms_count: int,
+    adults_count: int,
+) -> list[str]:
+    """
+    Warn when Channex ingest under-reports rooms (empty or single room for 4+ adults).
+
+    Catches the Philippe/Kukla pattern before a second booking sells the same night.
+    """
+    if reservation.status in {
+        Reservation.Status.CANCELED,
+        Reservation.Status.NO_SHOW,
+    }:
+        return []
+
+    issues: list[str] = []
+    if channex_rooms_count == 0:
+        issues.append(
+            "Channex revision rooms=0 — provjeri B.com PDF i multi-room prije nego kanal ostane otvoren"
+        )
+        _append_reservation_warning_note(
+            reservation,
+            prefix=CHANNEX_EMPTY_ROOMS_NOTE,
+            message=issues[-1],
+        )
+    elif channex_rooms_count == 1 and adults_count >= 4:
+        issues.append(
+            f"Channex samo 1 soba, {adults_count} odraslih — provjeri multi-room PDF import"
+        )
+        _append_reservation_warning_note(
+            reservation,
+            prefix=MULTI_ROOM_SUSPECT_NOTE,
+            message=issues[-1],
+        )
+
+    if issues:
+        _notify_channex_room_mismatch(reservation, issues)
+        logger.warning(
+            "channex ingest room warning",
+            extra={
+                "reservation_id": reservation.pk,
+                "booking_code": reservation.booking_code,
+                "channex_rooms_count": channex_rooms_count,
+                "adults_count": adults_count,
+                "issues": issues,
+            },
+        )
     return issues
 
 
@@ -142,19 +232,26 @@ def reconcile_reservation_units(reservation: Reservation) -> dict:
     }
     if revision is None:
         result["channex_rooms"] = None
-        result["issues"] = (
+        stay_issues = detect_stay_hr_unit_gaps(reservation)
+        result["issues"] = stay_issues or (
             ["Nema Channex revision u stay.hr"]
             if reservation.import_source == "channex"
             else []
         )
         return result
 
-    payload = revision.payload or {}
-    attrs = payload.get("attributes") or payload if isinstance(payload, dict) else {}
+    payload = getattr(revision, "payload", None) or {}
+    if not isinstance(payload, dict):
+        payload = {}
+    attrs = payload.get("attributes") or payload
+    if not isinstance(attrs, dict):
+        attrs = {}
     channex_rooms = _count_channex_rooms(attrs if isinstance(attrs, dict) else {})
     result["channex_rooms"] = channex_rooms
     result["issues"] = detect_channex_room_mismatch(
         reservation,
         channex_rooms_count=channex_rooms,
     )
+    if not result["issues"]:
+        result["issues"] = detect_stay_hr_unit_gaps(reservation)
     return result

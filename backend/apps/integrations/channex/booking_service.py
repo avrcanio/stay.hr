@@ -18,7 +18,10 @@ from apps.properties.models import Property, Unit
 from apps.reservations.channel_sync import is_pdf_authoritative
 from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
-from apps.integrations.channex.booking_room_mismatch import check_channex_revision_room_mismatch
+from apps.integrations.channex.booking_room_mismatch import (
+    check_channex_revision_room_mismatch,
+    flag_channex_ingest_room_warnings,
+)
 from apps.reservations.overbooking import flag_ingest_overbooking
 from apps.tenants.models import Tenant
 
@@ -417,12 +420,16 @@ def _upsert_reservation_from_revision(
             adults_count=reservation.adults_count,
         )
 
-    if (
-        reservation.status not in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}
-        and units_count
-    ):
-        flag_ingest_overbooking(reservation)
-        check_channex_revision_room_mismatch(reservation, attrs)
+    channex_rooms_count = sum(1 for room in rooms if isinstance(room, dict))
+    if reservation.status not in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}:
+        flag_channex_ingest_room_warnings(
+            reservation,
+            channex_rooms_count=channex_rooms_count,
+            adults_count=int(reservation.adults_count or 0),
+        )
+        if units_count:
+            flag_ingest_overbooking(reservation)
+            check_channex_revision_room_mismatch(reservation, attrs)
 
     return reservation, created
 

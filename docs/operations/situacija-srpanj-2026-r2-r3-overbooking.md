@@ -18,11 +18,11 @@ Booking.com overbooking na **R2** i **R3** — ista greška kao R1 (lipanj): sta
 
 | Booking | Gost | B.com sobe | stay.hr | Channex |
 |---------|------|------------|---------|---------|
-| 5865972471 | Lada Rakigjija | R2+R3+R6 | **R6** only (id 159) | **nema** |
+| 5865972471 | Lada Rakigjija | R2+R3+R6 | **R2+R3+R6** (id 159) | **nema** |
 | 5461475045 | Sandy Bowser | R3 | R3 (796) | da |
 | 6754897669 | David Martín Céspedes | R2 | R2 (793) | da |
 
-`detect_overbooking` — **nema** konflikta (Lada nema R2/R3 u bazi).
+`detect_overbooking` — **2 konflikta** (20.7. R2/R3: Sandy + David vs Lada). Lada ima R2+R3+R6 u stay.hr od 5. 6.
 
 ## Kontakti — AKCIJA
 
@@ -39,10 +39,10 @@ Booking.com overbooking na **R2** i **R3** — ista greška kao R1 (lipanj): sta
 
 ## Checklist
 
-- [ ] Email Sandy + David
+- [x] Email Sandy + David (otkaz, bez ParkCity)
 - [ ] WhatsApp (opcionalno) iz .txt datoteka
-- [ ] Booking.com support (2 prijave ili jedna s oba broja)
-- [ ] Napomene stay.hr 796, 793
+- [x] Booking.com support mail (customer.service@booking.com, 5. 6.)
+- [x] Napomene stay.hr 796, 793
 - [ ] Lada: check-in R2+R3+R6 fizički; Sandy/David ne u R2/R3 Uzorita
 
 ## Povezano

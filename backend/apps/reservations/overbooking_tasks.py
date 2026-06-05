@@ -67,3 +67,40 @@ def detect_overbooking_daily(tenant_id: int = 2) -> dict:
         "from_date": from_date.isoformat(),
         "conflict_count": len(conflicts),
     }
+
+
+@shared_task
+def detect_multi_room_gaps_daily(tenant_id: int = 2) -> dict:
+    """Daily scan for incomplete multi-room unit mapping; alerts + Channex push."""
+    from apps.reservations.multi_room_guard import (
+        find_all_multi_room_gaps,
+        notify_multi_room_gaps,
+        push_channex_for_gap_reservation,
+    )
+
+    tenant = Tenant.objects.filter(pk=tenant_id).first()
+    if tenant is None:
+        return {"skipped": True, "reason": "tenant_not_found", "tenant_id": tenant_id}
+
+    from_date = date.today()
+    gaps = find_all_multi_room_gaps(tenant=tenant, from_date=from_date)
+
+    pushed = 0
+    for gap in gaps:
+        result = push_channex_for_gap_reservation(gap["reservation_id"])
+        if result.get("pushed"):
+            pushed += 1
+
+    if gaps:
+        notify_multi_room_gaps(tenant, gaps)
+        logger.warning(
+            "multi-room inventory gaps detected",
+            extra={"tenant_id": tenant_id, "count": len(gaps), "channex_pushed": pushed},
+        )
+
+    return {
+        "tenant_id": tenant_id,
+        "from_date": from_date.isoformat(),
+        "gap_count": len(gaps),
+        "channex_pushed": pushed,
+    }

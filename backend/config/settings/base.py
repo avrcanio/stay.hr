@@ -191,6 +191,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(hour=6, minute=0),
         "kwargs": {"tenant_id": 2},
     },
+    "detect-multi-room-gaps-daily": {
+        "task": "apps.reservations.overbooking_tasks.detect_multi_room_gaps_daily",
+        "schedule": crontab(hour=6, minute=15),
+        "kwargs": {"tenant_id": 2},
+    },
 }
 
 LOGGING = {

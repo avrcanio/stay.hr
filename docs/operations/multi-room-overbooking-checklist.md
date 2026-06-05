@@ -12,7 +12,7 @@ Ovaj runbook sprječava tip overbookinga iz 2026.: PMS ima manje soba nego Booki
 - Nova rezervacija s **2+ soba** ili PDF s više `Luxury Room Uzorita - R*`
 - Rezervacija „cijeli objekt“ (4 sobe: R1, R2, R3, R6)
 - Nakon **PDF importa** koji mijenja dodjelu soba
-- Dnevno (automatski): Celery `detect_overbooking` + push ako ima konflikata
+- Dnevno (automatski): Celery `detect_overbooking` (06:00) + `detect_multi_room_gaps` (06:15) + push ako ima konflikata
 
 ---
 
@@ -72,18 +72,62 @@ Email na `@guest.booking.com` (tenant SMTP) radi i bez Messaging appa; extranet 
 - `detect_overbooking` R1 5.–6. 6.: **0** (ostaju srpanjski R2/R3 konflikti).
 - Vidi [situacija-lipanj-2026-r1-daniela-overbooking.md](situacija-lipanj-2026-r1-daniela-overbooking.md).
 
+## Lipanj 2026. — XLS audit + PDF import (5.–30. 6.)
+
+Izvor: `.imports/Check-in 2026-06-05 to 2026-06-30.xls` (39 redova, 33 aktivne).
+
+| Booking | Gost | PDF | stay.hr (nakon importa) |
+|---------|------|-----|-------------------------|
+| **6748210815** | Jerzy Mochnik (#73) | R1+R3, €159,80, 5 odraslih | R1+R3 `booking_pdf` lock |
+| **6109473116** | Natascha Theußl (#130) | R1+R2, €309,30, 2 odrasla | R1+R2 `booking_pdf` lock |
+
+- Veble #786 (6860885586): namjerna relokacija R1→R2 (Channex poruka 26. 5.) — ne dirati.
+- `detect_overbooking` od 25. 6.: **0 lipanjskih** konflikata (srpanj Lada/David/Sandy ostaje).
+
 ---
 
-## Otvoreni B.com otkazi (stanje 4. 6. 2026.)
+## Srpanj 2026. — XLS audit + Channex ARI (5. 6.)
 
-stay.hr lokalno `canceled` — **extranet/support još potreban** na Booking.com:
+Izvor: `.imports/Check-in 2026-07-01 to 2026-07-31.xls` (47 redova, 40 aktivnih).
+
+| Booking | Gost | Sobe (XLS = stay.hr) | Akcija 5. 6. |
+|---------|------|----------------------|-------------|
+| **5976910280** | Pino (#801) | R1+R3 | Channex ARI push |
+| **5882457664** | Kukla (#795) | R1+R6 | Channex ARI push |
+| **5865972471** | Lada (#159) | R2+R3+R6 | Channex ARI push (PDF lock) |
+| **5796838012** | Susanne (#82) | 4 sobe | Channex ARI push (PDF lock) |
+
+- `channex_ari_full_sync uzorita` — 5. 6. 2026.
+- Madrigal #56 (5679320966): XLS `cancelled_by_guest` → stay.hr `canceled`
+- Wiśniewski #690: operativno R2; email gostu (PL) 5. 6.
+- Sandy/David/Eduardo: B.com support mail poslan — čeka extranet otkaz
+
+## Kolovoz 2026. — R2 overbooking 15.–16.8. (Philippe / Nikola)
+
+| Booking | Gost | Status 5. 6. |
+|---------|------|--------------|
+| **6104960555** | Philippe (#708) | PDF import R2+R6, `booking_pdf` lock — check-in |
+| **6911389256** | Nikola (#831) | **canceled** (`6911389256-canceled.pdf`) |
+
+### Preventiva (od 5. 6. 2026.)
+
+- Channex ingest: upozorenje ako `rooms=0` ili 1 soba + 4+ odraslih (`MULTI_ROOM_SUSPECT`)
+- `flag_channex_room_mismatch`: automatski ARI push kad stay.hr ima 2+ sobe, Channex manje
+- Dnevni scan `detect_multi_room_gaps`: unit gapovi + Channex calendar mismatch
+
+---
+
+## Otvoreni B.com otkazi (stanje 5. 6. 2026.)
+
+**Zatvoreno na B.com:** Pierre **5238895494** (#798) — `cancelled_by_guest` (XLS srpanj), stay.hr `canceled`.
+
+Još čeka extranet/support otkaz:
 
 | Booking | Gost | Dokument |
 |---------|------|----------|
-| 5238895494 | Pierre LE VAILLANT | [booking-com-konflikt-2026-07-24-overbooking.md](../booking-com-konflikt-2026-07-24-overbooking.md) |
-| 5398124917 | Eduardo de las Heras | isto |
-| 5461475045 | Sandy Bowser | [situacija-srpanj-2026-r2-r3-overbooking.md](situacija-srpanj-2026-r2-r3-overbooking.md) |
-| 6754897669 | David Martín Céspedes | isto |
+| 5398124917 | Eduardo de las Heras | [booking-com-konflikt-2026-07-24-overbooking.md](../booking-com-konflikt-2026-07-24-overbooking.md) — **NE check-in** (Susanne #82), support mail 5. 6. |
+| 5461475045 | Sandy Bowser | [situacija-srpanj-2026-r2-r3-overbooking.md](situacija-srpanj-2026-r2-r3-overbooking.md) — **NE check-in R3** |
+| 6754897669 | David Martín Céspedes | isto — **NE check-in R2** |
 
 ---
 

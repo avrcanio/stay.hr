@@ -4,7 +4,10 @@ from unittest.mock import patch
 from django.test import TestCase
 
 from apps.integrations.channex.booking_room_mismatch import (
+    MULTI_ROOM_SUSPECT_NOTE,
+    CHANNEX_EMPTY_ROOMS_NOTE,
     detect_channex_room_mismatch,
+    flag_channex_ingest_room_warnings,
     flag_channex_room_mismatch,
 )
 from apps.properties.models import Property, Unit
@@ -54,7 +57,7 @@ class BookingRoomMismatchTests(TestCase):
         issues = detect_channex_room_mismatch(reservation, channex_rooms_count=1)
         self.assertTrue(any("multi-room" in issue.lower() or "mapped" in issue for issue in issues))
 
-    @patch("apps.integrations.channex.booking_room_mismatch.send_tenant_reception_push")
+    @patch("apps.core.notifications.send_tenant_reception_push")
     def test_flag_appends_note_and_notifies(self, mock_push):
         reservation = self._reservation(units_count=2)
         ReservationUnit.objects.create(
@@ -67,4 +70,36 @@ class BookingRoomMismatchTests(TestCase):
         self.assertTrue(issues)
         reservation.refresh_from_db()
         self.assertIn("CHANNEX_ROOMS_MISMATCH:", reservation.notes)
+        mock_push.assert_called_once()
+
+    @patch("apps.core.notifications.send_tenant_reception_push")
+    def test_ingest_warning_empty_channex_rooms(self, mock_push):
+        reservation = self._reservation(units_count=0, adults_count=2)
+        issues = flag_channex_ingest_room_warnings(
+            reservation,
+            channex_rooms_count=0,
+            adults_count=2,
+        )
+        self.assertTrue(issues)
+        reservation.refresh_from_db()
+        self.assertIn(CHANNEX_EMPTY_ROOMS_NOTE, reservation.notes)
+        mock_push.assert_called_once()
+
+    @patch("apps.core.notifications.send_tenant_reception_push")
+    def test_ingest_warning_multi_room_suspect(self, mock_push):
+        reservation = self._reservation(units_count=1, adults_count=4)
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            unit=self.unit_r6,
+            room_name="R6",
+        )
+        issues = flag_channex_ingest_room_warnings(
+            reservation,
+            channex_rooms_count=1,
+            adults_count=4,
+        )
+        self.assertTrue(issues)
+        reservation.refresh_from_db()
+        self.assertIn(MULTI_ROOM_SUSPECT_NOTE, reservation.notes)
         mock_push.assert_called_once()
