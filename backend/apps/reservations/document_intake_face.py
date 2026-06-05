@@ -18,8 +18,17 @@ _LLM_PLACEHOLDER_BBOXES = frozenset(
         (0.1, 0.15, 0.25, 0.35),
         (0.05, 0.12, 0.35, 0.45),
         (0.05, 0.12, 0.38, 0.48),
+        (0.1, 0.2, 0.3, 0.4),
     }
 )
+
+
+def _coerce_bbox_dict(bbox: Any) -> dict[str, Any] | None:
+    if isinstance(bbox, dict):
+        return bbox
+    if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+        return {"x": bbox[0], "y": bbox[1], "w": bbox[2], "h": bbox[3]}
+    return None
 
 
 def _normalize_bbox_dict(bbox: dict[str, Any]) -> tuple[float, float, float, float] | None:
@@ -35,8 +44,8 @@ def _normalize_bbox_dict(bbox: dict[str, Any]) -> tuple[float, float, float, flo
     return (x, y, w, h)
 
 
-def _is_placeholder_llm_bbox(bbox: dict[str, Any] | None) -> bool:
-    normalized = _normalize_bbox_dict(bbox) if bbox else None
+def _is_placeholder_llm_bbox(bbox: dict[str, Any] | list | tuple | None) -> bool:
+    normalized = _normalize_bbox_dict(_coerce_bbox_dict(bbox)) if bbox else None
     if normalized is None:
         return True
     rounded = tuple(round(v, 2) for v in normalized)
@@ -77,13 +86,27 @@ def _select_best_face(
 
         cx = x + fw / 2
         cy = y + fh / 2
-        # EU ID portrait sits on the left; penalize faces on the right half.
-        left_bonus = 0.15 if cx < image_w * 0.55 else -0.25
-        # Prefer vertical center in the middle band of the card.
-        vertical_center = abs(cy - image_h * 0.45) / image_h
-        vertical_bonus = max(0.0, 0.12 - vertical_center)
-        area_score = (fw * fh) / (image_w * image_h)
-        score = area_score + left_bonus + vertical_bonus
+        cx_ratio = cx / image_w
+        cy_ratio = cy / image_h
+
+        # EU ID portrait sits in the left strip; holograms often trigger false positives mid-card.
+        if cx_ratio < 0.30:
+            left_bonus = 0.35
+        elif cx_ratio < 0.40:
+            left_bonus = 0.20
+        elif cx_ratio < 0.55:
+            left_bonus = 0.05
+        else:
+            left_bonus = -0.40
+
+        # Portrait center is usually below mid-height on TD1 cards.
+        vertical_center = abs(cy_ratio - 0.58)
+        vertical_bonus = max(0.0, 0.15 - vertical_center)
+
+        area_score = (fw * fh) / (image_w * image_h) * 2.5
+        tiny_penalty = -0.25 if max(fw, fh) < min(image_w, image_h) * 0.14 else 0.0
+
+        score = area_score + left_bonus + vertical_bonus + tiny_penalty
         candidates.append((score, (x, y, fw, fh)))
 
     if not candidates:
@@ -214,7 +237,7 @@ def _crop_from_eu_fallback(im: Image.Image) -> Image.Image:
 
 def crop_face_jpeg(
     image_path: str,
-    bbox: dict[str, Any] | None = None,
+    bbox: dict[str, Any] | list | tuple | None = None,
 ) -> ContentFile | None:
     """Crop portrait from document image. Prefers OpenCV face detection over LLM bbox."""
     try:
@@ -222,12 +245,13 @@ def crop_face_jpeg(
             im = im.convert("RGB")
             crop: Image.Image | None = None
 
+            bbox_dict = _coerce_bbox_dict(bbox)
             face_px = detect_face_bbox_pixels(image_path)
             if face_px is not None:
                 x, y, fw, fh = face_px
                 crop = _square_crop_around_face(im, x=x, y=y, fw=fw, fh=fh)
-            elif bbox and not _is_placeholder_llm_bbox(bbox):
-                crop = _crop_from_normalized_bbox(im, bbox)
+            elif bbox_dict and not _is_placeholder_llm_bbox(bbox_dict):
+                crop = _crop_from_normalized_bbox(im, bbox_dict)
             else:
                 crop = _crop_from_eu_fallback(im)
 

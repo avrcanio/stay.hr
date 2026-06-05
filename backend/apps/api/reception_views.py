@@ -48,6 +48,7 @@ from apps.reservations.document_photo_storage import (
 )
 from apps.reservations.face_photo import guest_face_photo_document
 from apps.reservations.mrz_parse import normalize_residence_address, parse_sex_from_mrz
+from apps.reservations.nationality_display import normalize_country_iso2
 from apps.reservations.query import property_day_range
 from apps.reservations.models import (
     DocumentScanLog,
@@ -602,19 +603,17 @@ class DocumentScanIngestView(ReceptionWriteView, APIView):
             if parsed:
                 updates["date_of_expiry"] = parsed
 
-        nat = as_str("drzavljanstvo").upper()
-        if nat == "HRV":
-            nat = "HR"
-        if len(nat) > 2:
-            nat = nat[:2]
-        if nat:
-            updates["nationality"] = nat
+        nat_raw = as_str("drzavljanstvo").upper()
+        iso2 = normalize_country_iso2(nat_raw)
+        if iso2:
+            updates["nationality"] = iso2
 
-        issue_iso3 = as_str("drzava_izdavanja").upper()
+        issue_iso3 = as_str("drzava_izdavanja").upper()[:3]
         if issue_iso3:
-            updates["document_country_iso3"] = issue_iso3[:3]
-            if issue_iso3[:3] == "HRV":
-                updates["document_country_iso2"] = "HR"
+            updates["document_country_iso3"] = issue_iso3
+            issue_iso2 = normalize_country_iso2(issue_iso3)
+            if issue_iso2:
+                updates["document_country_iso2"] = issue_iso2
 
         adresa = as_str("adresa")
         if adresa:

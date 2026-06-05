@@ -32,6 +32,17 @@ def _person_full_name(person: dict) -> str:
     return given or surnames
 
 
+def _first_given_name(given: str) -> str:
+    return (given.split() or [""])[0]
+
+
+def _short_name_key(given: str, surnames: str) -> str:
+    first = _first_given_name(given)
+    if first and surnames:
+        return f"{first} {surnames}"
+    return ""
+
+
 def _person_name_keys(person: dict) -> set[str]:
     keys: set[str] = set()
     full = _normalize_guest_name_key(_person_full_name(person))
@@ -41,9 +52,23 @@ def _person_name_keys(person: dict) -> set[str]:
     given = _normalize_guest_name_key(str(person.get("given_names") or ""))
     if surnames and given:
         keys.add(f"{given} {surnames}")
+        short = _short_name_key(given, surnames)
+        if short:
+            keys.add(short)
     if surnames:
         keys.add(surnames)
     return {k for k in keys if k}
+
+
+def _booker_name_keys(reservation: Reservation) -> set[str]:
+    booker = _normalize_guest_name_key(reservation.booker_name or "")
+    if not booker:
+        return set()
+    keys = {booker}
+    parts = booker.split()
+    if len(parts) >= 2:
+        keys.add(f"{parts[0]} {parts[-1]}")
+    return keys
 
 
 def active_reservations_for_intake(tenant_id: int) -> list[Reservation]:
@@ -63,17 +88,24 @@ def active_reservations_for_intake(tenant_id: int) -> list[Reservation]:
     return list(qs)
 
 
+def _guest_name_keys(guest: Guest) -> set[str]:
+    keys: set[str] = set()
+    for raw in (
+        _guest_display_name(guest),
+        f"{guest.first_name} {guest.last_name}".strip(),
+        f"{guest.last_name} {guest.first_name}".strip(),
+    ):
+        key = _normalize_guest_name_key(raw)
+        if key:
+            keys.add(key)
+            parts = key.split()
+            if len(parts) >= 2:
+                keys.add(f"{parts[0]} {parts[-1]}")
+    return keys
+
+
 def _guest_name_matches(guest: Guest, keys: set[str]) -> bool:
-    display_key = _normalize_guest_name_key(_guest_display_name(guest))
-    if display_key and display_key in keys:
-        return True
-    first_last = _normalize_guest_name_key(f"{guest.first_name} {guest.last_name}".strip())
-    if first_last and first_last in keys:
-        return True
-    last_first = _normalize_guest_name_key(f"{guest.last_name} {guest.first_name}".strip())
-    if last_first and last_first in keys:
-        return True
-    return False
+    return bool(_guest_name_keys(guest) & keys)
 
 
 def _fuzzy_guest_match(
@@ -88,6 +120,13 @@ def _fuzzy_guest_match(
             continue
         if _guest_name_matches(guest, keys):
             return guest
+
+    if _booker_name_keys(reservation) & keys:
+        for guest in reservation.guests.all():
+            if guest.pk in blocked:
+                continue
+            if guest.is_primary and is_unfilled_guest(guest):
+                return guest
     return None
 
 

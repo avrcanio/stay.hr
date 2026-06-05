@@ -138,6 +138,48 @@ class DocumentIntakeAPITests(TestCase):
         self.primary.refresh_from_db()
         self.assertEqual(self.primary.document_number, "L01X00T47")
         self.assertEqual(self.primary.first_name, "Hans")
+        self.assertEqual(self.primary.nationality, "DE")
+        self.assertEqual(self.primary.document_country_iso2, "DE")
+
+    @patch("apps.reservations.document_intake_service.run_document_batch_ocr")
+    def test_apply_polish_nationality_overrides_channel_booker_country(self, mock_ocr):
+        """ISO3 POL must map to PL and override stale Channex booker_country (e.g. GB)."""
+        self.reservation.booker_country = "GB"
+        self.reservation.save(update_fields=["booker_country"])
+
+        mock_ocr.return_value = {
+            "images": [{"index": 0, "side": "front", "mrz_lines": [], "ocr_text": ""}],
+            "persons": [
+                {
+                    "given_names": "Hans",
+                    "surnames": "Fischer",
+                    "document_number": "DKC942819",
+                    "nationality": "POL",
+                    "date_of_birth": "1980-05-01",
+                    "date_of_expiry": "2035-08-29",
+                    "sex": "M",
+                    "document_type": "national_id",
+                    "front_image_index": 0,
+                }
+            ],
+        }
+
+        batch = self.client.post(
+            f"{self.base}/batch/",
+            {"files": [_tiny_jpeg()]},
+            format="multipart",
+        )
+        job_id = batch.json()["job_id"]
+        self.client.post(f"{self.base}/jobs/{job_id}/process/")
+        apply = self.client.post(f"{self.base}/jobs/{job_id}/apply/", {}, format="json")
+        self.assertEqual(apply.status_code, 200)
+
+        self.primary.refresh_from_db()
+        self.reservation.refresh_from_db()
+        self.assertEqual(self.primary.nationality, "PL")
+        self.assertEqual(self.primary.document_country_iso2, "PL")
+        self.assertEqual(self.primary.document_country_iso3, "POL")
+        self.assertEqual(self.reservation.booker_country, "PL")
 
     @patch("apps.reservations.document_intake_service.run_document_batch_ocr")
     def test_name_match_auto_apply_despite_other_unfilled_slots(self, mock_ocr):

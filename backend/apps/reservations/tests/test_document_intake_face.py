@@ -25,6 +25,19 @@ class FaceCropHeuristicsTests(SimpleTestCase):
         best = _select_best_face(faces, image_w=w, image_h=h)
         self.assertEqual(best, (250, 613, 257, 257))
 
+    def test_select_best_face_polish_id_false_positive(self):
+        """Small mid-card false positive vs large left portrait (guest #2262 case)."""
+        w, h = 1600, 1130
+        faces = [
+            (488, 454, 104, 104),  # guilloche / hologram
+            (189, 528, 341, 341),  # real portrait
+        ]
+        best = _select_best_face(faces, image_w=w, image_h=h)
+        self.assertEqual(best, (189, 528, 341, 341))
+
+    def test_rejects_list_placeholder_bbox(self):
+        self.assertTrue(_is_placeholder_llm_bbox([0.1, 0.2, 0.3, 0.4]))
+
 
 @override_settings(MEDIA_ROOT="/tmp/stay_test_face_media")
 class FaceCropIntegrationTests(SimpleTestCase):

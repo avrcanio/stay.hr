@@ -17,7 +17,7 @@ from apps.reservations.document_intake_face import crop_face_jpeg
 from apps.reservations.document_intake_match import match_persons_to_guests, normalize_mrz_lines
 from apps.reservations.guest_slots import ensure_guest_slots_for_intake
 from apps.reservations.mrz_parse import normalize_residence_address, parse_sex_from_mrz
-from apps.reservations.nationality_display import guest_nationality_iso2
+from apps.reservations.nationality_display import guest_nationality_iso2, normalize_country_iso2
 from apps.reservations.document_photo_storage import (
     DOCUMENT_TYPE_NATIONAL_ID,
     DOCUMENT_TYPE_PASSPORT,
@@ -364,9 +364,10 @@ def _sync_reservation_country_from_guest(*, guest: Guest, reservation: Reservati
 
     iso2 = guest_nationality_iso2(guest)
     reservation_fields: list[str] = []
-    if iso2 and not (reservation.booker_country or "").strip():
-        reservation.booker_country = iso2
-        reservation_fields.append("booker_country")
+    if iso2:
+        if guest.is_primary or not (reservation.booker_country or "").strip():
+            reservation.booker_country = iso2
+            reservation_fields.append("booker_country")
 
     if guest_fields:
         guest.save(update_fields=guest_fields + ["updated_at"])
@@ -449,19 +450,17 @@ def _guest_updates_from_payload(raw_payload: dict) -> tuple[dict, dict]:
         if parsed:
             updates["date_of_expiry"] = parsed
 
-    nat = as_str("drzavljanstvo").upper()
-    if nat == "HRV":
-        nat = "HR"
-    if len(nat) > 2:
-        nat = nat[:2]
-    if nat:
-        updates["nationality"] = nat
+    nat_raw = as_str("drzavljanstvo").upper()
+    iso2 = normalize_country_iso2(nat_raw)
+    if iso2:
+        updates["nationality"] = iso2
 
-    issue_iso3 = as_str("drzava_izdavanja").upper()
+    issue_iso3 = as_str("drzava_izdavanja").upper()[:3]
     if issue_iso3:
-        updates["document_country_iso3"] = issue_iso3[:3]
-        if issue_iso3[:3] == "HRV":
-            updates["document_country_iso2"] = "HR"
+        updates["document_country_iso3"] = issue_iso3
+        issue_iso2 = normalize_country_iso2(issue_iso3)
+        if issue_iso2:
+            updates["document_country_iso2"] = issue_iso2
 
     adresa = as_str("adresa")
     if adresa:
@@ -487,7 +486,7 @@ def _guest_updates_from_payload(raw_payload: dict) -> tuple[dict, dict]:
         "first_name": first_name,
         "last_name": last_name,
         "document_number": doc_no,
-        "nationality": nat,
+        "nationality": iso2,
         "date_of_birth": dob,
         "address": updates.get("address") or adresa,
     }
