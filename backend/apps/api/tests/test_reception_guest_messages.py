@@ -72,6 +72,8 @@ class ReceptionGuestMessagesAPITests(TestCase):
     @patch.dict(os.environ, {}, clear=False)
     def test_compose_checkin_fallback(self):
         os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        self.reservation.booker_country = "HR"
+        self.reservation.save(update_fields=["booker_country"])
         response = self.client.post(
             f"{self.base}/compose/",
             {"intent": "checkin"},
@@ -83,10 +85,148 @@ class ReceptionGuestMessagesAPITests(TestCase):
         self.assertIn("draft_id", data)
         self.assertIn("Wolfgang", data["body_text"])
         self.assertFalse(data["llm_used"])
+        body = data["body_text"]
+        self.assertIn("Restaurant Uzorita", body)
+        self.assertIn("Parkiranje", body)
+        self.assertIn("eVisitor", body)
+        self.assertNotIn("okvirno vrijeme dolaska", body.lower())
         self.assertTrue(data["channels"]["email"]["available"])
         self.assertEqual(data["channels"]["email"]["to"], "wolfgang@example.com")
         self.assertTrue(data["channels"]["whatsapp"]["available"])
         self.assertIn("491701234567", data["channels"]["whatsapp"]["phone_wa"])
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_compose_checkin_language_de(self):
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        self.reservation.booker_country = "DE"
+        self.reservation.save(update_fields=["booker_country"])
+        response = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "checkin"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data["language"], "de")
+        self.assertIn("Eingang", data["body_text"])
+        self.assertIn("Parken", data["body_text"])
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_compose_checkin_language_balkan_hr(self):
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        self.reservation.booker_country = "RS"
+        self.reservation.save(update_fields=["booker_country"])
+        response = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "checkin"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data["language"], "hr")
+        self.assertIn("Parkiranje", data["body_text"])
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_compose_checkin_language_default_en(self):
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        self.reservation.booker_country = "NL"
+        self.reservation.save(update_fields=["booker_country"])
+        response = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "checkin"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data["language"], "en")
+        self.assertIn("Parking", data["body_text"])
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_compose_reply_checkin_ready(self):
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        self.reservation.booker_country = "DE"
+        self.reservation.save(update_fields=["booker_country"])
+        response = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "reply", "hint": "checkin ready"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertFalse(data["llm_used"])
+        self.assertEqual(data["language"], "de")
+        body = data["body_text"]
+        self.assertIn("Vielen Dank", body)
+        self.assertIn("Ankunftszeit", body)
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_compose_reply_checkin_ready_language_es(self):
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        self.reservation.booker_country = "ES"
+        self.reservation.save(update_fields=["booker_country"])
+        response = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "reply", "hint": "checkin ready"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertFalse(data["llm_used"])
+        self.assertEqual(data["language"], "es")
+        self.assertIn("Gracias", data["body_text"])
+        self.assertIn("llegada", data["body_text"])
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_compose_reply_checkin_ready_same_lang_as_checkin(self):
+        """RO guest → en for both checkin and checkin-ready reply."""
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        self.reservation.booker_country = "RO"
+        self.reservation.save(update_fields=["booker_country"])
+        checkin = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "checkin"},
+            format="json",
+            **self.auth,
+        )
+        reply = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "reply", "hint": "checkin ready"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(checkin.json()["language"], "en")
+        self.assertEqual(reply.json()["language"], "en")
+        self.assertIn("Parking", checkin.json()["body_text"])
+        self.assertIn("Thank you", reply.json()["body_text"])
+
+    @patch("apps.communications.guest_compose.complete_chat")
+    @patch.dict(
+        os.environ,
+        {
+            "GUEST_COMPOSE_LLM_PROVIDER": "openai",
+            "GUEST_COMPOSE_LLM_API_KEY": "test-key",
+            "GUEST_COMPOSE_LLM_MODEL": "gpt-4o-mini",
+        },
+        clear=False,
+    )
+    def test_compose_checkin_skips_llm(self, mock_complete):
+        mock_complete.return_value = "LLM should not be used for checkin."
+        response = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "checkin"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertFalse(data["llm_used"])
+        self.assertIn("Restaurant Uzorita", data["body_text"])
+        mock_complete.assert_not_called()
 
     @patch("apps.communications.guest_compose.complete_chat")
     @patch.dict(
@@ -102,7 +242,7 @@ class ReceptionGuestMessagesAPITests(TestCase):
         mock_complete.return_value = "Hello Wolfgang!\n\nManaged by stay.hr — https://stay.hr/"
         response = self.client.post(
             f"{self.base}/compose/",
-            {"intent": "checkin"},
+            {"intent": "custom", "hint": "Confirm late arrival at 22:00."},
             format="json",
             **self.auth,
         )
@@ -243,3 +383,116 @@ class ReceptionGuestMessagesAPITests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
         read_app.delete()
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_compose_includes_booking_channel_for_channex_reservation(self):
+        from apps.integrations.channex.booking_service import channex_external_id
+        from apps.integrations.models import IntegrationConfig
+        from apps.tenants.models import ChannelManager, TenantReceptionSettings
+
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        TenantReceptionSettings.objects.create(
+            tenant=self.tenant,
+            channel_manager=ChannelManager.CHANNEX,
+        )
+        IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
+        self.reservation.import_source = "channex"
+        self.reservation.external_id = channex_external_id("test-booking-uuid")
+        self.reservation.save(update_fields=["import_source", "external_id"])
+
+        response = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "checkin"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertTrue(data["channels"]["booking"]["available"])
+
+    @patch("apps.communications.guest_message_send.send_message_for_reservation")
+    @patch.dict(os.environ, {}, clear=False)
+    def test_send_booking_channel(self, mock_send):
+        from apps.integrations.channex.booking_service import channex_external_id
+        from apps.integrations.models import ChannexMessage, IntegrationConfig
+        from apps.tenants.models import ChannelManager, TenantReceptionSettings
+
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        TenantReceptionSettings.objects.create(
+            tenant=self.tenant,
+            channel_manager=ChannelManager.CHANNEX,
+        )
+        IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
+        self.reservation.import_source = "channex"
+        self.reservation.external_id = channex_external_id("test-booking-uuid")
+        self.reservation.save(update_fields=["import_source", "external_id"])
+
+        mock_send.return_value = ChannexMessage.objects.create(
+            tenant=self.tenant,
+            channex_booking_id="test-booking-uuid",
+            channex_message_id="msg-out-1",
+            direction=ChannexMessage.Direction.OUTBOUND,
+            sender=ChannexMessage.Sender.PROPERTY,
+            body="Reply via Booking.com",
+            reservation=self.reservation,
+        )
+
+        compose = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "reply"},
+            format="json",
+            **self.auth,
+        )
+        draft_id = compose.json()["draft_id"]
+        body = "Reply via Booking.com"
+
+        response = self.client.post(
+            f"{self.base}/send/",
+            {
+                "draft_id": draft_id,
+                "channel": "booking",
+                "body_text": body,
+            },
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["channel"], "booking")
+        self.assertEqual(data["source"], "booking")
+        self.assertEqual(data["status"], "sent")
+        self.assertEqual(data["body_text"], body)
+        mock_send.assert_called_once()
+
+        timeline = self.client.get(f"{self.base}/", **self.auth)
+        self.assertEqual(len(timeline.json()), 1)
+        self.assertEqual(timeline.json()[0]["source"], "booking")
+
+    def test_timeline_includes_channex_inbound(self):
+        from apps.integrations.models import ChannexMessage
+
+        ChannexMessage.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            channex_booking_id="booking-1",
+            channex_message_id="msg-in-1",
+            direction=ChannexMessage.Direction.INBOUND,
+            sender=ChannexMessage.Sender.GUEST,
+            body="Hello from guest",
+        )
+
+        response = self.client.get(f"{self.base}/", **self.auth)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["source"], "booking")
+        self.assertEqual(data[0]["direction"], "inbound")
+        self.assertEqual(data[0]["body_text"], "Hello from guest")

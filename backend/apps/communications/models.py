@@ -14,6 +14,7 @@ class GuestMessageIntent(models.TextChoices):
 class GuestMessageChannel(models.TextChoices):
     EMAIL = "email", "Email"
     WHATSAPP = "whatsapp", "WhatsApp"
+    BOOKING = "booking", "Booking.com"
 
 
 class GuestOutboundMessageStatus(models.TextChoices):

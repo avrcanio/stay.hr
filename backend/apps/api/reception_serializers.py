@@ -17,6 +17,7 @@ from apps.reservations.checkout import CheckoutBlockedError, perform_reservation
 from apps.reservations.confirmation_pdf import reservation_confirmation_pdf_url
 from apps.reservations.face_photo import guest_face_photo_url
 from apps.reservations.guest_slots import guests_for_checkout
+from apps.reservations.nationality_display import reservation_nationality_iso2
 from apps.reservations.models import (
     EvisitorGuestStatus,
     Guest,
@@ -220,10 +221,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
         return ""
 
     def get_primary_guest_nationality_iso2(self, obj):
-        primary_guest = next((g for g in obj.guests.all() if g.is_primary), None)
-        if not primary_guest:
-            return ""
-        return (primary_guest.nationality or "").strip().upper()
+        return reservation_nationality_iso2(obj)
 
     def get_room_codes(self, obj):
         codes = []

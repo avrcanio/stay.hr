@@ -1,4 +1,4 @@
-"""LLM guest message compose with deterministic fallback."""
+"""Guest message compose with deterministic check-in templates and optional LLM."""
 
 from __future__ import annotations
 
@@ -15,7 +15,8 @@ from apps.ai.provider import (
 )
 from apps.billing.models import Invoice
 from apps.billing.services.payment import resolve_payment_method
-from apps.communications.guest_email import _email_context, _language_for_reservation
+from apps.communications.guest_compose_language import compose_language_for_reservation
+from apps.communications.guest_email import _email_context
 from apps.communications.guest_message_send import build_message_channels
 from apps.communications.models import GuestMessageDraft, GuestMessageIntent
 from apps.integrations.models import ChannexMessage, WhatsAppMessage
@@ -24,39 +25,48 @@ from apps.tenants.models import ApiApplication
 
 logger = logging.getLogger(__name__)
 
+HINT_CHECKIN_READY = "checkin ready"
+
 MAPS_LINK = "https://maps.app.goo.gl/BN15CcMmmAapmjUs7"
 DEFAULT_ADDRESS = "Ul. bana Josipa Jelačića 58, 22000 Šibenik"
+
+FOOTER = "Managed by stay.hr — https://stay.hr/"
 
 PAYMENT_TEXTS: dict[str, dict[str, str]] = {
     Invoice.PaymentMethod.BOOKING: {
         "hr": "Ukupna cijena: {amount} € — plaćeno u cijelosti putem Booking.com (Payments by Booking.com). Boravak ne plaćate na check-inu.",
         "en": "Total price: €{amount} — paid in full via Booking.com (Payments by Booking.com). No payment due for your stay at check-in.",
         "de": "Gesamtpreis: {amount} € — vollständig über Booking.com (Payments by Booking.com) bezahlt. Keine Zahlung für den Aufenthalt beim Check-in.",
-        "ro": "Preț total: {amount} € — plătit integral prin Booking.com (Payments by Booking.com). Nu este necesară plata cazării la check-in.",
+        "es": "Precio total: {amount} € — pagado íntegramente a través de Booking.com (Payments by Booking.com). No hay que pagar la estancia en el check-in.",
+        "fr": "Prix total : {amount} € — entièrement réglé via Booking.com (Payments by Booking.com). Aucun paiement du séjour à l’arrivée.",
     },
     Invoice.PaymentMethod.CASH: {
         "hr": "Ukupna cijena: {amount} € — plaćanje gotovinom na check-inu.",
         "en": "Total price: €{amount} — payment in cash at check-in.",
         "de": "Gesamtpreis: {amount} € — Zahlung bar beim Check-in.",
-        "ro": "Preț total: {amount} € — plata cash la check-in.",
+        "es": "Precio total: {amount} € — pago en efectivo en el check-in.",
+        "fr": "Prix total : {amount} € — paiement en espèces à l’arrivée.",
     },
     Invoice.PaymentMethod.CARD: {
         "hr": "Ukupna cijena: {amount} € — plaćanje karticom na check-inu.",
         "en": "Total price: €{amount} — payment by card at check-in.",
         "de": "Gesamtpreis: {amount} € — Zahlung mit Karte beim Check-in.",
-        "ro": "Preț total: {amount} € — plata cu cardul la check-in.",
+        "es": "Precio total: {amount} € — pago con tarjeta en el check-in.",
+        "fr": "Prix total : {amount} € — paiement par carte à l’arrivée.",
     },
     Invoice.PaymentMethod.TRANSFER: {
         "hr": "Ukupna cijena: {amount} € — plaćanje transakcijskim računom (prema dogovoru).",
         "en": "Total price: €{amount} — payment by bank transfer (as agreed).",
         "de": "Gesamtpreis: {amount} € — Zahlung per Banküberweisung (wie vereinbart).",
-        "ro": "Preț total: {amount} € — plată prin transfer bancar (conform acordului).",
+        "es": "Precio total: {amount} € — pago por transferencia bancaria (según acuerdo).",
+        "fr": "Prix total : {amount} € — paiement par virement bancaire (selon accord).",
     },
     Invoice.PaymentMethod.OTHER: {
         "hr": "Ukupna cijena: {amount} €.",
         "en": "Total price: €{amount}.",
         "de": "Gesamtpreis: {amount} €.",
-        "ro": "Preț total: {amount} €.",
+        "es": "Precio total: {amount} €.",
+        "fr": "Prix total : {amount} €.",
     },
 }
 
@@ -76,37 +86,104 @@ ENTRANCE_TEXTS = {
         "das Tor mit Weinreben rechts neben dem Schild. "
         "(Ein Foto des Eingangs folgt in der nächsten Nachricht.)"
     ),
-    "ro": (
-        "Intrare: căutați panoul „Restaurant Uzorita” și numărul **58** pe peretele alb — "
-        "poarta cu viță de vie imediat la dreapta panoului. "
-        "(Trimitem fotografia intrării în mesajul următor.)"
+    "es": (
+        'Entrada: busque el cartel «Restaurant Uzorita» y el número **58** en la pared blanca — '
+        "la puerta con hiedra está justo a la derecha del cartel. "
+        "(Enviaremos una foto de la entrada en el siguiente mensaje.)"
+    ),
+    "fr": (
+        "Entrée : repérez l’enseigne « Restaurant Uzorita » et le numéro **58** sur le mur blanc — "
+        "le portail avec la vigne est juste à droite de l’enseigne. "
+        "(Nous enverrons une photo de l’entrée dans le message suivant.)"
+    ),
+}
+
+PARKING_TEXTS = {
+    "hr": (
+        "Parkiranje: u cijeloj zoni parkiranje je besplatno. "
+        "Možete parkirati odmah ispred objekta; ako nema mjesta, slobodno bilo gdje u neposrednoj blizini."
+    ),
+    "en": (
+        "Parking: parking is free throughout the zone. "
+        "You can park right in front of the property; if there is no space, anywhere nearby is fine."
+    ),
+    "de": (
+        "Parken: In der gesamten Zone ist das Parken kostenlos. "
+        "Sie können direkt vor dem Haus parken; wenn kein Platz frei ist, finden Sie problemlos einen Parkplatz in unmittelbarer Nähe."
+    ),
+    "es": (
+        "Aparcamiento: el aparcamiento es gratuito en toda la zona. "
+        "Puede aparcar justo delante del alojamiento; si no hay sitio, en cualquier lugar cercano."
+    ),
+    "fr": (
+        "Stationnement : le stationnement est gratuit dans toute la zone. "
+        "Vous pouvez vous garer juste devant l’établissement ; s’il n’y a pas de place, n’importe où à proximité."
     ),
 }
 
 DOCUMENTS_TEXTS = {
     "hr": (
+        "Check-in — dokumenti\n"
         "Molimo prije dolaska pošaljite nam ovdje na WhatsApp fotografije dokumenata "
         "za svakog odraslog gosta ({adults}): putovnica (stranica s podacima) ili "
         "osobna iskaznica (prednja + stražnja strana). Bez bljeskalice, cijeli dokument u kadru. "
         "Podatke koristimo isključivo za zakonsku prijavu boravka (eVisitor)."
     ),
     "en": (
+        "Check-in — documents\n"
         "Please send us photos of ID documents here on WhatsApp before arrival — "
         "one set per adult guest ({adults}): passport (biodata page) or national ID card "
         "(front + back). No flash, full document in frame. "
         "We use this data only for mandatory guest registration (eVisitor)."
     ),
     "de": (
+        "Check-in vorbereiten\n"
         "Bitte senden Sie uns vor der Anreise Fotos der Ausweisdokumente hier per WhatsApp — "
         "pro erwachsenem Gast ({adults}): Reisepass (Datenseite) oder Personalausweis "
         "(Vorder- und Rückseite). Ohne Blitz, ganzes Dokument im Bild. "
         "Die Daten verwenden wir ausschließlich für die gesetzliche Meldepflicht (eVisitor)."
     ),
-    "ro": (
-        "Vă rugăm să ne trimiteți pe WhatsApp, înainte de sosire, fotografii ale actelor de identitate — "
-        "câte un set pentru fiecare adult ({adults}): pașaport (pagina cu date) sau carte de identitate "
-        "(față + verso). Fără bliț, documentul complet în cadru. "
-        "Datele sunt folosite exclusiv pentru înregistrarea legală a șederii (eVisitor)."
+    "es": (
+        "Check-in — documentos\n"
+        "Por favor, envíenos fotos de los documentos de identidad por WhatsApp antes de la llegada — "
+        "un juego por cada huésped adulto ({adults}): pasaporte (página de datos) o DNI "
+        "(anverso y reverso). Sin flash, documento completo en la imagen. "
+        "Usamos estos datos únicamente para el registro legal de la estancia (eVisitor)."
+    ),
+    "fr": (
+        "Check-in — documents\n"
+        "Veuillez nous envoyer par WhatsApp, avant votre arrivée, des photos des pièces d’identité — "
+        "un jeu par adulte ({adults}) : passeport (page d’identité) ou carte d’identité "
+        "(recto et verso). Sans flash, document entier visible. "
+        "Nous utilisons ces données uniquement pour l’enregistrement légal du séjour (eVisitor)."
+    ),
+}
+
+CHECKIN_READY_BODY = {
+    "hr": (
+        "Hvala vam na poslanim dokumentima!\n\n"
+        "Vaši podaci su spremljeni — kad stignete, check-in će proći brzo i nećete gubiti vrijeme.\n\n"
+        "Javite nam, molimo, okvirno vrijeme dolaska."
+    ),
+    "en": (
+        "Thank you for sending your documents!\n\n"
+        "Your details are saved — when you arrive, check-in will be quick and you won’t lose time.\n\n"
+        "Please let us know your approximate arrival time."
+    ),
+    "de": (
+        "Vielen Dank für die Dokumente!\n\n"
+        "Ihre Daten sind registriert — beim Check-in vor Ort geht es schnell, Sie verlieren keine Zeit.\n\n"
+        "Bitte teilen Sie uns Ihre ungefähre Ankunftszeit mit."
+    ),
+    "es": (
+        "¡Gracias por enviar los documentos!\n\n"
+        "Sus datos están registrados — a su llegada, el check-in será rápido y no perderá tiempo.\n\n"
+        "Por favor, indíquenos su hora aproximada de llegada."
+    ),
+    "fr": (
+        "Merci pour l’envoi de vos documents !\n\n"
+        "Vos données sont enregistrées — à votre arrivée, l’enregistrement sera rapide.\n\n"
+        "Merci de nous indiquer votre heure d’arrivée approximative."
     ),
 }
 
@@ -114,40 +191,77 @@ CHECKIN_LINE = {
     "hr": "Check-in: {check_in} od {check_in_time}",
     "en": "Check-in: {check_in} from {check_in_time}",
     "de": "Check-in: {check_in} ab {check_in_time} Uhr",
-    "ro": "Check-in: {check_in}, de la ora {check_in_time}",
+    "es": "Check-in: {check_in} a partir de las {check_in_time}",
+    "fr": "Check-in : {check_in} à partir de {check_in_time}",
 }
 
 GREETING = {
     "hr": "Bok {name}!",
     "en": "Hi {name}!",
     "de": "Hallo {name}!",
-    "ro": "Bună {name}!",
+    "es": "¡Hola {name}!",
+    "fr": "Bonjour {name} !",
 }
 
 THANKS = {
     "hr": "Hvala na rezervaciji u {property_name}.",
     "en": "Thank you for your booking at {property_name}.",
     "de": "Vielen Dank für Ihre Buchung bei {property_name}.",
-    "ro": "Vă mulțumim pentru rezervarea la {property_name}.",
+    "es": "Gracias por su reserva en {property_name}.",
+    "fr": "Merci pour votre réservation chez {property_name}.",
 }
 
 RESERVATION_HEADER = {
     "hr": "Vaša rezervacija",
     "en": "Your reservation",
     "de": "Ihre Buchung",
-    "ro": "Rezervarea dvs.",
+    "es": "Su reserva",
+    "fr": "Votre réservation",
 }
 
-FOOTER = "Managed by stay.hr — https://stay.hr/"
+ROOM_LABEL = {
+    "hr": "Soba",
+    "en": "Room",
+    "de": "Zimmer",
+    "es": "Habitación",
+    "fr": "Chambre",
+}
+
+ADDRESS_LABEL = {
+    "hr": "Adresa",
+    "en": "Address",
+    "de": "Adresse",
+    "es": "Dirección",
+    "fr": "Adresse",
+}
+
+SIGN_OFF = {
+    "hr": "Lijep pozdrav,",
+    "en": "Best regards,",
+    "de": "Mit freundlichen Grüßen,",
+    "es": "Un saludo cordial,",
+    "fr": "Cordialement,",
+}
+
+DEFAULT_GUEST_NAME = {
+    "hr": "Gost",
+    "en": "Guest",
+    "de": "Gast",
+    "es": "Huésped",
+    "fr": "Client",
+}
+
+
+def _text_for_lang(texts: dict[str, str], lang: str) -> str:
+    return texts.get(lang) or texts["en"]
+
+
+def _normalize_hint(hint: str) -> str:
+    return " ".join((hint or "").strip().lower().split())
 
 
 def _lang_key(reservation: Reservation, override: str | None = None) -> str:
-    if override:
-        base = override.split("-")[0].lower()
-        if base in ("hr", "en", "de", "ro"):
-            return base
-    lang = _language_for_reservation(reservation)
-    return lang if lang in ("hr", "en", "de", "ro") else "en"
+    return compose_language_for_reservation(reservation, override)
 
 
 def _format_amount(amount: Decimal | None) -> str:
@@ -159,7 +273,7 @@ def _format_amount(amount: Decimal | None) -> str:
 def _payment_text(reservation: Reservation, lang: str) -> str:
     method = resolve_payment_method(reservation)
     templates = PAYMENT_TEXTS.get(method, PAYMENT_TEXTS[Invoice.PaymentMethod.OTHER])
-    template = templates.get(lang) or templates["en"]
+    template = _text_for_lang(templates, lang)
     return template.format(amount=_format_amount(reservation.amount))
 
 
@@ -223,6 +337,7 @@ def build_compose_context(
         "booking_code": reservation.booking_code or reservation.external_id or "",
         "property_name": reservation.property.name,
         "room_label": email_ctx.get("room_label") or "",
+        "check_in_date": reservation.check_in.isoformat(),
         "check_in": email_ctx["check_in_display"],
         "check_out": email_ctx["check_out_display"],
         "check_in_time": email_ctx["check_in_time"],
@@ -241,27 +356,27 @@ def build_compose_context(
 
 def _render_checkin_fallback(context: dict) -> str:
     lang = context["language"]
-    name = context["guest_name"] or ("Gost" if lang == "hr" else "Guest")
+    name = context["guest_name"] or _text_for_lang(DEFAULT_GUEST_NAME, lang)
     adults = context["adults_count"]
-    entrance = ENTRANCE_TEXTS.get(lang, ENTRANCE_TEXTS["en"])
-    documents = DOCUMENTS_TEXTS.get(lang, DOCUMENTS_TEXTS["en"]).format(adults=adults)
-    checkin_line = CHECKIN_LINE.get(lang, CHECKIN_LINE["en"]).format(
-        check_in=context["check_in"],
+    entrance = _text_for_lang(ENTRANCE_TEXTS, lang)
+    parking = _text_for_lang(PARKING_TEXTS, lang)
+    documents = _text_for_lang(DOCUMENTS_TEXTS, lang).format(adults=adults)
+    checkin_line = _text_for_lang(CHECKIN_LINE, lang).format(
+        check_in=context["check_in_date"],
         check_in_time=context["check_in_time"],
     )
 
     lines = [
-        GREETING.get(lang, GREETING["en"]).format(name=name),
+        _text_for_lang(GREETING, lang).format(name=name),
         "",
-        THANKS.get(lang, THANKS["en"]).format(property_name=context["property_name"]),
+        _text_for_lang(THANKS, lang).format(property_name=context["property_name"]),
         "",
-        RESERVATION_HEADER.get(lang, RESERVATION_HEADER["en"]),
+        _text_for_lang(RESERVATION_HEADER, lang),
         f"• {context['booking_code']}" if context["booking_code"] else "",
         f"• {context['property_name']}",
     ]
     if context["room_label"]:
-        room_label = {"hr": "Soba", "en": "Room", "de": "Zimmer", "ro": "Cameră"}.get(lang, "Room")
-        lines.append(f"• {room_label}: {context['room_label']}")
+        lines.append(f"• {_text_for_lang(ROOM_LABEL, lang)}: {context['room_label']}")
     lines.extend(
         [
             f"• {context['check_in']} – {context['check_out']}",
@@ -269,33 +384,38 @@ def _render_checkin_fallback(context: dict) -> str:
             "",
             checkin_line,
             "",
-            {"hr": "Adresa", "en": "Address", "de": "Adresse", "ro": "Adresă"}.get(lang, "Address"),
+            _text_for_lang(ADDRESS_LABEL, lang),
             context["address"],
             context["maps_link"],
             "",
             entrance,
             "",
+            parking,
+            "",
             documents,
             "",
-            {
-                "hr": "Javite nam okvirno vrijeme dolaska kad pošaljete dokumente.",
-                "en": "Let us know your approximate arrival time when you send the documents.",
-                "de": "Teilen Sie uns ungefähre Ankunftszeit mit, wenn Sie die Dokumente senden.",
-                "ro": "Anunțați-ne ora aproximativă de sosire când trimiteți documentele.",
-            }.get(lang, ""),
-            "",
-            {
-                "hr": "Lijep pozdrav,",
-                "en": "Best regards,",
-                "de": "Mit freundlichen Grüßen,",
-                "ro": "Cu stimă,",
-            }.get(lang, ""),
+            _text_for_lang(SIGN_OFF, lang),
             context["property_name"],
             "",
             FOOTER,
         ]
     )
     return "\n".join(line for line in lines if line is not None)
+
+
+def _render_checkin_ready_fallback(context: dict) -> str:
+    lang = context["language"]
+    body = _text_for_lang(CHECKIN_READY_BODY, lang)
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
 
 
 def _system_prompt() -> str:
@@ -315,7 +435,6 @@ def _user_prompt(intent: str, hint: str, context: dict) -> str:
         "context": context,
     }
     instructions = {
-        GuestMessageIntent.CHECKIN: "Write a pre-arrival check-in message with reservation details, address, payment info, entrance note, and document request.",
         GuestMessageIntent.REPLY: "Write a reply to the guest using message_history; address their latest inbound message.",
         GuestMessageIntent.CUSTOM: "Write a custom message following the hint.",
     }
@@ -334,6 +453,13 @@ def _generate_body(
     language: str | None,
 ) -> tuple[str, bool, str]:
     context = build_compose_context(reservation, language=language)
+
+    if intent == GuestMessageIntent.CHECKIN:
+        return _render_checkin_fallback(context), False, ""
+
+    if intent == GuestMessageIntent.REPLY and _normalize_hint(hint) == HINT_CHECKIN_READY:
+        return _render_checkin_ready_fallback(context), False, ""
+
     used_llm = False
     model_name = ""
 
@@ -349,16 +475,13 @@ def _generate_body(
                 extra={"reservation_id": reservation.pk, "intent": intent},
             )
 
-    if intent == GuestMessageIntent.CHECKIN:
-        return _render_checkin_fallback(context), used_llm, model_name
-
     fallback_hint = hint.strip() or {
         GuestMessageIntent.REPLY: "Thank you for your message. We will get back to you shortly.",
         GuestMessageIntent.CUSTOM: "Thank you for your message.",
     }.get(intent, "Thank you for your message.")
     lang = context["language"]
-    greeting = GREETING.get(lang, GREETING["en"]).format(
-        name=context["guest_name"] or ("Gost" if lang == "hr" else "Guest")
+    greeting = _text_for_lang(GREETING, lang).format(
+        name=context["guest_name"] or _text_for_lang(DEFAULT_GUEST_NAME, lang)
     )
     return f"{greeting}\n\n{fallback_hint}\n\n{FOOTER}", used_llm, model_name
 

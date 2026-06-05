@@ -338,5 +338,32 @@
     "datePlaceholder": "Odaberite datum…",
     "prevMonth": "Prethodni mjesec",
     "nextMonth": "Sljedeći mjesec"
+  },
+  "guestMessages": {
+    "title": "Poruke gostu",
+    "empty": "Nema poruka za ovu rezervaciju.",
+    "loadFailed": "Učitavanje poruka nije uspjelo.",
+    "composeTitle": "Nova poruka",
+    "composeAction": "Generiraj",
+    "composeReady": "Tekst je spreman — uredite po potrebi i pošaljite.",
+    "composeFailed": "Generiranje poruke nije uspjelo.",
+    "composeFirst": "Prvo generirajte poruku.",
+    "emptyBody": "Tekst poruke je prazan.",
+    "sendAction": "Pošalji",
+    "sendSuccess": "Poruka je poslana.",
+    "sendFailed": "Slanje poruke nije uspjelo.",
+    "whatsappHandoff": "WhatsApp je otvoren s predloženim tekstom.",
+    "bodyLabel": "Tekst poruke",
+    "channelLabel": "Kanal",
+    "channelBooking": "Booking.com",
+    "channelEmail": "Email",
+    "channelWhatsapp": "WhatsApp",
+    "noChannel": "Nema dostupnog kanala za slanje.",
+    "hintLabel": "Upute (opcionalno)",
+    "hintReplyPlaceholder": "npr. checkin ready",
+    "hintCustomPlaceholder": "Opišite što želite reći gostu…",
+    "intentCheckin": "Check-in",
+    "intentReply": "Odgovor",
+    "intentCustom": "Prilagođeno"
   }
 }

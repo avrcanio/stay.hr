@@ -10,6 +10,7 @@ from apps.api.reception_views import ReceptionReadView
 from apps.properties.models import Unit
 from apps.reservations.availability import CALENDAR_RESERVATION_STATUSES
 from apps.reservations.models import Reservation, ReservationUnit
+from apps.reservations.nationality_display import reservation_nationality_iso2
 from apps.reservations.reservation_units import joined_room_names
 
 
@@ -97,10 +98,7 @@ class UnitCalendarReservationSerializer(serializers.ModelSerializer):
         return f"{primary.first_name} {primary.last_name}".strip()
 
     def get_primary_guest_nationality_iso2(self, obj):
-        primary = next((g for g in obj.guests.all() if g.is_primary), None)
-        if not primary:
-            return ""
-        return (primary.nationality or "").strip().upper()
+        return reservation_nationality_iso2(obj)
 
 
 class UnitListView(ReceptionReadView, generics.ListAPIView):

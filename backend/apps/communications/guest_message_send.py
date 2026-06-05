@@ -21,9 +21,15 @@ from apps.communications.models import (
     GuestOutboundMessage,
     GuestOutboundMessageStatus,
 )
+from apps.integrations.channex.ari_service import get_active_channex_integration
+from apps.integrations.channex.booking_service import parse_channex_booking_id
+from apps.integrations.channex.exceptions import ChannexBookingIngestError
+from apps.integrations.channex.message_service import send_message_for_reservation
+from apps.integrations.channel_manager.resolver import get_channel_manager
+from apps.integrations.models import ChannexMessage, IntegrationConfig
 from apps.integrations.whatsapp.phone import normalize_phone
 from apps.reservations.models import Reservation
-from apps.tenants.models import ApiApplication
+from apps.tenants.models import ApiApplication, ChannelManager
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +59,25 @@ def build_wa_me_url(phone_digits: str, body_text: str) -> str:
     return f"https://wa.me/{digits}?text={encoded}"
 
 
+def _booking_channel_available(reservation: Reservation) -> bool:
+    if get_channel_manager(reservation.tenant) != ChannelManager.CHANNEX:
+        return False
+    if reservation.import_source != "channex":
+        return False
+    if not parse_channex_booking_id(reservation.external_id):
+        return False
+    return IntegrationConfig.objects.filter(
+        tenant=reservation.tenant,
+        provider=IntegrationConfig.Provider.CHANNEX,
+        is_active=True,
+    ).exists()
+
+
 def build_message_channels(reservation: Reservation) -> dict:
     email = _guest_recipient(reservation)
     phone_raw = guest_phone_number(reservation)
     phone_wa = normalize_phone(phone_raw)
+    booking_available = _booking_channel_available(reservation)
 
     return {
         "email": {
@@ -68,6 +89,9 @@ def build_message_channels(reservation: Reservation) -> dict:
             "phone_raw": phone_raw,
             "phone_wa": phone_wa,
             "wa_me_url": build_wa_me_url(phone_wa, "") if phone_wa else "",
+        },
+        "booking": {
+            "available": booking_available,
         },
     }
 
@@ -133,8 +157,8 @@ def send_guest_message(
     body_text: str,
     api_application: ApiApplication | None,
     subject: str | None = None,
-) -> GuestOutboundMessage:
-    """Send via email or record WhatsApp handoff."""
+) -> GuestOutboundMessage | ChannexMessage:
+    """Send via email, WhatsApp handoff, or Channex Booking.com messages."""
     text = (body_text or "").strip()
     if not text:
         raise ValueError("body_text is required")
@@ -153,6 +177,12 @@ def send_guest_message(
             draft=draft,
             body_text=text,
             api_application=api_application,
+        )
+    if channel == GuestMessageChannel.BOOKING:
+        return _send_booking_channel(
+            reservation=reservation,
+            draft=draft,
+            body_text=text,
         )
     raise ValueError(f"Unsupported channel: {channel}")
 
@@ -230,3 +260,27 @@ def _send_whatsapp_handoff(
     draft.save(update_fields=["final_body_text", "channel", "sent_at"])
 
     return outbound
+
+
+def _send_booking_channel(
+    *,
+    reservation: Reservation,
+    draft: GuestMessageDraft,
+    body_text: str,
+) -> ChannexMessage:
+    if not _booking_channel_available(reservation):
+        raise ValueError("booking_channel_unavailable")
+
+    integration = get_active_channex_integration(reservation.tenant.slug)
+    try:
+        row = send_message_for_reservation(integration, reservation, body_text)
+    except ChannexBookingIngestError as exc:
+        raise ValueError(str(exc)) from exc
+
+    now = timezone.now()
+    draft.final_body_text = body_text
+    draft.channel = GuestMessageChannel.BOOKING
+    draft.sent_at = now
+    draft.save(update_fields=["final_body_text", "channel", "sent_at"])
+
+    return row

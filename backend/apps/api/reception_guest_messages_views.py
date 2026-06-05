@@ -178,12 +178,14 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
             raise ValidationError({"channel": "No guest email on this reservation."})
         if channel == GuestMessageChannel.WHATSAPP and not channels["whatsapp"]["available"]:
             raise ValidationError({"channel": "No guest phone on this reservation."})
+        if channel == GuestMessageChannel.BOOKING and not channels["booking"]["available"]:
+            raise ValidationError({"channel": "Booking.com messaging is not available for this reservation."})
 
         api_application = getattr(request, "api_application", None)
         subject = (data.get("subject") or "").strip() or None
 
         try:
-            outbound = send_guest_message(
+            result = send_guest_message(
                 reservation=reservation,
                 draft=draft,
                 channel=channel,
@@ -194,6 +196,15 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
         except ValueError as exc:
             raise ValidationError({"channel": str(exc)}) from exc
 
+        if isinstance(result, ChannexMessage):
+            app = getattr(request, "api_application", None)
+            payload = _serialize_channex(result)
+            payload["status"] = "sent"
+            payload["sent_by_name"] = app.name if app else None
+            payload["edited"] = draft.edited
+            return Response(payload, status=status.HTTP_201_CREATED)
+
+        outbound = result
         payload = _serialize_outbound(outbound)
         if channel == GuestMessageChannel.WHATSAPP:
             payload["wa_me_url"] = outbound.wa_me_url

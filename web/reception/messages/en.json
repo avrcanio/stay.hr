@@ -338,5 +338,32 @@
     "datePlaceholder": "Select date…",
     "prevMonth": "Previous month",
     "nextMonth": "Next month"
+  },
+  "guestMessages": {
+    "title": "Guest messages",
+    "empty": "No messages for this reservation.",
+    "loadFailed": "Failed to load messages.",
+    "composeTitle": "New message",
+    "composeAction": "Compose",
+    "composeReady": "Draft ready — edit if needed, then send.",
+    "composeFailed": "Failed to compose message.",
+    "composeFirst": "Compose a message first.",
+    "emptyBody": "Message body is empty.",
+    "sendAction": "Send",
+    "sendSuccess": "Message sent.",
+    "sendFailed": "Failed to send message.",
+    "whatsappHandoff": "WhatsApp opened with the suggested text.",
+    "bodyLabel": "Message text",
+    "channelLabel": "Channel",
+    "channelBooking": "Booking.com",
+    "channelEmail": "Email",
+    "channelWhatsapp": "WhatsApp",
+    "noChannel": "No channel available for sending.",
+    "hintLabel": "Hint (optional)",
+    "hintReplyPlaceholder": "e.g. checkin ready",
+    "hintCustomPlaceholder": "Describe what you want to tell the guest…",
+    "intentCheckin": "Check-in",
+    "intentReply": "Reply",
+    "intentCustom": "Custom"
   }
 }

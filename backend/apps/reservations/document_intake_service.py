@@ -15,6 +15,7 @@ from django.utils.dateparse import parse_date
 from apps.ai.document_ocr import DocumentOcrError, ocr_configured, run_document_batch_ocr
 from apps.reservations.document_intake_face import crop_face_jpeg
 from apps.reservations.document_intake_match import match_persons_to_guests, normalize_mrz_lines
+from apps.reservations.nationality_display import guest_nationality_iso2
 from apps.reservations.document_photo_storage import (
     DOCUMENT_TYPE_NATIONAL_ID,
     DOCUMENT_TYPE_PASSPORT,
@@ -277,6 +278,8 @@ def _apply_person_to_guest(
     guest.document_type = "Putovnica" if tip == "passport" else "Osobna iskaznica"
     guest.save(update_fields=["document_type", "updated_at", "name"])
 
+    _sync_reservation_country_from_guest(guest=guest, reservation=reservation)
+
     return {
         "person_index": person_index,
         "guest_id": guest.pk,
@@ -288,6 +291,25 @@ def _apply_person_to_guest(
         "updated_fields": list(guest_updates.keys()),
         "face_photo_saved": face_content is not None,
     }
+
+
+def _sync_reservation_country_from_guest(*, guest: Guest, reservation: Reservation) -> None:
+    """Set booker_country / primary guest so Hospira can show the flag."""
+    guest_fields: list[str] = []
+    if not guest.is_primary and not reservation.guests.filter(is_primary=True).exists():
+        guest.is_primary = True
+        guest_fields.append("is_primary")
+
+    iso2 = guest_nationality_iso2(guest)
+    reservation_fields: list[str] = []
+    if iso2 and not (reservation.booker_country or "").strip():
+        reservation.booker_country = iso2
+        reservation_fields.append("booker_country")
+
+    if guest_fields:
+        guest.save(update_fields=guest_fields + ["updated_at"])
+    if reservation_fields:
+        reservation.save(update_fields=reservation_fields + ["updated_at"])
 
 
 def _image_at_index(images: list, index: Any):
@@ -407,14 +429,70 @@ def _guest_updates_from_payload(raw_payload: dict) -> tuple[dict, dict]:
     return updates, suggested
 
 
+def format_ocr_summary(ocr_result: dict[str, Any]) -> str:
+    """Plain-text dump of OCR output for reception review / manual parsing."""
+    if not ocr_result:
+        return ""
+
+    lines: list[str] = []
+
+    images = ocr_result.get("images") or []
+    if isinstance(images, list):
+        for img in images:
+            if not isinstance(img, dict):
+                continue
+            idx = img.get("index", "?")
+            side = img.get("side") or "unknown"
+            lines.append(f"=== Slika {idx} ({side}) ===")
+            ocr_text = (img.get("ocr_text") or "").strip()
+            if ocr_text:
+                lines.append(ocr_text)
+            mrz = img.get("mrz_lines") or []
+            if isinstance(mrz, list) and mrz:
+                lines.append("MRZ:")
+                lines.extend(str(line) for line in mrz if str(line).strip())
+            lines.append("")
+
+    persons = ocr_result.get("persons") or []
+    if isinstance(persons, list):
+        for i, person in enumerate(persons):
+            if not isinstance(person, dict):
+                continue
+            lines.append(f"=== Osoba {i + 1} (parsirano) ===")
+            field_labels = (
+                ("given_names", "Ime"),
+                ("surnames", "Prezime"),
+                ("document_number", "Broj dokumenta"),
+                ("nationality", "Nacionalnost"),
+                ("date_of_birth", "Datum rođenja"),
+                ("date_of_expiry", "Vrijedi do"),
+                ("sex", "Spol"),
+                ("address", "Adresa"),
+                ("document_type", "Tip dokumenta"),
+            )
+            for key, label in field_labels:
+                value = (person.get(key) or "").strip() if person.get(key) is not None else ""
+                if value:
+                    lines.append(f"{label}: {value}")
+            mrz = person.get("mrz_lines") or []
+            if isinstance(mrz, list) and mrz:
+                lines.append("MRZ (osoba):")
+                lines.extend(str(line) for line in mrz if str(line).strip())
+            lines.append("")
+
+    return "\n".join(lines).strip()
+
+
 def job_to_dict(job: DocumentIntakeJob, *, request=None) -> dict[str, Any]:
+    ocr_result = job.ocr_result or {}
     data: dict[str, Any] = {
         "job_id": job.pk,
         "status": job.status,
         "image_count": job.images.count(),
         "error_message": job.error_message or "",
         "processed_at": job.processed_at.isoformat() if job.processed_at else None,
-        "ocr_result": job.ocr_result or {},
+        "ocr_result": ocr_result,
+        "ocr_summary": format_ocr_summary(ocr_result),
         "matches": job.matches or [],
         "applied": job.applied_result or [],
         "created_at": job.created_at.isoformat(),

@@ -263,6 +263,8 @@ print(tenant_fcm_tokens(2))
 - [ ] Avatar (`face_photo`) za prikaz u recepciji
 - [ ] Svi gosti na rezervaciji imaju upisan profil
 
+Nakon uspješnog OCR apply pošaljite gostu poruku preko **Reply → Generiraj** (Flutter automatski šalje `{"intent": "reply", "hint": "checkin ready"}` — zahvala + pitaj vrijeme dolaska; **isti jezik** kao check-in poruka). Vidi [whatsapp-checkin-template.md](../operations/whatsapp-checkin-template.md).
+
 ---
 
 ## 10. Povezani kod i API
@@ -273,6 +275,7 @@ print(tenant_fcm_tokens(2))
 | Upload imena (app) | `backend/apps/reservations/document_photo_storage.py` |
 | Face URL | `backend/apps/reservations/face_photo.py` |
 | OCR ingest (app) | `backend/apps/api/reception_views.py` → `DocumentScanView` |
+| Guest compose (check-in poruke) | `backend/apps/communications/guest_compose.py` |
 | Booking XLS | [booking-xls-import.md](./booking-xls-import.md) |
 | AI runbook (OCR slučajevi 06/2026) | [ai-runbook-ocr-checkin-evisitor-2026-06.md](../operations/ai-runbook-ocr-checkin-evisitor-2026-06.md) |
 | Upload fotografija (API) | `POST .../guests/{id}/document-photos/` |

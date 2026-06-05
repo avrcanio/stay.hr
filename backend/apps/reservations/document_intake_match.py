@@ -55,11 +55,11 @@ def active_reservations_for_intake(tenant_id: int) -> list[Reservation]:
         Reservation.objects.filter(
             tenant_id=tenant_id,
             status__in=ACTIVE_STATUSES,
-            check_in_date__lte=window_end,
-            check_out_date__gte=window_start,
+            check_in__lte=window_end,
+            check_out__gte=window_start,
         )
         .prefetch_related("guests")
-        .order_by("check_in_date", "id")
+        .order_by("check_in", "id")
     )
     return list(qs)
 
@@ -114,7 +114,7 @@ def match_persons_to_guests(
                     match_type = "name"
             if guest is None:
                 guest = _find_unfilled_slot(reservation)
-                if guest and keys:
+                if guest:
                     match_type = "unfilled_slot"
 
             if guest is None:
@@ -127,14 +127,26 @@ def match_persons_to_guests(
                     "guest_name": _guest_display_name(guest),
                     "reservation_label": _reservation_label(reservation),
                     "match_type": match_type,
-                    "check_in_date": reservation.check_in_date.isoformat(),
+                    "check_in_date": reservation.check_in.isoformat(),
                 }
             )
 
-        confidence = _confidence_for_candidates(candidates, keys)
-        auto_apply = confidence == "high" and len(candidates) == 1
+        name_matches = [c for c in candidates if c.get("match_type") == "name"]
+        if name_matches:
+            # Jedinstveni name match — ne miješaj s praznim slotovima drugih rezervacija.
+            candidates = name_matches
 
-        best = candidates[0] if len(candidates) == 1 else None
+        confidence = _confidence_for_candidates(candidates, keys)
+        if len(name_matches) == 1:
+            best = name_matches[0]
+            auto_apply = True
+        elif len(candidates) == 1:
+            best = candidates[0]
+            auto_apply = confidence == "high"
+        else:
+            best = None
+            auto_apply = False
+
         results.append(
             {
                 "person_index": idx,
@@ -166,7 +178,7 @@ def _reservation_label(reservation: Reservation) -> str:
         parts.append(booker)
     if unit:
         parts.append(unit)
-    parts.append(reservation.check_in_date.isoformat())
+    parts.append(reservation.check_in.isoformat())
     return " · ".join(parts)
 
 

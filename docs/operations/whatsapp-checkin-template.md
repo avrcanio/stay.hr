@@ -1,10 +1,51 @@
 # WhatsApp pred-check-in — predložak
 
-Operativni predložak za traženje dokumenata i slanje detalja dolaska **prije** check-ina. Copy-paste u WhatsApp Business; zatim u zasebnoj poruci priložiti sliku ulaza.
+Operativni predložak za traženje dokumenata i slanje detalja dolaska **prije** check-ina. U Hospiri oba koraka koriste **postojeći Generiraj** (deterministički template, bez LLM). Zatim u zasebnoj poruci priložiti sliku ulaza.
 
 **Slika ulaza:** `.imports/20260527_140049.jpg` (znak „Restaurant Uzorita”, broj 58, kapija s lozom)
 
 **Povezano:** [ai-runbook-ocr-checkin-evisitor-2026-06.md](./ai-runbook-ocr-checkin-evisitor-2026-06.md), [id-document-import.md](../development/id-document-import.md)
+
+**Backend:** `backend/apps/communications/guest_compose.py`, `guest_compose_language.py`
+
+---
+
+## API (Hospira)
+
+| Korak | Hospira UI | Compose body |
+|-------|------------|----------------|
+| Poruka 1 — prije dolaska | Check-in → **Generiraj** | `{"intent": "checkin"}` |
+| Poruka 2 — nakon OCR apply | **Isti** Reply → **Generiraj** (bez novog gumba) | `{"intent": "reply", "hint": "checkin ready"}` |
+| Ostali reply | Reply → Generiraj | `{"intent": "reply"}` → LLM ili generički fallback |
+
+Endpoint: `POST /api/v1/reception/reservations/{id}/messages/compose/`
+
+Oba check-in koraka vraćaju `llm_used: false`. **Ista pravila jezika** za poruku 1 i poruku 2 (tablica ispod); opcionalno `"language": "de"` override.
+
+### Flutter (uzorita_flutter)
+
+- Nakon uspješnog **OCR apply** postavi lokalni flag na rezervaciji.
+- Sljedeći **Reply → Generiraj** automatski šalje `hint: "checkin ready"` u pozadini — recepcija ne vidi hint.
+- Nakon slanja poruke (ili izlaska iz OCR flowa) resetiraj flag; sljedeći Reply opet normalan.
+- **Ne** šalji posebnu jezičnu logiku za poruku 2 — isti compose bez `language` (backend mapira iz `booker_country` / nacionalnosti).
+
+---
+
+## Odabir jezika (automatski)
+
+Vrijedi **jednako** za `intent: checkin` i za `intent: reply` + `hint: checkin ready` (`compose_language_for_reservation` u backendu).
+
+Prioritet: API `language` → `booker_country` → nacionalnost primarnog gosta → default objekta → **en**.
+
+| Template | Države (ISO2) |
+|----------|----------------|
+| **hr** | HR, RS, BA, ME, SI, MK |
+| **de** | DE, AT, CH, LI |
+| **es** | ES, MX, AR, CO, CL, PE, VE, EC, UY, PY, BO, CR, PA, DO, GT, HN, NI, SV, CU, PR |
+| **fr** | FR, MC, LU |
+| **en** | sve ostalo (NL, IT, RO, PL, …) |
+
+Podržani template jezici: **hr, en, de, es, fr**.
 
 ---
 
@@ -51,7 +92,8 @@ Logika usklađena s `resolve_payment_method()` u `backend/apps/billing/services/
 | **HR** | Ukupna cijena: {CIJENA} € — plaćeno u cijelosti putem Booking.com (Payments by Booking.com). Boravak ne plaćate na check-inu. |
 | **EN** | Total price: €{CIJENA} — paid in full via Booking.com (Payments by Booking.com). No payment due for your stay at check-in. |
 | **DE** | Gesamtpreis: {CIJENA} € — vollständig über Booking.com (Payments by Booking.com) bezahlt. Keine Zahlung für den Aufenthalt beim Check-in. |
-| **RO** | Preț total: {CIJENA} € — plătit integral prin Booking.com (Payments by Booking.com). Nu este necesară plata cazării la check-in. |
+| **ES** | Precio total: {CIJENA} € — pagado íntegramente a través de Booking.com (Payments by Booking.com). No hay que pagar la estancia en el check-in. |
+| **FR** | Prix total : {CIJENA} € — entièrement réglé via Booking.com (Payments by Booking.com). Aucun paiement du séjour à l’arrivée. |
 
 ### Gotovina
 
@@ -60,7 +102,8 @@ Logika usklađena s `resolve_payment_method()` u `backend/apps/billing/services/
 | **HR** | Ukupna cijena: {CIJENA} € — plaćanje gotovinom na check-inu. |
 | **EN** | Total price: €{CIJENA} — payment in cash at check-in. |
 | **DE** | Gesamtpreis: {CIJENA} € — Zahlung bar beim Check-in. |
-| **RO** | Preț total: {CIJENA} € — plata cash la check-in. |
+| **ES** | Precio total: {CIJENA} € — pago en efectivo en el check-in. |
+| **FR** | Prix total : {CIJENA} € — paiement en espèces à l’arrivée. |
 
 ### Kartica
 
@@ -69,7 +112,8 @@ Logika usklađena s `resolve_payment_method()` u `backend/apps/billing/services/
 | **HR** | Ukupna cijena: {CIJENA} € — plaćanje karticom na check-inu. |
 | **EN** | Total price: €{CIJENA} — payment by card at check-in. |
 | **DE** | Gesamtpreis: {CIJENA} € — Zahlung mit Karte beim Check-in. |
-| **RO** | Preț total: {CIJENA} € — plata cu cardul la check-in. |
+| **ES** | Precio total: {CIJENA} € — pago con tarjeta en el check-in. |
+| **FR** | Prix total : {CIJENA} € — paiement par carte à l’arrivée. |
 
 ### Transakcijski račun (izvan Booking.com)
 
@@ -78,7 +122,8 @@ Logika usklađena s `resolve_payment_method()` u `backend/apps/billing/services/
 | **HR** | Ukupna cijena: {CIJENA} € — plaćanje transakcijskim računom (prema dogovoru). |
 | **EN** | Total price: €{CIJENA} — payment by bank transfer (as agreed). |
 | **DE** | Gesamtpreis: {CIJENA} € — Zahlung per Banküberweisung (wie vereinbart). |
-| **RO** | Preț total: {CIJENA} € — plată prin transfer bancar (conform acordului). |
+| **ES** | Precio total: {CIJENA} € — pago por transferencia bancaria (según acuerdo). |
+| **FR** | Prix total : {CIJENA} € — paiement par virement bancaire (selon accord). |
 
 ---
 
@@ -91,7 +136,8 @@ Standard propertyja Uzorita: **od 15:00** (`Property.check_in_time`, default 15:
 | **HR** | Check-in: {CHECK_IN} od {CHECK_IN_SAT} |
 | **EN** | Check-in: {CHECK_IN} from {CHECK_IN_SAT} |
 | **DE** | Check-in: {CHECK_IN} ab {CHECK_IN_SAT} Uhr |
-| **RO** | Check-in: {CHECK_IN}, de la ora {CHECK_IN_SAT} |
+| **ES** | Check-in: {CHECK_IN} a partir de las {CHECK_IN_SAT} |
+| **FR** | Check-in : {CHECK_IN} à partir de {CHECK_IN_SAT} |
 
 ---
 
@@ -102,7 +148,20 @@ Standard propertyja Uzorita: **od 15:00** (`Property.check_in_time`, default 15:
 | **HR** | Ulaz: potražite natpis „Restaurant Uzorita” i broj **58** na bijelom zidu — kapija s vinovom lozom odmah desno od znaka. (Fotografiju ulaza šaljemo u sljedećoj poruci.) |
 | **EN** | Entrance: look for the “Restaurant Uzorita” sign and house number **58** on the white wall — the gate with vines is just to the right of the sign. (We’ll send a photo of the entrance in the next message.) |
 | **DE** | Eingang: Schild „Restaurant Uzorita” und Hausnummer **58** an der weißen Mauer — das Tor mit Weinreben rechts neben dem Schild. (Ein Foto des Eingangs folgt in der nächsten Nachricht.) |
-| **RO** | Intrare: căutați panoul „Restaurant Uzorita” și numărul **58** pe peretele alb — poarta cu viță de vie imediat la dreapta panoului. (Trimitem fotografia intrării în mesajul următor.) |
+| **ES** | Entrada: busque el cartel «Restaurant Uzorita» y el número **58** en la pared blanca — la puerta con hiedra está justo a la derecha del cartel. (Enviaremos una foto de la entrada en el siguiente mensaje.) |
+| **FR** | Entrée : repérez l’enseigne « Restaurant Uzorita » et le numéro **58** sur le mur blanc — le portail avec la vigne est juste à droite de l’enseigne. (Nous enverrons une photo de l’entrée dans le message suivant.) |
+
+---
+
+## Parkiranje
+
+| Jezik | Tekst |
+|-------|-------|
+| **HR** | Parkiranje: u cijeloj zoni parkiranje je besplatno. Možete parkirati odmah ispred objekta; ako nema mjesta, slobodno bilo gdje u neposrednoj blizini. |
+| **EN** | Parking: parking is free throughout the zone. You can park right in front of the property; if there is no space, anywhere nearby is fine. |
+| **DE** | Parken: In der gesamten Zone ist das Parken kostenlos. Sie können direkt vor dem Haus parken; wenn kein Platz frei ist, finden Sie problemlos einen Parkplatz in unmittelbarer Nähe. |
+| **ES** | Aparcamiento: el aparcamiento es gratuito en toda la zona. Puede aparcar justo delante del alojamiento; si no hay sitio, en cualquier lugar cercano. |
+| **FR** | Stationnement : le stationnement est gratuit dans toute la zone. Vous pouvez vous garer juste devant l’établissement ; s’il n’y a pas de place, n’importe où à proximité. |
 
 ---
 
@@ -113,7 +172,10 @@ Standard propertyja Uzorita: **od 15:00** (`Property.check_in_time`, default 15:
 | **HR** | Molimo prije dolaska pošaljite nam ovdje na WhatsApp fotografije dokumenata za svakog odraslog gosta ({BROJ_ODRASLIH}): putovnica (stranica s podacima) ili osobna iskaznica (prednja + stražnja strana). Bez bljeskalice, cijeli dokument u kadru. Podatke koristimo isključivo za zakonsku prijavu boravka (eVisitor). |
 | **EN** | Please send us photos of ID documents here on WhatsApp before arrival — one set per adult guest ({BROJ_ODRASLIH}): passport (biodata page) or national ID card (front + back). No flash, full document in frame. We use this data only for mandatory guest registration (eVisitor). |
 | **DE** | Bitte senden Sie uns vor der Anreise Fotos der Ausweisdokumente hier per WhatsApp — pro erwachsenem Gast ({BROJ_ODRASLIH}): Reisepass (Datenseite) oder Personalausweis (Vorder- und Rückseite). Ohne Blitz, ganzes Dokument im Bild. Die Daten verwenden wir ausschließlich für die gesetzliche Meldepflicht (eVisitor). |
-| **RO** | Vă rugăm să ne trimiteți pe WhatsApp, înainte de sosire, fotografii ale actelor de identitate — câte un set pentru fiecare adult ({BROJ_ODRASLIH}): pașaport (pagina cu date) sau carte de identitate (față + verso). Fără bliț, documentul complet în cadru. Datele sunt folosite exclusiv pentru înregistrarea legală a șederii (eVisitor). |
+| **ES** | Por favor, envíenos fotos de los documentos de identidad por WhatsApp antes de la llegada — un juego por cada huésped adulto ({BROJ_ODRASLIH}): pasaporte (página de datos) o DNI (anverso y reverso). Sin flash, documento completo en la imagen. Usamos estos datos únicamente para el registro legal de la estancia (eVisitor). |
+| **FR** | Veuillez nous envoyer par WhatsApp, avant votre arrivée, des photos des pièces d’identité — un jeu par adulte ({BROJ_ODRASLIH}) : passeport (page d’identité) ou carte d’identité (recto et verso). Sans flash, document entier visible. Nous utilisons ces données uniquement pour l’enregistrement légal du séjour (eVisitor). |
+
+**Napomena:** Poruka 1 **ne** traži vrijeme dolaska — to ide u poruku 2.
 
 ---
 
@@ -147,9 +209,9 @@ https://maps.app.goo.gl/BN15CcMmmAapmjUs7
 
 {ULAZ_HR}
 
-{DOKUMENTI_HR}
+{PARKIRANJE_HR}
 
-Javite nam okvirno vrijeme dolaska kad pošaljete dokumente.
+{DOKUMENTI_HR}
 
 Lijep pozdrav,
 Toni
@@ -170,8 +232,43 @@ Managed by stay.hr — https://stay.hr/
 
 ---
 
+## Poruka 2 — nakon primitka dokumenata
+
+**Hospira:** Reply → Generiraj (hint `checkin ready` automatski nakon OCR apply).
+
+API: `{"intent": "reply", "hint": "checkin ready"}`
+
+Isti odabir jezika kao poruka 1. Templatei u [`guest_compose.py`](../../backend/apps/communications/guest_compose.py) (`CHECKIN_READY_BODY`).
+
+| Jezik | Sadržaj |
+|-------|---------|
+| **HR** | Hvala na dokumentima → podaci spremljeni, brz check-in → **Javite okvirno vrijeme dolaska** |
+| **EN** | Thank you for documents → details saved, quick check-in → **approximate arrival time** |
+| **DE** | Vielen Dank für die Dokumente → Daten registriert, schneller Check-in → **Ankunftszeit** |
+| **ES** | Gracias por los documentos → datos registrados, check-in rápido → **hora aproximada de llegada** |
+| **FR** | Merci pour les documents → données enregistrées, enregistrement rapide → **heure d’arrivée approximative** |
+
+Primjer (HR):
+
+```
+Hvala vam na poslanim dokumentima!
+
+Vaši podaci su spremljeni — kad stignete, check-in će proći brzo i nećete gubiti vrijeme.
+
+Javite nam, molimo, okvirno vrijeme dolaska.
+
+Lijep pozdrav,
+{PROPERTY_NAME}
+
+Managed by stay.hr — https://stay.hr/
+```
+
+---
+
 ## Redoslijed slanja
 
-1. Copy-paste tekst poruke
+1. **Poruka 1** — Check-in → Generiraj (template) + pošalji WhatsApp
 2. Odmah zatim slika ulaza (`.imports/20260527_140049.jpg`)
-3. Nakon primitka dokumenata → OCR runbook → check-in u Hospiri
+3. Nakon primitka dokumenata → OCR / apply u Hospiri
+4. **Poruka 2** — Reply → Generiraj (Flutter šalje `reply` + `checkin ready` u pozadini) → pošalji WhatsApp
+5. eVisitor prijava (ručno, po potrebi)

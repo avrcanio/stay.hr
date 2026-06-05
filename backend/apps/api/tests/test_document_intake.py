@@ -86,7 +86,14 @@ class DocumentIntakeAPITests(TestCase):
     @patch("apps.reservations.document_intake_service.run_document_batch_ocr")
     def test_batch_process_apply_updates_guest(self, mock_ocr):
         mock_ocr.return_value = {
-            "images": [{"index": 0, "side": "front", "mrz_lines": [], "ocr_text": ""}],
+            "images": [
+                {
+                    "index": 0,
+                    "side": "front",
+                    "mrz_lines": [],
+                    "ocr_text": "REPUBLIKA HRVATSKA\nHans Fischer",
+                }
+            ],
             "persons": [
                 {
                     "given_names": "Hans",
@@ -120,6 +127,8 @@ class DocumentIntakeAPITests(TestCase):
         self.assertEqual(body["status"], DocumentIntakeJobStatus.DONE)
         self.assertEqual(len(body["matches"]), 1)
         self.assertTrue(body["matches"][0]["auto_apply"])
+        self.assertIn("ocr_summary", body)
+        self.assertIn("Hans", body["ocr_summary"])
 
         apply = self.client.post(f"{self.base}/jobs/{job_id}/apply/", {}, format="json")
         self.assertEqual(apply.status_code, 200)
@@ -129,6 +138,61 @@ class DocumentIntakeAPITests(TestCase):
         self.primary.refresh_from_db()
         self.assertEqual(self.primary.document_number, "L01X00T47")
         self.assertEqual(self.primary.first_name, "Hans")
+
+    @patch("apps.reservations.document_intake_service.run_document_batch_ocr")
+    def test_name_match_auto_apply_despite_other_unfilled_slots(self, mock_ocr):
+        """Single name match must auto-apply even when other reservations have empty slots."""
+        from datetime import date
+
+        mock_ocr.return_value = {
+            "images": [{"index": 0, "side": "front", "mrz_lines": [], "ocr_text": ""}],
+            "persons": [
+                {
+                    "given_names": "Hans",
+                    "surnames": "Fischer",
+                    "document_number": "L01X00T47",
+                    "nationality": "DEU",
+                    "document_type": "national_id",
+                    "front_image_index": 0,
+                }
+            ],
+        }
+
+        for day_offset, booker in ((0, "Other A"), (1, "Other B")):
+            other = Reservation.objects.create(
+                tenant=self.tenant,
+                property=self.property,
+                external_id=f"other-{day_offset}",
+                booking_code=f"other-{day_offset}",
+                check_in=date(2026, 6, 4 + day_offset),
+                check_out=date(2026, 6, 6 + day_offset),
+                status=Reservation.Status.EXPECTED,
+                booker_name=booker,
+            )
+            Guest.objects.create(
+                tenant=self.tenant,
+                reservation=other,
+                first_name=PLACEHOLDER_FIRST,
+                last_name=PLACEHOLDER_LAST,
+                name="Novi gost",
+            )
+
+        batch = self.client.post(
+            f"{self.base}/batch/",
+            {"files": [_tiny_jpeg()]},
+            format="multipart",
+        )
+        job_id = batch.json()["job_id"]
+        process = self.client.post(f"{self.base}/jobs/{job_id}/process/")
+        body = process.json()
+
+        self.assertEqual(body["status"], DocumentIntakeJobStatus.DONE)
+        match = body["matches"][0]
+        self.assertEqual(match["confidence"], "high")
+        self.assertTrue(match["auto_apply"])
+        self.assertEqual(match["reservation_id"], self.reservation.id)
+        self.assertEqual(match["guest_id"], self.primary.id)
+        self.assertEqual(len(match["candidates"]), 1)
 
     def test_batch_requires_files(self):
         res = self.client.post(f"{self.base}/batch/", {}, format="multipart")

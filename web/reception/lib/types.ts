@@ -87,6 +87,35 @@ export type InvoiceSummary = {
   currency?: string;
 };
 
+export type GuestMessageTimelineItem = {
+  id: number;
+  source: "outbound" | "whatsapp" | "booking";
+  direction: "inbound" | "outbound";
+  channel: "email" | "whatsapp" | "booking";
+  body_text: string;
+  created_at: string;
+  status: string | null;
+  sent_by_name: string | null;
+  from_email: string | null;
+  wa_me_url: string | null;
+};
+
+export type GuestMessageChannelInfo = {
+  available: boolean;
+  to?: string;
+  phone_raw?: string;
+  phone_wa?: string;
+  wa_me_url?: string;
+};
+
+export type GuestMessageComposeResponse = {
+  draft_id: number;
+  body_text: string;
+  language: string;
+  llm_used: boolean;
+  channels: Record<string, GuestMessageChannelInfo>;
+};
+
 export type ReservationDetail = Reservation & {
   units?: ReservationUnit[];
   guests: GuestLite[];
