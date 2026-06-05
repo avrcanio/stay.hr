@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import logging
 from datetime import datetime, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
@@ -76,6 +77,30 @@ def _guest_name(payload: dict[str, Any]) -> str:
     ).strip()
 
 
+def _normalize_reply_text(raw: Any) -> str:
+    """Extract plain reply text from Channex payloads (dict or legacy str(dict))."""
+    if raw is None:
+        return ""
+    if isinstance(raw, dict):
+        inner = raw.get("reply")
+        if isinstance(inner, str):
+            return inner.strip()
+        if inner is not None:
+            return str(inner).strip()
+        return ""
+    text = str(raw).strip()
+    if not text:
+        return ""
+    if text.startswith("{") and "reply" in text:
+        try:
+            parsed = ast.literal_eval(text)
+        except (ValueError, SyntaxError):
+            return text
+        if isinstance(parsed, dict):
+            return _normalize_reply_text(parsed.get("reply"))
+    return text
+
+
 def resolve_reservation_for_review(
     tenant: Tenant,
     *,
@@ -128,12 +153,42 @@ def relink_unlinked_channex_reviews(tenant: Tenant) -> int:
     return updated
 
 
+def repair_channex_review_replies(tenant: Tenant | None = None) -> int:
+    """Normalize stored reply text and infer is_replied for legacy rows."""
+    qs = ChannexReview.objects.all()
+    if tenant is not None:
+        qs = qs.filter(tenant=tenant)
+
+    updated = 0
+    for row in qs.iterator():
+        normalized = _normalize_reply_text(row.reply)
+        update_fields: list[str] = []
+        if normalized != (row.reply or ""):
+            row.reply = normalized
+            update_fields.append("reply")
+        if normalized and not row.is_replied:
+            row.is_replied = True
+            update_fields.append("is_replied")
+        if normalized and row.reply_sent_at is None:
+            row.reply_sent_at = row.updated_at or timezone.now()
+            update_fields.append("reply_sent_at")
+        if update_fields:
+            update_fields.append("updated_at")
+            row.save(update_fields=update_fields)
+            updated += 1
+    return updated
+
+
 def _review_fields_from_payload(
     flat: dict[str, Any],
     *,
     reservation: Reservation | None,
 ) -> dict[str, Any]:
     booking_id = str(flat.get("booking_id") or "").strip()
+    reply_text = _normalize_reply_text(flat.get("reply"))
+    is_replied = bool(flat.get("is_replied"))
+    if reply_text and not is_replied:
+        is_replied = True
     return {
         "channex_booking_id": booking_id,
         "reservation": reservation,
@@ -142,11 +197,11 @@ def _review_fields_from_payload(
         "ota_review_id": str(flat.get("ota_review_id") or "").strip(),
         "guest_name": _guest_name(flat),
         "content": str(flat.get("content") or flat.get("raw_content") or "").strip(),
-        "reply": str(flat.get("reply") or "").strip(),
+        "reply": reply_text,
         "overall_score": _parse_score(flat.get("overall_score") or flat.get("ota_overall_score")),
         "scores": flat.get("scores") if isinstance(flat.get("scores"), list) else [],
         "tags": flat.get("tags") if isinstance(flat.get("tags"), list) else [],
-        "is_replied": bool(flat.get("is_replied")),
+        "is_replied": is_replied,
         "is_hidden": bool(flat.get("is_hidden")),
         "expired_at": _parse_dt(flat.get("expired_at")),
         "received_at": _parse_dt(flat.get("received_at") or flat.get("inserted_at")),
@@ -433,7 +488,7 @@ def review_guest_review_allowed(row: ChannexReview) -> bool:
 
 
 def review_reply_allowed(row: ChannexReview) -> bool:
-    if row.is_replied:
+    if row.is_replied or _normalize_reply_text(row.reply):
         return False
     if row.expired_at and row.expired_at <= timezone.now():
         return False
@@ -470,11 +525,20 @@ def reply_to_review(
                 payload=rows[0],
                 reservation=row.reservation,
             )
-        else:
-            row.reply = text
+        normalized = _normalize_reply_text(row.reply) or text
+        update_fields: list[str] = []
+        if row.reply != normalized:
+            row.reply = normalized
+            update_fields.append("reply")
+        if not row.is_replied:
             row.is_replied = True
+            update_fields.append("is_replied")
+        if row.reply_sent_at is None:
             row.reply_sent_at = timezone.now()
-            row.save(update_fields=["reply", "is_replied", "reply_sent_at", "updated_at"])
+            update_fields.append("reply_sent_at")
+        if update_fields:
+            update_fields.append("updated_at")
+            row.save(update_fields=update_fields)
         return row
     except ChannexApiError:
         raise
@@ -663,6 +727,9 @@ def serialize_channex_review(
         elif translate:
             content_localized, content_is_translated = _localized_review_content(row, lang)
 
+    reply_text = _normalize_reply_text(row.reply) or None
+    is_replied = row.is_replied or bool(reply_text)
+
     return {
         "id": row.pk,
         "channex_review_id": row.channex_review_id,
@@ -681,8 +748,8 @@ def serialize_channex_review(
         "content_is_translated": content_is_translated,
         "display_language": display_language,
         "translation_available": translation_available(),
-        "reply": row.reply or None,
-        "is_replied": row.is_replied,
+        "reply": reply_text,
+        "is_replied": is_replied,
         "is_hidden": row.is_hidden,
         "expired_at": row.expired_at.isoformat() if row.expired_at else None,
         "received_at": row.received_at.isoformat() if row.received_at else None,

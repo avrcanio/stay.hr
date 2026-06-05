@@ -278,12 +278,15 @@ class ChannexReviewAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "channex_review_id",
         "ota",
+        "ota_reservation_id",
+        "booking_code_display",
         "overall_score",
         "is_replied",
         "is_hidden",
         "reservation",
         "received_at",
     )
+    list_select_related = ("reservation",)
     list_filter = ("ota", "is_replied", "is_hidden")
     search_fields = (
         "channex_review_id",
@@ -316,6 +319,49 @@ class ChannexReviewAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "integration",
+                    "reservation",
+                    "channex_review_id",
+                    "channex_booking_id",
+                    "ota",
+                    "ota_reservation_id",
+                    "ota_review_id",
+                    "guest_name",
+                    "overall_score",
+                    "is_replied",
+                    "is_hidden",
+                    "received_at",
+                    "expired_at",
+                    "reply_sent_at",
+                    "reply_scheduled_at",
+                ),
+            },
+        ),
+        (
+            "Content",
+            {
+                "fields": ("content", "reply", "scores", "tags"),
+            },
+        ),
+        (
+            "Raw payload",
+            {
+                "classes": ("collapse",),
+                "fields": ("raw_payload", "created_at", "updated_at"),
+            },
+        ),
+    )
+
+    @admin.display(description="Booking code")
+    def booking_code_display(self, obj: ChannexReview) -> str:
+        if obj.reservation_id and obj.reservation:
+            return obj.reservation.booking_code or str(obj.reservation_id)
+        return "—"
 
     def has_add_permission(self, request):
         return False

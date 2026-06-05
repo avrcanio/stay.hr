@@ -4,7 +4,10 @@ from django.core.management.base import BaseCommand, CommandError
 
 from apps.integrations.channex.ari_service import get_active_channex_integration
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
-from apps.integrations.channex.review_service import sync_reviews_from_channex
+from apps.integrations.channex.review_service import (
+    repair_channex_review_replies,
+    sync_reviews_from_channex,
+)
 
 
 class Command(BaseCommand):
@@ -33,4 +36,7 @@ class Command(BaseCommand):
         except (ChannexBookingIngestError, ChannexApiError) as exc:
             raise CommandError(str(exc)) from exc
 
+        repaired = repair_channex_review_replies(integration.tenant)
         self.stdout.write(self.style.SUCCESS(f"Synced {len(rows)} review row(s)."))
+        if repaired:
+            self.stdout.write(self.style.SUCCESS(f"Repaired {repaired} review reply row(s)."))

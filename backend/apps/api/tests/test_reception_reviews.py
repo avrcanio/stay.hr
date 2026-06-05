@@ -134,6 +134,54 @@ class ReceptionReviewsTests(TestCase):
         unlinked.refresh_from_db()
         self.assertEqual(unlinked.reservation_id, self.reservation.pk)
 
+    def test_reply_dict_upsert_normalization(self):
+        from apps.integrations.channex.review_service import upsert_channex_review_from_payload
+
+        row, created, _ = upsert_channex_review_from_payload(
+            tenant=self.tenant,
+            integration=self.integration,
+            payload={
+                "id": "review-uuid-dict-reply",
+                "ota": "BookingCom",
+                "reply": {"reply": "Hvala na boravku"},
+                "is_replied": False,
+            },
+        )
+        self.assertTrue(created)
+        self.assertEqual(row.reply, "Hvala na boravku")
+        self.assertTrue(row.is_replied)
+
+        self._login()
+        response = self.client.get(
+            f"/api/v1/reception/reviews/{row.pk}/?sync=0",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["reply"], "Hvala na boravku")
+        self.assertTrue(data["is_replied"])
+
+    def test_reply_legacy_string_repair(self):
+        from apps.integrations.channex.review_service import repair_channex_review_replies
+
+        row = ChannexReview.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            channex_review_id="review-uuid-legacy-reply",
+            ota="BookingCom",
+            reply="{'reply': 'Stari format odgovora'}",
+            is_replied=False,
+            received_at=timezone.now(),
+        )
+
+        repaired = repair_channex_review_replies(self.tenant)
+        self.assertEqual(repaired, 1)
+        row.refresh_from_db()
+        self.assertEqual(row.reply, "Stari format odgovora")
+        self.assertTrue(row.is_replied)
+        self.assertIsNotNone(row.reply_sent_at)
+
     def test_review_links_by_ota_reservation_id(self):
         from apps.integrations.channex.review_service import upsert_channex_review_from_payload
 
@@ -251,3 +299,36 @@ class ReceptionReviewsTests(TestCase):
         data = response.json()
         self.assertTrue(data["is_replied"])
         self.assertEqual(data["reply"], "Thank you!")
+
+    @patch("apps.integrations.channex.review_service.ChannexClient")
+    def test_reply_to_review_channex_dict_reply(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client.reply_to_review.return_value = {
+            "data": {
+                "id": "review-uuid-1",
+                "attributes": {
+                    "id": "review-uuid-1",
+                    "reply": {"reply": "Hvala vam na ocjeni"},
+                    "is_replied": False,
+                    "booking_id": self.booking_id,
+                    "ota": "BookingCom",
+                },
+            }
+        }
+        mock_client_cls.return_value = mock_client
+
+        self._login()
+        response = self.client.post(
+            f"/api/v1/reception/reviews/{self.review.pk}/reply/",
+            {"reply": "Hvala vam na ocjeni"},
+            format="json",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["is_replied"])
+        self.assertEqual(data["reply"], "Hvala vam na ocjeni")
+        self.review.refresh_from_db()
+        self.assertEqual(self.review.reply, "Hvala vam na ocjeni")
+        self.assertTrue(self.review.is_replied)
+        self.assertIsNotNone(self.review.reply_sent_at)
