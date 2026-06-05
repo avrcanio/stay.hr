@@ -118,6 +118,30 @@ class ChannexClient:
     def list_message_thread_messages(self, thread_id: str) -> dict[str, Any]:
         return self._request("GET", f"/message_threads/{thread_id}/messages")
 
+    def list_reviews(self, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self._request("GET", "/reviews", params=params or {})
+
+    def get_review(self, review_id: str) -> dict[str, Any]:
+        payload = self._request("GET", f"/reviews/{review_id}")
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ChannexApiError(f"Review {review_id} not found in response")
+        return payload
+
+    def reply_to_review(self, review_id: str, reply: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/reviews/{review_id}/reply",
+            json={"reply": {"reply": reply}},
+        )
+
+    def submit_guest_review(self, review_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/reviews/{review_id}/guest_review",
+            json=payload,
+        )
+
     def report_no_show(self, booking_id: str, *, waived_fees: bool) -> dict[str, Any]:
         return self._request(
             "POST",

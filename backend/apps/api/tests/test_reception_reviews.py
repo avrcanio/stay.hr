@@ -1,0 +1,143 @@
+from datetime import date, timedelta
+from decimal import Decimal
+from unittest.mock import MagicMock, patch
+
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from django.utils import timezone
+from rest_framework.test import APIClient
+
+from apps.integrations.channex.booking_service import channex_external_id
+from apps.integrations.models import ChannexReview, IntegrationConfig
+from apps.properties.models import Property, Unit
+from apps.reservations.models import Reservation
+from apps.tenants.models import ChannelManager, Tenant, TenantMembership, TenantReceptionSettings
+
+User = get_user_model()
+
+
+class ReceptionReviewsTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(slug="demo", name="Demo")
+        TenantReceptionSettings.objects.create(
+            tenant=self.tenant,
+            channel_manager=ChannelManager.CHANNEX,
+        )
+        self.property = Property.objects.create(
+            tenant=self.tenant,
+            slug="channex-demo",
+            name="Demo",
+            timezone="Europe/Zagreb",
+        )
+        self.unit = Unit.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            code="BCOM-STUDIO",
+            name="Studio",
+        )
+        self.integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
+        self.integration.set_config_dict(
+            {
+                "property_id": "prop-id",
+                "sync_property_slug": "channex-demo",
+            }
+        )
+        self.integration.save()
+        self.booking_id = "channex-booking-1"
+        self.reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id=channex_external_id(self.booking_id),
+            import_source="channex",
+            booking_code="5307026805",
+            check_in=date(2026, 6, 20),
+            check_out=date(2026, 6, 21),
+            booker_name="Guest Test",
+            status=Reservation.Status.EXPECTED,
+        )
+        self.review = ChannexReview.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            channex_review_id="review-uuid-1",
+            channex_booking_id=self.booking_id,
+            ota="BookingCom",
+            content="Excellent stay",
+            overall_score=Decimal("9.5"),
+            is_replied=False,
+            received_at=timezone.now(),
+            expired_at=timezone.now() + timedelta(days=30),
+        )
+
+        self.staff = User.objects.create_user(
+            username="evan",
+            password="secret-pass",
+            is_staff=True,
+        )
+        TenantMembership.objects.create(user=self.staff, tenant=self.tenant)
+        self.client = APIClient()
+
+    def _login(self):
+        response = self.client.post(
+            "/api/v1/auth/reception-login/",
+            {"username": "evan", "password": "secret-pass"},
+            format="json",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_list_reviews(self):
+        self._login()
+        response = self.client.get(
+            "/api/v1/reception/reviews/?sync=0",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(len(data["reviews"]), 1)
+        self.assertEqual(data["reviews"][0]["content"], "Excellent stay")
+
+    def test_reservation_reviews(self):
+        self._login()
+        response = self.client.get(
+            f"/api/v1/reception/reservations/{self.reservation.pk}/reviews/?sync=0",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["reservation_id"], self.reservation.pk)
+        self.assertEqual(len(data["reviews"]), 1)
+
+    @patch("apps.integrations.channex.review_service.ChannexClient")
+    def test_reply_to_review(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client.reply_to_review.return_value = {
+            "data": {
+                "id": "review-uuid-1",
+                "attributes": {
+                    "id": "review-uuid-1",
+                    "reply": "Thank you!",
+                    "is_replied": True,
+                    "booking_id": self.booking_id,
+                    "ota": "BookingCom",
+                },
+            }
+        }
+        mock_client_cls.return_value = mock_client
+
+        self._login()
+        response = self.client.post(
+            f"/api/v1/reception/reviews/{self.review.pk}/reply/",
+            {"reply": "Thank you!"},
+            format="json",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["is_replied"])
+        self.assertEqual(data["reply"], "Thank you!")

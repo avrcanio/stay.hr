@@ -28,6 +28,13 @@ from apps.api.reception_guest_messages_views import (
     ReceptionGuestMessageSendView,
     ReceptionGuestMessagesView,
 )
+from apps.api.reception_reviews_views import (
+    ReceptionReservationReviewsView,
+    ReceptionReviewDetailView,
+    ReceptionReviewGuestReviewView,
+    ReceptionReviewReplyView,
+    ReceptionReviewsListView,
+)
 from apps.api.reception_document_intake_views import (
     DocumentIntakeBatchView,
     DocumentIntakeJobApplyView,
@@ -147,6 +154,31 @@ urlpatterns = [
         "reservations/<int:reservation_id>/messages/send/",
         ReceptionGuestMessageSendView.as_view(),
         name="reception-reservation-messages-send",
+    ),
+    path(
+        "reviews/",
+        ReceptionReviewsListView.as_view(),
+        name="reception-reviews-list",
+    ),
+    path(
+        "reviews/<int:review_id>/",
+        ReceptionReviewDetailView.as_view(),
+        name="reception-review-detail",
+    ),
+    path(
+        "reviews/<int:review_id>/reply/",
+        ReceptionReviewReplyView.as_view(),
+        name="reception-review-reply",
+    ),
+    path(
+        "reviews/<int:review_id>/guest-review/",
+        ReceptionReviewGuestReviewView.as_view(),
+        name="reception-review-guest-review",
+    ),
+    path(
+        "reservations/<int:reservation_id>/reviews/",
+        ReceptionReservationReviewsView.as_view(),
+        name="reception-reservation-reviews",
     ),
     path(
         "reservations/<int:reservation_id>/guests/",

@@ -194,7 +194,7 @@ Označeno zelenom u Booking extranetu „What can Channex.io offer?“ (2026-05-
 | **Rate planovi** | Channex UI | UUID-ovi idu u stay.hr `IntegrationConfig` |
 | **Rezervacije inbound** | Channex webhook → stay.hr | Tek kad je production Channex config + webhook aktivan |
 | **Poruke gostima (Booking.com)** | Channex webhook `message` + stay.hr API | Inbound u `ChannexMessage`; odgovor: `POST /api/v1/reception/reservations/{id}/channex-messages/` |
-| **Sadržaj, fotke, recenzije** | Channex UI (ili Booking extranet) | stay.hr nema UI za sadržaj/recenzije (faza 1) |
+| **Sadržaj, fotke, recenzije** | Channex UI (ili Booking extranet) | stay.hr **recenzije** (inbox + odgovor) — vidi [guest-reviews-channex.md](../operations/guest-reviews-channex.md) |
 | **Promocije Booking.com** | Channex UI | stay.hr nema UI za B.com promocije |
 | **Ručne rezervacije / timeline** | stay.hr recepcija | Outbound u Channex tek kad `channel_manager=channex` |
 
@@ -248,6 +248,24 @@ Secret: `CHANNEX_WEBHOOK_SECRET` u `.env` / IntegrationConfig.
 | POST | `/api/v1/reception/reservations/{id}/channex-messages/` — body `{"message": "..."}` |
 
 GET prazne liste automatski povlači poruke iz Channexa (`GET /bookings/{id}/messages`). Query `?sync=0` isključuje pull.
+
+### Guest reviews (stay.hr backend)
+
+1. Na webhooku dodati evente **`review`** i **`updated_review`** s **`send_data=true`**.
+2. Inbound recenzije u **`ChannexReview`** (admin → Integrations → Channex reviews).
+3. API (recepcija + web + Flutter):
+
+| Metoda | Ruta |
+|--------|------|
+| GET | `/api/v1/reception/reviews/` |
+| GET | `/api/v1/reception/reviews/{id}/` |
+| POST | `/api/v1/reception/reviews/{id}/reply/` |
+| POST | `/api/v1/reception/reviews/{id}/guest-review/` |
+| GET | `/api/v1/reception/reservations/{id}/reviews/` |
+
+Backfill: `python manage.py sync_channex_reviews --tenant-slug=uzorita`
+
+Runbook: [docs/operations/guest-reviews-channex.md](../operations/guest-reviews-channex.md).
 
 Deploy nakon code changea:
 

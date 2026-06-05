@@ -196,6 +196,66 @@ def notify_guest_message_inbound(
     }
 
 
+@shared_task
+def notify_guest_review_inbound(
+    reservation_id: int,
+    *,
+    review_id: int,
+    ota: str = "",
+    score_preview: str = "",
+    content_preview: str = "",
+) -> dict:
+    from apps.core.notifications import send_tenant_reception_push
+    from apps.core.push_payload import reception_push_data
+    from apps.reservations.models import Reservation
+
+    reservation = (
+        Reservation.objects.select_related("tenant", "property")
+        .filter(pk=reservation_id)
+        .first()
+    )
+    if reservation is None:
+        return {"sent": 0, "reservation_id": reservation_id, "reason": "not_found"}
+
+    name = reservation.booker_name or reservation.booking_code or str(reservation.pk)
+    ota_label = ota or "OTA"
+    preview = _truncate_preview(content_preview)
+    if score_preview:
+        score_part = f" · {score_preview}/10"
+    else:
+        score_part = ""
+    if preview:
+        body = f"{name} · {ota_label}{score_part}: {preview}"
+        summary = preview
+    else:
+        body = f"{name} · nova recenzija ({ota_label}{score_part})"
+        summary = f"Recenzija {ota_label}{score_part}".strip()
+
+    booking_code = reservation.booking_code or str(reservation.pk)
+    data = reception_push_data(
+        event_type="guest.review.received",
+        reservation_id=reservation.pk,
+        summary=summary,
+        booking_code=booking_code,
+        channel="booking",
+        tenant_id=str(reservation.tenant_id),
+    )
+    data["review_id"] = str(review_id)
+
+    message_ids = send_tenant_reception_push(
+        tenant_id=reservation.tenant_id,
+        title="Nova recenzija",
+        body=body,
+        data=data,
+    )
+    return {
+        "sent": len(message_ids),
+        "reservation_id": reservation_id,
+        "review_id": review_id,
+        "message_ids": message_ids,
+    }
+
+
 def _auto_checkout_skipped_body(count: int, booking_codes: list[str]) -> str:
     if count == 1:
         base = "1 rezervacija nije odjavljena (eVisitor)"

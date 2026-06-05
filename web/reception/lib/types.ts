@@ -116,6 +116,45 @@ export type GuestMessageComposeResponse = {
   channels: Record<string, GuestMessageChannelInfo>;
 };
 
+export type ChannexReviewScore = {
+  category: string;
+  score: number;
+};
+
+export type ChannexReview = {
+  id: number;
+  channex_review_id: string;
+  reservation_id: number | null;
+  booking_code: string | null;
+  ota: string;
+  ota_reservation_id?: string;
+  guest_name: string;
+  overall_score: number | null;
+  scores: ChannexReviewScore[];
+  tags: string[];
+  content: string;
+  reply: string | null;
+  is_replied: boolean;
+  is_hidden: boolean;
+  expired_at: string | null;
+  received_at: string | null;
+  reply_sent_at: string | null;
+  can_reply: boolean;
+  can_submit_guest_review: boolean;
+};
+
+export type ChannexReviewsListResponse = {
+  page: number;
+  page_size: number;
+  total: number;
+  reviews: ChannexReview[];
+};
+
+export type ReservationReviewsResponse = {
+  reservation_id: number;
+  reviews: ChannexReview[];
+};
+
 export type ReservationDetail = Reservation & {
   units?: ReservationUnit[];
   guests: GuestLite[];

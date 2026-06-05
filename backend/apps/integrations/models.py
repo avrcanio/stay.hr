@@ -379,3 +379,56 @@ class ChannexMessage(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"{self.direction} {self.channex_message_id} ({self.channex_booking_id})"
+
+
+class ChannexReview(TenantScopedModel):
+    integration = models.ForeignKey(
+        IntegrationConfig,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="channex_reviews",
+    )
+    reservation = models.ForeignKey(
+        "reservations.Reservation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="channex_reviews",
+    )
+    channex_review_id = models.CharField(max_length=128, unique=True)
+    channex_booking_id = models.CharField(max_length=64, blank=True, db_index=True)
+    ota = models.CharField(max_length=32, blank=True, db_index=True)
+    ota_reservation_id = models.CharField(max_length=64, blank=True)
+    ota_review_id = models.CharField(max_length=128, blank=True)
+    guest_name = models.CharField(max_length=255, blank=True)
+    content = models.TextField(blank=True)
+    reply = models.TextField(blank=True)
+    overall_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    scores = models.JSONField(default=list, blank=True)
+    tags = models.JSONField(default=list, blank=True)
+    is_replied = models.BooleanField(default=False)
+    is_hidden = models.BooleanField(default=False)
+    expired_at = models.DateTimeField(null=True, blank=True)
+    received_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    reply_sent_at = models.DateTimeField(null=True, blank=True)
+    reply_scheduled_at = models.DateTimeField(null=True, blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-received_at", "-created_at"]
+        indexes = [
+            models.Index(fields=["tenant", "received_at"]),
+            models.Index(fields=["tenant", "reservation"]),
+            models.Index(fields=["tenant", "is_replied", "received_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.ota} {self.channex_review_id} ({self.overall_score})"

@@ -17,6 +17,7 @@
     "timeline": "Timeline",
     "calendar": "Kalendar",
     "newReservation": "Nova rezervacija",
+    "reviews": "Recenzije",
     "logout": "Odjava"
   },
   "language": {
@@ -368,5 +369,25 @@
     "intentCheckin": "Check-in",
     "intentReply": "Odgovor",
     "intentCustom": "Prilagođeno"
+  },
+  "guestReviews": {
+    "title": "Recenzije gosta",
+    "inboxTitle": "Recenzije",
+    "inboxEmpty": "Nema recenzija za prikaz.",
+    "loadFailed": "Učitavanje recenzija nije uspjelo.",
+    "filterUnreplied": "Samo neodgovorene",
+    "needsReply": "Bez odgovora",
+    "noContentYet": "Tekst recenzije još nije stigao.",
+    "selectReview": "Odaberite recenziju s lijeve strane.",
+    "replyPlaceholder": "Vaš odgovor gostu…",
+    "replyAction": "Pošalji odgovor",
+    "replySuccess": "Odgovor je poslan.",
+    "replyFailed": "Slanje odgovora nije uspjelo.",
+    "replyDeadline": "Rok za odgovor: {date}",
+    "yourReply": "Vaš odgovor",
+    "hiddenAirbnb": "Skriveno dok ne ocijenite gosta (Airbnb)",
+    "airbnbGuestReviewHint": "Za Airbnb prvo ocijenite gosta u mobilnoj aplikaciji.",
+    "openInbox": "Sve recenzije objekta",
+    "openReservation": "Rezervacija {code}"
   }
 }

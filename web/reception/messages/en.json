@@ -17,6 +17,7 @@
     "timeline": "Timeline",
     "calendar": "Calendar",
     "newReservation": "New booking",
+    "reviews": "Reviews",
     "logout": "Log out"
   },
   "language": {
@@ -368,5 +369,25 @@
     "intentCheckin": "Check-in",
     "intentReply": "Reply",
     "intentCustom": "Custom"
+  },
+  "guestReviews": {
+    "title": "Guest reviews",
+    "inboxTitle": "Reviews",
+    "inboxEmpty": "No reviews to show.",
+    "loadFailed": "Failed to load reviews.",
+    "filterUnreplied": "Unreplied only",
+    "needsReply": "Needs reply",
+    "noContentYet": "Review text not received yet.",
+    "selectReview": "Select a review on the left.",
+    "replyPlaceholder": "Your reply to the guest…",
+    "replyAction": "Send reply",
+    "replySuccess": "Reply sent.",
+    "replyFailed": "Failed to send reply.",
+    "replyDeadline": "Reply deadline: {date}",
+    "yourReply": "Your reply",
+    "hiddenAirbnb": "Hidden until you rate the guest (Airbnb)",
+    "airbnbGuestReviewHint": "For Airbnb, rate the guest in the mobile app first.",
+    "openInbox": "All property reviews",
+    "openReservation": "Reservation {code}"
   }
 }

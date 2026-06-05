@@ -12,6 +12,7 @@ from apps.integrations.models import (
     ChannexAriOutbox,
     ChannexBookingRevision,
     ChannexMessage,
+    ChannexReview,
     IntegrationConfig,
     RatePlanDay,
     UnitAvailabilityDay,
@@ -263,6 +264,57 @@ class ChannexMessageAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         "have_attachment",
         "raw_payload",
         "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ChannexReview)
+class ChannexReviewAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    list_display = (
+        "channex_review_id",
+        "ota",
+        "overall_score",
+        "is_replied",
+        "is_hidden",
+        "reservation",
+        "received_at",
+    )
+    list_filter = ("ota", "is_replied", "is_hidden")
+    search_fields = (
+        "channex_review_id",
+        "channex_booking_id",
+        "ota_reservation_id",
+        "guest_name",
+        "content",
+    )
+    readonly_fields = (
+        "integration",
+        "reservation",
+        "channex_review_id",
+        "channex_booking_id",
+        "ota",
+        "ota_reservation_id",
+        "ota_review_id",
+        "guest_name",
+        "content",
+        "reply",
+        "overall_score",
+        "scores",
+        "tags",
+        "is_replied",
+        "is_hidden",
+        "expired_at",
+        "received_at",
+        "reply_sent_at",
+        "reply_scheduled_at",
+        "raw_payload",
+        "created_at",
+        "updated_at",
     )
 
     def has_add_permission(self, request):

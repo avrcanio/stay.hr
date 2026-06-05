@@ -18,16 +18,17 @@ export function ReceptionNav({ tenantName, featureFlags: featureFlagsProp }: Pro
   const router = useRouter();
   const t = useTranslations("nav");
   const [featureFlags, setFeatureFlags] = useState(featureFlagsProp);
+  const [channelManager, setChannelManager] = useState<string | undefined>();
 
   useEffect(() => {
     if (featureFlagsProp) {
       setFeatureFlags(featureFlagsProp);
-      return;
     }
     void fetch("/api/stay/app/config")
       .then((res) => (res.ok ? res.json() : null))
       .then((config: AppConfig | null) => {
         if (config?.feature_flags) setFeatureFlags(config.feature_flags);
+        if (config?.channel_manager) setChannelManager(config.channel_manager);
       })
       .catch(() => undefined);
   }, [featureFlagsProp]);
@@ -65,6 +66,11 @@ export function ReceptionNav({ tenantName, featureFlags: featureFlagsProp }: Pro
           {featureFlags?.reception_create_reservation ? (
             <Link href="/reservations/new" className={linkClass("/reservations/new")}>
               {t("newReservation")}
+            </Link>
+          ) : null}
+          {channelManager === "channex" ? (
+            <Link href="/reviews" className={linkClass("/reviews")}>
+              {t("reviews")}
             </Link>
           ) : null}
           <button type="button" onClick={logout} className="btn-ghost ml-2">

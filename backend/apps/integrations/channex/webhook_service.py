@@ -7,6 +7,7 @@ from apps.integrations.channex.booking_service import process_channex_booking_we
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
 from apps.integrations.channex.message_service import process_channex_message_webhook
+from apps.integrations.channex.review_service import process_channex_review_webhook
 from apps.integrations.channex.webhook_auth import webhook_secret_from_env
 from apps.integrations.models import IntegrationConfig
 from apps.tenants.models import Tenant
@@ -93,6 +94,28 @@ def record_channex_webhook(
         except ChannexBookingIngestError:
             logger.exception(
                 "channex message ingest failed",
+                extra={"property_id": property_id, "booking_id": booking_id},
+            )
+            raise
+        return
+
+    if event in ("review", "updated_review"):
+        if integration_row is None:
+            logger.error(
+                "channex review webhook without matching IntegrationConfig",
+                extra={"property_id": property_id},
+            )
+            raise ChannexBookingIngestError("No Channex IntegrationConfig for property.")
+        try:
+            process_channex_review_webhook(
+                integration_row,
+                property_id=property_id,
+                body=body,
+                event=event,
+            )
+        except ChannexBookingIngestError:
+            logger.exception(
+                "channex review ingest failed",
                 extra={"property_id": property_id, "booking_id": booking_id},
             )
             raise

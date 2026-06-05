@@ -7,6 +7,7 @@ import { BookingPdfImportForm } from "@/app/_components/BookingPdfImportForm";
 import { CountryFlag } from "@/app/_components/CountryFlag";
 import { GuestList } from "@/app/_components/GuestList";
 import { GuestMessagesPanel } from "@/app/_components/GuestMessagesPanel";
+import { GuestReviewsPanel } from "@/app/_components/GuestReviewsPanel";
 import { ReservationFinancialSection } from "@/app/_components/ReservationFinancialSection";
 import { ReservationInvoiceSection } from "@/app/_components/ReservationInvoiceSection";
 import { ReservationMoveDatesModal } from "@/app/_components/ReservationMoveDatesModal";
@@ -239,6 +240,8 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
       <ReservationFinancialSection reservation={reservation} />
 
       <GuestMessagesPanel reservationId={reservation.id} />
+
+      <GuestReviewsPanel reservationId={reservation.id} />
 
       {reservation.pdf_imported_at || reservation.confirmation_pdf_url ? (
         <p>
