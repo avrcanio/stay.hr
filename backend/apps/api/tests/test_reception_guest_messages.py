@@ -496,3 +496,23 @@ class ReceptionGuestMessagesAPITests(TestCase):
         self.assertEqual(data[0]["source"], "booking")
         self.assertEqual(data[0]["direction"], "inbound")
         self.assertEqual(data[0]["body_text"], "Hello from guest")
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_compose_direct_platform_has_email_not_booking(self):
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        self.reservation.source = "api"
+        self.reservation.import_source = ""
+        self.reservation.external_id = "WEB-123"
+        self.reservation.save(update_fields=["source", "import_source", "external_id"])
+
+        response = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "checkin"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertTrue(data["channels"]["email"]["available"])
+        self.assertFalse(data["channels"]["booking"]["available"])
+        self.assertTrue(data["channels"]["whatsapp"]["available"])

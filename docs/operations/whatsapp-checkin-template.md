@@ -8,6 +8,8 @@ Operativni predložak za traženje dokumenata i slanje detalja dolaska **prije**
 
 **Backend:** `backend/apps/communications/guest_compose.py`, `guest_compose_language.py`
 
+**Flutter chat (timeline + tri kanala):** [guest-messages-flutter.md](../development/guest-messages-flutter.md)
+
 ---
 
 ## API (Hospira)

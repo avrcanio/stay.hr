@@ -33,6 +33,26 @@ function channelLabelKey(channel: string): string {
   return "channelEmail";
 }
 
+function channelHint(
+  channel: string,
+  channels: Record<string, GuestMessageChannelInfo>,
+  t: (key: string, values?: Record<string, string>) => string,
+): string | null {
+  if (channel === "booking" && channels.booking?.available) {
+    return t("channelBookingHint");
+  }
+  if (channel === "email" && channels.email?.available && channels.email.to) {
+    return t("channelEmailHint", { email: channels.email.to });
+  }
+  if (channel === "whatsapp" && channels.whatsapp?.available) {
+    const phone = channels.whatsapp.phone_raw || channels.whatsapp.phone_wa || "";
+    if (phone) {
+      return t("channelWhatsappHint", { phone });
+    }
+  }
+  return null;
+}
+
 export function GuestMessagesPanel({ reservationId }: Props) {
   const t = useTranslations("guestMessages");
   const tc = useTranslations("common");
@@ -284,6 +304,11 @@ export function GuestMessagesPanel({ reservationId }: Props) {
                   </label>
                 ))}
               </div>
+              {selectedChannel ? (
+                <p className="text-xs text-muted">
+                  {channelHint(selectedChannel, channels, t) ?? null}
+                </p>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm text-amber-800">{t("noChannel")}</p>
