@@ -104,7 +104,7 @@ class GuestOutboundMessage(TenantScopedModel):
     )
     to_email = models.EmailField(blank=True, default="")
     to_phone = models.CharField(max_length=64, blank=True, default="")
-    wa_me_url = models.URLField(blank=True, default="", max_length=512)
+    wa_me_url = models.TextField(blank=True, default="")
     error_message = models.TextField(blank=True, default="")
     api_application = models.ForeignKey(
         "tenants.ApiApplication",

@@ -29,16 +29,27 @@ logger = logging.getLogger(__name__)
 
 MAPS_LINK = "https://maps.app.goo.gl/BN15CcMmmAapmjUs7"
 
+# Pre-filled WhatsApp text limit (chars before URL encoding).
+WA_ME_BODY_MAX_LEN = 1500
+
 
 def guest_phone_number(reservation: Reservation) -> str:
     return (reservation.booker_phone or "").strip()
+
+
+def truncate_wa_me_body(body_text: str) -> str:
+    text = (body_text or "").strip()
+    if len(text) <= WA_ME_BODY_MAX_LEN:
+        return text
+    suffix = "…"
+    return text[: WA_ME_BODY_MAX_LEN - len(suffix)].rstrip() + suffix
 
 
 def build_wa_me_url(phone_digits: str, body_text: str) -> str:
     digits = normalize_phone(phone_digits)
     if not digits:
         return ""
-    encoded = quote(body_text or "", safe="")
+    encoded = quote(truncate_wa_me_body(body_text), safe="")
     return f"https://wa.me/{digits}?text={encoded}"
 
 

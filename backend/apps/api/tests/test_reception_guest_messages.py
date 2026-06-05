@@ -175,6 +175,38 @@ class ReceptionGuestMessagesAPITests(TestCase):
         self.assertIn("wa.me/491701234567", data["wa_me_url"])
         self.assertIn("Bok%20Wolfgang", data["wa_me_url"])
 
+    @patch.dict(os.environ, {}, clear=False)
+    def test_send_whatsapp_handoff_long_body(self):
+        """Regression: long check-in text must not 500 (wa_me_url was varchar 512)."""
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        compose = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "checkin"},
+            format="json",
+            **self.auth,
+        )
+        draft_id = compose.json()["draft_id"]
+        body = (
+            "Molimo vas da nam pošaljete potrebne dokumente. "
+            "Šibenik check-in u 15:00. "
+        ) * 80
+
+        response = self.client.post(
+            f"{self.base}/send/",
+            {
+                "draft_id": draft_id,
+                "channel": "whatsapp",
+                "body_text": body,
+            },
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["status"], "handoff_whatsapp")
+        self.assertIn("wa.me/491701234567", data["wa_me_url"])
+        self.assertGreater(len(data["wa_me_url"]), 512)
+
     def test_send_whatsapp_no_phone(self):
         self.reservation.booker_phone = ""
         self.reservation.save(update_fields=["booker_phone"])
