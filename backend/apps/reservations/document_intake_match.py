@@ -9,11 +9,10 @@ from zoneinfo import ZoneInfo
 from django.utils import timezone
 
 from apps.reservations.booking_xls_import import (
-    _find_guest_by_full_name,
     _guest_display_name,
     _normalize_guest_name_key,
 )
-from apps.reservations.guest_slots import is_unfilled_guest
+from apps.reservations.guest_slots import PLACEHOLDER_NAME, is_unfilled_guest
 from apps.reservations.models import Guest, Reservation
 
 ZAGREB = ZoneInfo("Europe/Zagreb")
@@ -77,18 +76,117 @@ def _guest_name_matches(guest: Guest, keys: set[str]) -> bool:
     return False
 
 
-def _fuzzy_guest_match(reservation: Reservation, keys: set[str]) -> Guest | None:
+def _fuzzy_guest_match(
+    reservation: Reservation,
+    keys: set[str],
+    *,
+    exclude: set[int] | None = None,
+) -> Guest | None:
+    blocked = exclude or set()
     for guest in reservation.guests.all():
+        if guest.pk in blocked:
+            continue
         if _guest_name_matches(guest, keys):
             return guest
     return None
 
 
-def _find_unfilled_slot(reservation: Reservation) -> Guest | None:
+def _is_placeholder_guest(guest: Guest) -> bool:
+    name = (guest.name or "").strip()
+    if name == PLACEHOLDER_NAME:
+        return True
+    first = (guest.first_name or "").strip()
+    last = (guest.last_name or "").strip()
+    return first == "Novi" and last == "gost"
+
+
+def _find_unfilled_slot(
+    reservation: Reservation,
+    *,
+    exclude: set[int] | None = None,
+) -> Guest | None:
+    """Prefer secondary placeholders over primary booker slots still missing ID data."""
+    blocked = exclude or set()
+    unfilled: list[Guest] = []
     for guest in reservation.guests.all():
+        if guest.pk in blocked:
+            continue
         if is_unfilled_guest(guest):
+            unfilled.append(guest)
+
+    if not unfilled:
+        return None
+
+    for guest in unfilled:
+        if not guest.is_primary and _is_placeholder_guest(guest):
             return guest
-    return None
+
+    for guest in unfilled:
+        if not guest.is_primary:
+            return guest
+
+    return unfilled[0]
+
+
+def _reservations_with_name_matches(results: list[dict]) -> set[int]:
+    ids: set[int] = set()
+    for result in results:
+        for candidate in result.get("candidates") or []:
+            if candidate.get("match_type") == "name":
+                ids.add(int(candidate["reservation_id"]))
+    return ids
+
+
+def _apply_batch_reservation_heuristic(
+    results: list[dict],
+    *,
+    reservations_by_id: dict[int, Reservation] | None = None,
+) -> None:
+    """When one reservation has a name match, auto-apply companions on the same reservation."""
+    name_reservations = _reservations_with_name_matches(results)
+    if len(name_reservations) != 1:
+        return
+
+    target_reservation_id = next(iter(name_reservations))
+    reservation = None
+    if reservations_by_id:
+        reservation = reservations_by_id.get(target_reservation_id)
+    if reservation is None:
+        reservation = Reservation.objects.prefetch_related("guests").filter(pk=target_reservation_id).first()
+    if reservation is None:
+        return
+
+    assigned_guest_ids = {
+        int(result["guest_id"])
+        for result in results
+        if result.get("auto_apply") and result.get("guest_id")
+    }
+
+    for result in results:
+        if result.get("auto_apply"):
+            continue
+
+        reservation_candidates = [
+            candidate
+            for candidate in result.get("candidates") or []
+            if int(candidate["reservation_id"]) == target_reservation_id
+            and int(candidate["guest_id"]) not in assigned_guest_ids
+        ]
+        guest = None
+        if len(reservation_candidates) == 1:
+            guest_id = int(reservation_candidates[0]["guest_id"])
+            guest = next((g for g in reservation.guests.all() if g.pk == guest_id), None)
+        if guest is None:
+            guest = _find_unfilled_slot(reservation, exclude=assigned_guest_ids)
+        if guest is None:
+            continue
+
+        result["auto_apply"] = True
+        result["reservation_id"] = target_reservation_id
+        result["guest_id"] = guest.pk
+        result["guest_name"] = _guest_display_name(guest)
+        result["reservation_label"] = _reservation_label(reservation)
+        assigned_guest_ids.add(guest.pk)
 
 
 def match_persons_to_guests(
@@ -99,6 +197,7 @@ def match_persons_to_guests(
     """Return match suggestions per person index."""
     reservations = active_reservations_for_intake(tenant_id)
     results: list[dict] = []
+    assigned_guest_ids: set[int] = set()
 
     for idx, person in enumerate(persons):
         keys = _person_name_keys(person)
@@ -109,11 +208,11 @@ def match_persons_to_guests(
             guest = None
             match_type = ""
             if keys:
-                guest = _fuzzy_guest_match(reservation, keys)
+                guest = _fuzzy_guest_match(reservation, keys, exclude=assigned_guest_ids)
                 if guest:
                     match_type = "name"
             if guest is None:
-                guest = _find_unfilled_slot(reservation)
+                guest = _find_unfilled_slot(reservation, exclude=assigned_guest_ids)
                 if guest:
                     match_type = "unfilled_slot"
 
@@ -142,10 +241,13 @@ def match_persons_to_guests(
             auto_apply = True
         elif len(candidates) == 1:
             best = candidates[0]
-            auto_apply = confidence == "high"
+            auto_apply = True
         else:
             best = None
             auto_apply = False
+
+        if best and auto_apply:
+            assigned_guest_ids.add(int(best["guest_id"]))
 
         results.append(
             {
@@ -161,6 +263,7 @@ def match_persons_to_guests(
             }
         )
 
+    _apply_batch_reservation_heuristic(results)
     return results
 
 

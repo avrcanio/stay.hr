@@ -47,6 +47,7 @@ from apps.reservations.document_photo_storage import (
     id_recognition_sample_filename,
 )
 from apps.reservations.face_photo import guest_face_photo_document
+from apps.reservations.mrz_parse import normalize_residence_address, parse_sex_from_mrz
 from apps.reservations.query import property_day_range
 from apps.reservations.models import (
     DocumentScanLog,
@@ -617,7 +618,7 @@ class DocumentScanIngestView(ReceptionWriteView, APIView):
 
         adresa = as_str("adresa")
         if adresa:
-            updates["address"] = adresa
+            updates["address"] = normalize_residence_address(adresa)
 
         tip = str(meta.get("tip_dokumenta", "")).strip().lower()
         if tip == "passport":
@@ -629,6 +630,10 @@ class DocumentScanIngestView(ReceptionWriteView, APIView):
         if mrz:
             updates["mrz_raw_text"] = mrz
             updates["mrz_verified"] = True
+            if not updates.get("sex"):
+                mrz_sex = parse_sex_from_mrz(mrz)
+                if mrz_sex:
+                    updates["sex"] = mrz_sex
 
         face_photo_b64 = str(biom.get("fotografija_b64", "")).strip()
         signature_b64 = str(biom.get("potpis_b64", "")).strip()
@@ -639,7 +644,7 @@ class DocumentScanIngestView(ReceptionWriteView, APIView):
             "document_number": doc_no,
             "nationality": nat,
             "date_of_birth": dob,
-            "address": adresa,
+            "address": updates.get("address") or adresa,
         }
         suggested_fields = {k: v for k, v in suggested_fields.items() if v}
 

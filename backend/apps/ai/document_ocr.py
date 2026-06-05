@@ -24,10 +24,11 @@ Rules:
 - Extract MRZ lines when visible (passport biodata or ID card back lower third).
 - For EU national ID cards: front has portrait and name; back has MRZ.
 - For passports: biodata page is both front and passport side.
-- face_bbox: normalized 0-1 coordinates (x, y, w, h) of portrait on front/biodata page.
+- face_bbox: normalized 0-1 coordinates (x, y, w, h) of the portrait photo on the front/biodata page.
+  Measure from the actual image. Use null if no portrait is visible. Do NOT copy example values.
 - Dates as ISO YYYY-MM-DD when possible.
 - nationality and issuing country as ISO 3166-1 alpha-3 when possible (DEU, POL, HRV, AUT, ...).
-- sex: M or F when known.
+- sex: M or F when known. For EU ID cards read the Sex/Geschlecht/S field on the front — required for eVisitor.
 
 Return ONLY valid JSON with this shape:
 {
@@ -45,7 +46,7 @@ Return ONLY valid JSON with this shape:
     "front_image_index": 0,
     "back_image_index": null,
     "mrz_lines": [],
-    "face_bbox": {"x": 0.1, "y": 0.15, "w": 0.25, "h": 0.35}
+    "face_bbox": null
   }]
 }
 """

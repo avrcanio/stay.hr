@@ -14,4 +14,4 @@ UZORITA_STANDARD_BEDS: tuple[UnitBedSpec, ...] = (
     {"bed_type": "sofa", "count": 1, "sort_order": 1},
 )
 
-UZORITA_BED_SEED_UNIT_CODES: tuple[str, ...] = ("R1", "R2", "R3", "R6")
+UZORITA_BED_SEED_UNIT_CODES: tuple[str, ...] = ("R1", "R2", "R3", "R4", "R6")

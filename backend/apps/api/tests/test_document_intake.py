@@ -197,3 +197,116 @@ class DocumentIntakeAPITests(TestCase):
     def test_batch_requires_files(self):
         res = self.client.post(f"{self.base}/batch/", {}, format="multipart")
         self.assertEqual(res.status_code, 400)
+
+    @patch("apps.reservations.document_intake_service.run_document_batch_ocr")
+    def test_multi_person_updates_primary_and_companion(self, mock_ocr):
+        """Three OCR persons fill primary, Novi gost, and a third slot from persons_count."""
+        self.reservation.persons_count = 3
+        self.reservation.children_count = 1
+        self.reservation.save(update_fields=["persons_count", "children_count"])
+
+        companion = Guest.objects.get(reservation=self.reservation, is_primary=False)
+
+        def _person(given, surnames, doc_no, front_idx):
+            return {
+                "given_names": given,
+                "surnames": surnames,
+                "document_number": doc_no,
+                "nationality": "DEU",
+                "date_of_birth": "1980-05-01",
+                "date_of_expiry": "2030-05-01",
+                "sex": "M",
+                "document_type": "national_id",
+                "front_image_index": front_idx,
+                "back_image_index": None,
+            }
+
+        mock_ocr.return_value = {
+            "images": [{"index": i, "side": "front", "mrz_lines": [], "ocr_text": ""} for i in range(3)],
+            "persons": [
+                _person("Hans", "Fischer", "DOC001", 0),
+                _person("Elke", "Fischer", "DOC002", 1),
+                _person("Lisa", "Fischer", "DOC003", 2),
+            ],
+        }
+
+        batch = self.client.post(
+            f"{self.base}/batch/",
+            {"files": [_tiny_jpeg(f"p{i}.jpg") for i in range(3)]},
+            format="multipart",
+        )
+        job_id = batch.json()["job_id"]
+        process = self.client.post(f"{self.base}/jobs/{job_id}/process/")
+        body = process.json()
+
+        self.assertEqual(body["status"], DocumentIntakeJobStatus.DONE)
+        self.assertEqual(len(body["matches"]), 3)
+        self.assertTrue(body["matches"][0]["auto_apply"])
+
+        apply = self.client.post(f"{self.base}/jobs/{job_id}/apply/", {}, format="json")
+        self.assertEqual(apply.status_code, 200)
+        self.assertEqual(len(apply.json()["applied"]), 3)
+
+        self.primary.refresh_from_db()
+        companion.refresh_from_db()
+        third = Guest.objects.filter(reservation=self.reservation).exclude(
+            pk__in=[self.primary.pk, companion.pk]
+        ).get()
+
+        self.assertEqual(self.primary.document_number, "DOC001")
+        self.assertEqual(companion.first_name, "Elke")
+        self.assertEqual(companion.document_number, "DOC002")
+        self.assertEqual(third.first_name, "Lisa")
+        self.assertEqual(third.document_number, "DOC003")
+        self.assertEqual(self.reservation.guests.count(), 3)
+
+    @patch("apps.reservations.document_intake_service.run_document_batch_ocr")
+    def test_reapply_skips_already_applied_guests(self, mock_ocr):
+        """Re-apply on APPLIED job only updates guests not yet filled."""
+        companion = Guest.objects.get(reservation=self.reservation, is_primary=False)
+        self.primary.document_number = "EXISTING"
+        self.primary.save(update_fields=["document_number"])
+
+        def _person(given, surnames, doc_no, front_idx):
+            return {
+                "given_names": given,
+                "surnames": surnames,
+                "document_number": doc_no,
+                "nationality": "DEU",
+                "date_of_birth": "1980-05-01",
+                "sex": "M",
+                "document_type": "national_id",
+                "front_image_index": front_idx,
+            }
+
+        mock_ocr.return_value = {
+            "images": [{"index": i, "side": "front", "mrz_lines": [], "ocr_text": ""} for i in range(2)],
+            "persons": [
+                _person("Hans", "Fischer", "DOC001", 0),
+                _person("Elke", "Fischer", "DOC002", 1),
+            ],
+        }
+
+        batch = self.client.post(
+            f"{self.base}/batch/",
+            {"files": [_tiny_jpeg("a.jpg"), _tiny_jpeg("b.jpg")]},
+            format="multipart",
+        )
+        job_id = batch.json()["job_id"]
+        self.client.post(f"{self.base}/jobs/{job_id}/process/")
+
+        from apps.reservations.models import DocumentIntakeJob
+
+        job = DocumentIntakeJob.objects.get(pk=job_id)
+        job.applied_result = [{"guest_id": self.primary.pk, "person_index": 0}]
+        job.status = DocumentIntakeJobStatus.APPLIED
+        job.save(update_fields=["applied_result", "status"])
+
+        apply = self.client.post(f"{self.base}/jobs/{job_id}/apply/", {}, format="json")
+        self.assertEqual(apply.status_code, 200)
+        self.assertEqual(len(apply.json()["applied"]), 1)
+
+        self.primary.refresh_from_db()
+        companion.refresh_from_db()
+        self.assertEqual(self.primary.document_number, "EXISTING")
+        self.assertEqual(companion.document_number, "DOC002")

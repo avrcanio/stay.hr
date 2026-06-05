@@ -15,4 +15,4 @@ UZORITA_STANDARD_BATHROOM: UnitBathroomSpec = {
     "sort_order": 0,
 }
 
-UZORITA_BATHROOM_SEED_UNIT_CODES: tuple[str, ...] = ("R1", "R2", "R3", "R6")
+UZORITA_BATHROOM_SEED_UNIT_CODES: tuple[str, ...] = ("R1", "R2", "R3", "R4", "R6")
