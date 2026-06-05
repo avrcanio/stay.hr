@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
@@ -8,10 +9,6 @@ import { ReviewContentText } from "@/app/_components/ReviewContentText";
 import type { ChannexReview } from "@/lib/types";
 
 const REVIEW_LANGS = ["hr", "en", "de", "es", "fr", "it"] as const;
-
-type Props = {
-  params: { id: string; reviewId: string };
-};
 
 function formatReviewTime(iso: string | null): string {
   if (!iso) return "";
@@ -33,7 +30,8 @@ function otaLabel(ota: string): string {
   return ota || "OTA";
 }
 
-export default function ReservationReviewDetailPage({ params }: Props) {
+export default function ReservationReviewDetailPage() {
+  const params = useParams<{ id: string; reviewId: string }>();
   const t = useTranslations("guestReviews");
   const tc = useTranslations("common");
   const reservationId = Number(params.id);
