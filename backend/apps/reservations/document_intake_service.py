@@ -119,7 +119,11 @@ def apply_document_intake_job(
     device_id: str = "",
     request=None,
 ) -> list[dict[str, Any]]:
-    """Apply OCR results to guests. selections override auto matches."""
+    """Apply OCR results to guests. selections override auto matches.
+
+    Updates guest fields, document photos, and scan log only — does not submit eVisitor.
+    eVisitor check-in stays a separate manual step (POST .../evisitor-submit/).
+    """
     job = DocumentIntakeJob.objects.prefetch_related("images").get(pk=job_id)
     if job.status not in {DocumentIntakeJobStatus.DONE, DocumentIntakeJobStatus.APPLIED}:
         raise ValueError("Job is not ready for apply")
