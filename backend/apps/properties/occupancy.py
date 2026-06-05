@@ -18,6 +18,12 @@ UZORITA_UNIT_OCCUPANCY: dict[str, UnitOccupancySpec] = {
         "capacity_children": 1,
         "capacity_infants": 1,
     },
+    "R4": {
+        "capacity_max_guests": 2,
+        "capacity_adults": 2,
+        "capacity_children": 1,
+        "capacity_infants": 1,
+    },
     "R2": {
         "capacity_max_guests": 3,
         "capacity_adults": 2,

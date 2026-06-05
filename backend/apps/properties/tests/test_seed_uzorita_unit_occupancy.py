@@ -16,7 +16,7 @@ class SeedUzoritaUnitOccupancyTests(TestCase):
             name="Uzorita",
         )
         self.units = {}
-        for code in ("R1", "R2", "R3", "R6"):
+        for code in ("R1", "R2", "R3", "R4", "R6"):
             self.units[code] = Unit.objects.create(
                 tenant=self.tenant,
                 property=self.property,
@@ -52,6 +52,11 @@ class SeedUzoritaUnitOccupancyTests(TestCase):
         self.assertEqual(self.units["R2"].capacity_adults, 2)
         self.assertEqual(self.units["R2"].capacity_children, 2)
         self.assertEqual(self.units["R2"].capacity_infants, 1)
+        self.units["R4"].refresh_from_db()
+        self.assertEqual(self.units["R4"].capacity_max_guests, 2)
+        self.assertEqual(self.units["R4"].capacity_adults, 2)
+        self.assertEqual(self.units["R4"].capacity_children, 1)
+        self.assertEqual(self.units["R4"].capacity_infants, 1)
         self.assertEqual(self.units["R3"].capacity_max_guests, 4)
         self.assertEqual(self.units["R3"].capacity_adults, 3)
         self.assertEqual(self.units["R3"].capacity_children, 3)

@@ -15,6 +15,47 @@ def target_adult_guest_count(*, adults_count: int | None, existing_count: int) -
     return max(base, existing_count, 1)
 
 
+def target_intake_guest_count(
+    *,
+    reservation: Reservation,
+    min_count: int,
+) -> int:
+    """Guest records needed for document intake (persons on reservation or OCR batch)."""
+    existing_count = reservation.guests.count()
+    adults = reservation.adults_count if reservation.adults_count and reservation.adults_count > 0 else 0
+    persons = reservation.persons_count if reservation.persons_count and reservation.persons_count > 0 else 0
+    floor = max(adults, persons, min_count, 1)
+    return max(floor, existing_count)
+
+
+def ensure_guest_slots_for_intake(
+    *,
+    tenant: Tenant,
+    reservation: Reservation,
+    min_count: int,
+) -> int:
+    """Ensure enough guest slots for an OCR batch (uses persons_count when higher). Returns created."""
+    if reservation.status in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}:
+        return 0
+
+    existing_count = reservation.guests.count()
+    target = target_intake_guest_count(reservation=reservation, min_count=min_count)
+    created = 0
+    for _ in range(target - existing_count):
+        Guest.objects.create(
+            tenant=tenant,
+            reservation=reservation,
+            first_name=PLACEHOLDER_FIRST,
+            last_name=PLACEHOLDER_LAST,
+            name=PLACEHOLDER_NAME,
+            is_primary=False,
+        )
+        created += 1
+    if created and hasattr(reservation, "_prefetched_objects_cache"):
+        reservation._prefetched_objects_cache.pop("guests", None)
+    return created
+
+
 def ensure_adult_guest_slots(
     *,
     tenant: Tenant,

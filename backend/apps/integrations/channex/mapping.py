@@ -1,5 +1,5 @@
 """
-Channex room type + rate plan UUIDs for Uzorita (4 physical units, count=1 each).
+Channex room type + rate plan UUIDs for Uzorita (5 physical units, count=1 each).
 
 Staging UUIDs: certification on staging.channex.io
 Production UUIDs: Luxury Room Uzorita B&B on app.channex.io (property bca8473d-…)
@@ -74,6 +74,11 @@ UZORITA_PRODUCTION_ROOM_TYPES: tuple[ChannexRoomTypeMapping, ...] = (
         "channex_room_type_id": "362714ed-177d-4a5f-939e-e3c4de5cc2f1",
         "channex_title": "Luxury Room Uzorita - R6",
     },
+    {
+        "unit_code": "R4",
+        "channex_room_type_id": "158d11e2-dcba-4c0d-b0aa-4d89073866ea",
+        "channex_title": "Luxury Room Uzorita - R4",
+    },
 )
 
 # Parent "Standard Rate" plans (stay.hr pushes restrictions here; channel derives Booking.com rates).
@@ -100,6 +105,12 @@ UZORITA_PRODUCTION_RATE_PLANS: dict[str, ChannexRatePlanMapping] = {
         "code": "standard",
         "title": "Standard Rate",
         "channex_rate_plan_id": "340cfd1c-eb83-4cc7-92e9-aab01735ac9d",
+        "currency": "EUR",
+    },
+    "R4": {
+        "code": "standard",
+        "title": "Standard Rate",
+        "channex_rate_plan_id": "cee70444-3667-4808-bb07-0affa0f26e81",
         "currency": "EUR",
     },
 }

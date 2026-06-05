@@ -54,6 +54,18 @@ class Command(BaseCommand):
         api_key = (options["api_key"] or os.getenv("CHANNEX_API_KEY", "")).strip()
         webhook_secret = os.getenv("CHANNEX_WEBHOOK_SECRET", "").strip()
 
+        row, created = IntegrationConfig.objects.update_or_create(
+            tenant=tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            property=prop,
+            defaults={"is_active": True},
+        )
+        existing = row.get_config_dict()
+        if not api_key:
+            api_key = str(existing.get("api_key") or "").strip()
+        if not webhook_secret:
+            webhook_secret = str(existing.get("webhook_secret") or "").strip()
+
         base_url = (
             "https://staging.channex.io/api/v1"
             if env == "staging"
@@ -82,12 +94,6 @@ class Command(BaseCommand):
         if booking_rooms:
             config["booking_test_rooms"] = booking_rooms
 
-        row, created = IntegrationConfig.objects.update_or_create(
-            tenant=tenant,
-            provider=IntegrationConfig.Provider.CHANNEX,
-            property=prop,
-            defaults={"is_active": True},
-        )
         row.set_config_dict(config)
         row.save(update_fields=["config_encrypted", "config", "is_active", "updated_at"])
 

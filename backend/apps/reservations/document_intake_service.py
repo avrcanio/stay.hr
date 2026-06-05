@@ -15,7 +15,9 @@ from django.utils.dateparse import parse_date
 from apps.ai.document_ocr import DocumentOcrError, ocr_configured, run_document_batch_ocr
 from apps.reservations.document_intake_face import crop_face_jpeg
 from apps.reservations.document_intake_match import match_persons_to_guests, normalize_mrz_lines
-from apps.reservations.nationality_display import guest_nationality_iso2
+from apps.reservations.guest_slots import ensure_guest_slots_for_intake
+from apps.reservations.mrz_parse import normalize_residence_address, parse_sex_from_mrz
+from apps.reservations.nationality_display import guest_nationality_iso2, normalize_country_iso2
 from apps.reservations.document_photo_storage import (
     DOCUMENT_TYPE_NATIONAL_ID,
     DOCUMENT_TYPE_PASSPORT,
@@ -113,6 +115,43 @@ def process_document_intake_job(job_id: int) -> None:
         job.save(update_fields=["status", "error_message", "processed_at", "updated_at"])
 
 
+def _target_reservation_ids_from_matches(matches: list[dict]) -> set[int]:
+    ids: set[int] = set()
+    for match in matches:
+        if match.get("reservation_id"):
+            ids.add(int(match["reservation_id"]))
+            continue
+        for candidate in match.get("candidates") or []:
+            if candidate.get("match_type") == "name":
+                ids.add(int(candidate["reservation_id"]))
+    return ids
+
+
+def _prepare_intake_matches(
+    *,
+    tenant_id: int,
+    persons: list[dict],
+    matches: list[dict],
+) -> list[dict]:
+    """Ensure guest slots and refresh matches before apply."""
+    reservation_ids = _target_reservation_ids_from_matches(matches)
+    if not reservation_ids and persons:
+        reservation_ids = _target_reservation_ids_from_matches(
+            match_persons_to_guests(tenant_id=tenant_id, persons=persons)
+        )
+
+    person_count = len(persons)
+    for reservation_id in reservation_ids:
+        reservation = Reservation.objects.prefetch_related("guests").get(pk=reservation_id)
+        ensure_guest_slots_for_intake(
+            tenant=reservation.tenant,
+            reservation=reservation,
+            min_count=person_count,
+        )
+
+    return match_persons_to_guests(tenant_id=tenant_id, persons=persons)
+
+
 def apply_document_intake_job(
     job_id: int,
     *,
@@ -130,13 +169,28 @@ def apply_document_intake_job(
         raise ValueError("Job is not ready for apply")
 
     persons = job.ocr_result.get("persons") or []
-    matches = job.matches or []
+    matches = list(job.matches or [])
     images = list(job.images.order_by("sort_order", "id"))
 
     selection_map = {
         int(item["person_index"]): item
         for item in (selections or [])
         if isinstance(item, dict) and "person_index" in item
+    }
+
+    if not selection_map:
+        matches = _prepare_intake_matches(
+            tenant_id=job.tenant_id,
+            persons=persons,
+            matches=matches,
+        )
+        job.matches = matches
+        job.save(update_fields=["matches", "updated_at"])
+
+    previously_applied_guest_ids = {
+        int(item["guest_id"])
+        for item in (job.applied_result or [])
+        if isinstance(item, dict) and item.get("guest_id")
     }
 
     applied: list[dict[str, Any]] = []
@@ -162,6 +216,9 @@ def apply_document_intake_job(
             if not reservation_id or not guest_id:
                 continue
 
+            if not sel and int(guest_id) in previously_applied_guest_ids:
+                continue
+
             guest = Guest.objects.select_related("reservation").get(
                 pk=guest_id,
                 reservation_id=reservation_id,
@@ -181,7 +238,12 @@ def apply_document_intake_job(
                 result["face_photo_url"] = guest_face_photo_url(guest, request)
             applied.append(result)
 
-        job.applied_result = applied
+        if applied:
+            merged = list(job.applied_result or [])
+            merged_by_guest = {int(item["guest_id"]): item for item in merged if item.get("guest_id")}
+            for item in applied:
+                merged_by_guest[int(item["guest_id"])] = item
+            job.applied_result = list(merged_by_guest.values())
         job.status = DocumentIntakeJobStatus.APPLIED
         job.save(update_fields=["applied_result", "status", "updated_at"])
 
@@ -302,9 +364,10 @@ def _sync_reservation_country_from_guest(*, guest: Guest, reservation: Reservati
 
     iso2 = guest_nationality_iso2(guest)
     reservation_fields: list[str] = []
-    if iso2 and not (reservation.booker_country or "").strip():
-        reservation.booker_country = iso2
-        reservation_fields.append("booker_country")
+    if iso2:
+        if guest.is_primary or not (reservation.booker_country or "").strip():
+            reservation.booker_country = iso2
+            reservation_fields.append("booker_country")
 
     if guest_fields:
         guest.save(update_fields=guest_fields + ["updated_at"])
@@ -387,23 +450,21 @@ def _guest_updates_from_payload(raw_payload: dict) -> tuple[dict, dict]:
         if parsed:
             updates["date_of_expiry"] = parsed
 
-    nat = as_str("drzavljanstvo").upper()
-    if nat == "HRV":
-        nat = "HR"
-    if len(nat) > 2:
-        nat = nat[:2]
-    if nat:
-        updates["nationality"] = nat
+    nat_raw = as_str("drzavljanstvo").upper()
+    iso2 = normalize_country_iso2(nat_raw)
+    if iso2:
+        updates["nationality"] = iso2
 
-    issue_iso3 = as_str("drzava_izdavanja").upper()
+    issue_iso3 = as_str("drzava_izdavanja").upper()[:3]
     if issue_iso3:
-        updates["document_country_iso3"] = issue_iso3[:3]
-        if issue_iso3[:3] == "HRV":
-            updates["document_country_iso2"] = "HR"
+        updates["document_country_iso3"] = issue_iso3
+        issue_iso2 = normalize_country_iso2(issue_iso3)
+        if issue_iso2:
+            updates["document_country_iso2"] = issue_iso2
 
     adresa = as_str("adresa")
     if adresa:
-        updates["address"] = adresa
+        updates["address"] = normalize_residence_address(adresa)
 
     meta = raw_payload.get("metapodaci") or {}
     tip = str(meta.get("tip_dokumenta") or "").lower()
@@ -416,14 +477,18 @@ def _guest_updates_from_payload(raw_payload: dict) -> tuple[dict, dict]:
     if mrz:
         updates["mrz_raw_text"] = mrz
         updates["mrz_verified"] = True
+        if not updates.get("sex"):
+            mrz_sex = parse_sex_from_mrz(mrz)
+            if mrz_sex:
+                updates["sex"] = mrz_sex
 
     suggested = {
         "first_name": first_name,
         "last_name": last_name,
         "document_number": doc_no,
-        "nationality": nat,
+        "nationality": iso2,
         "date_of_birth": dob,
-        "address": adresa,
+        "address": updates.get("address") or adresa,
     }
     suggested = {k: v for k, v in suggested.items() if v}
     return updates, suggested

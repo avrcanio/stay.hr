@@ -10,6 +10,7 @@ _BOOKING_TITLE_TO_UNIT_CODE: tuple[tuple[str, str], ...] = (
     ("deluxe king 1", "R1"),
     ("luxury room uzorita - r2", "R2"),
     ("luxury room uzorita - r3", "R3"),
+    ("luxury room uzorita - r4", "R4"),
     ("deluxe double", "R6"),
     ("deluxe trokrevetna", "R3"),
     ("deluxe dvokrevetna", "R2"),

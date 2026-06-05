@@ -3,45 +3,265 @@
 from __future__ import annotations
 
 import io
+import logging
 from typing import Any
 
 from django.core.files.base import ContentFile
 from PIL import Image
 
+logger = logging.getLogger(__name__)
+
+OUTPUT_SIZE = 256
+# Generic bbox copied from LLM prompt examples — ignore when detected.
+_LLM_PLACEHOLDER_BBOXES = frozenset(
+    {
+        (0.1, 0.15, 0.25, 0.35),
+        (0.05, 0.12, 0.35, 0.45),
+        (0.05, 0.12, 0.38, 0.48),
+        (0.1, 0.2, 0.3, 0.4),
+    }
+)
+
+
+def _coerce_bbox_dict(bbox: Any) -> dict[str, Any] | None:
+    if isinstance(bbox, dict):
+        return bbox
+    if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+        return {"x": bbox[0], "y": bbox[1], "w": bbox[2], "h": bbox[3]}
+    return None
+
+
+def _normalize_bbox_dict(bbox: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    try:
+        x = float(bbox["x"])
+        y = float(bbox["y"])
+        w = float(bbox["w"])
+        h = float(bbox["h"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if w <= 0 or h <= 0 or x < 0 or y < 0 or x > 1 or y > 1:
+        return None
+    return (x, y, w, h)
+
+
+def _is_placeholder_llm_bbox(bbox: dict[str, Any] | list | tuple | None) -> bool:
+    normalized = _normalize_bbox_dict(_coerce_bbox_dict(bbox)) if bbox else None
+    if normalized is None:
+        return True
+    rounded = tuple(round(v, 2) for v in normalized)
+    return rounded in _LLM_PLACEHOLDER_BBOXES
+
+
+def _european_id_portrait_bbox(w: int, h: int) -> tuple[int, int, int, int]:
+    """Fallback: portrait strip on the left of EU ID cards."""
+    x1 = int(0.02 * w)
+    y1 = int(0.12 * h)
+    x2 = int(0.34 * w)
+    y2 = int(0.88 * h)
+    return x1, y1, x2, y2
+
+
+def _select_best_face(
+    faces: list[tuple[int, int, int, int]],
+    *,
+    image_w: int,
+    image_h: int,
+) -> tuple[int, int, int, int] | None:
+    """Pick the most likely portrait face on an ID card front."""
+    if not faces:
+        return None
+
+    min_side = int(min(image_w, image_h) * 0.08)
+    max_side = int(min(image_w, image_h) * 0.42)
+    candidates: list[tuple[float, tuple[int, int, int, int]]] = []
+
+    for x, y, fw, fh in faces:
+        if fw < min_side or fh < min_side:
+            continue
+        if fw > max_side or fh > max_side:
+            continue
+        aspect = fw / fh if fh else 0
+        if aspect < 0.65 or aspect > 1.45:
+            continue
+
+        cx = x + fw / 2
+        cy = y + fh / 2
+        cx_ratio = cx / image_w
+        cy_ratio = cy / image_h
+
+        # EU ID portrait sits in the left strip; holograms often trigger false positives mid-card.
+        if cx_ratio < 0.30:
+            left_bonus = 0.35
+        elif cx_ratio < 0.40:
+            left_bonus = 0.20
+        elif cx_ratio < 0.55:
+            left_bonus = 0.05
+        else:
+            left_bonus = -0.40
+
+        # Portrait center is usually below mid-height on TD1 cards.
+        vertical_center = abs(cy_ratio - 0.58)
+        vertical_bonus = max(0.0, 0.15 - vertical_center)
+
+        area_score = (fw * fh) / (image_w * image_h) * 2.5
+        tiny_penalty = -0.25 if max(fw, fh) < min(image_w, image_h) * 0.14 else 0.0
+
+        score = area_score + left_bonus + vertical_bonus + tiny_penalty
+        candidates.append((score, (x, y, fw, fh)))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def detect_face_bbox_pixels(image_path: str) -> tuple[int, int, int, int] | None:
+    """Detect face bounding box in pixel coordinates using OpenCV."""
+    try:
+        import cv2
+    except ImportError:
+        logger.debug("opencv not installed; skipping face detection")
+        return None
+
+    try:
+        img = cv2.imread(image_path)
+        if img is None:
+            return None
+        h, w = img.shape[:2]
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = cv2.equalizeHist(gray)
+
+        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        cascade = cv2.CascadeClassifier(cascade_path)
+        faces_raw = cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.05,
+            minNeighbors=4,
+            minSize=(int(min(w, h) * 0.08), int(min(w, h) * 0.08)),
+        )
+        faces = [tuple(int(v) for v in face) for face in faces_raw]
+        return _select_best_face(faces, image_w=w, image_h=h)
+    except Exception:
+        logger.exception("opencv face detection failed", extra={"path": image_path})
+        return None
+
+
+def _square_crop_around_face(
+    im: Image.Image,
+    *,
+    x: int,
+    y: int,
+    fw: int,
+    fh: int,
+    padding: float = 0.35,
+) -> Image.Image:
+    """Expand face box to a square crop centered on the face."""
+    w, h = im.size
+    cx = x + fw / 2
+    cy = y + fh / 2
+    side = int(max(fw, fh) * (1 + padding))
+    side = max(side, 80)
+
+    x1 = int(cx - side / 2)
+    y1 = int(cy - side / 2)
+    x2 = x1 + side
+    y2 = y1 + side
+
+    # Shift crop to stay inside image bounds while keeping size when possible.
+    if x1 < 0:
+        x2 -= x1
+        x1 = 0
+    if y1 < 0:
+        y2 -= y1
+        y1 = 0
+    if x2 > w:
+        shift = x2 - w
+        x1 = max(0, x1 - shift)
+        x2 = w
+    if y2 > h:
+        shift = y2 - h
+        y1 = max(0, y1 - shift)
+        y2 = h
+
+    x1 = max(0, x1)
+    y1 = max(0, y1)
+    x2 = min(w, x2)
+    y2 = min(h, y2)
+    if x2 <= x1 or y2 <= y1:
+        return im.crop((x, y, min(w, x + fw), min(h, y + fh)))
+
+    crop = im.crop((x1, y1, x2, y2))
+    cw, ch = crop.size
+    if cw < 40 or ch < 40:
+        return crop
+
+    side = min(cw, ch)
+    if cw > ch:
+        trim = (cw - side) // 2
+        crop = crop.crop((trim, 0, trim + side, side))
+    elif ch > cw:
+        top_trim = max(0, min(int((ch - side) * 0.08), ch - side))
+        crop = crop.crop((0, top_trim, side, top_trim + side))
+
+    return crop.resize((OUTPUT_SIZE, OUTPUT_SIZE), Image.Resampling.LANCZOS)
+
+
+def _crop_from_normalized_bbox(
+    im: Image.Image,
+    bbox: dict[str, Any],
+) -> Image.Image | None:
+    normalized = _normalize_bbox_dict(bbox)
+    if normalized is None:
+        return None
+    w, h = im.size
+    x, y, bw, bh = normalized
+    x1 = max(0, int(x * w))
+    y1 = max(0, int(y * h))
+    x2 = min(w, int((x + bw) * w))
+    y2 = min(h, int((y + bh) * h))
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return _square_crop_around_face(im, x=x1, y=y1, fw=x2 - x1, fh=y2 - y1)
+
+
+def _crop_from_eu_fallback(im: Image.Image) -> Image.Image:
+    w, h = im.size
+    x1, y1, x2, y2 = _european_id_portrait_bbox(w, h)
+    strip = im.crop((x1, y1, x2, y2))
+    side = min(strip.size)
+    top = max(0, min(int((strip.size[1] - side) * 0.05), strip.size[1] - side))
+    square = strip.crop((0, top, side, top + side))
+    return square.resize((OUTPUT_SIZE, OUTPUT_SIZE), Image.Resampling.LANCZOS)
+
 
 def crop_face_jpeg(
     image_path: str,
-    bbox: dict[str, Any] | None = None,
+    bbox: dict[str, Any] | list | tuple | None = None,
 ) -> ContentFile | None:
-    """Crop portrait from document image; bbox is normalized 0-1."""
+    """Crop portrait from document image. Prefers OpenCV face detection over LLM bbox."""
     try:
         with Image.open(image_path) as im:
             im = im.convert("RGB")
-            w, h = im.size
-            if bbox and all(k in bbox for k in ("x", "y", "w", "h")):
-                x = max(0, int(float(bbox["x"]) * w))
-                y = max(0, int(float(bbox["y"]) * h))
-                bw = max(1, int(float(bbox["w"]) * w))
-                bh = max(1, int(float(bbox["h"]) * h))
+            crop: Image.Image | None = None
+
+            bbox_dict = _coerce_bbox_dict(bbox)
+            face_px = detect_face_bbox_pixels(image_path)
+            if face_px is not None:
+                x, y, fw, fh = face_px
+                crop = _square_crop_around_face(im, x=x, y=y, fw=fw, fh=fh)
+            elif bbox_dict and not _is_placeholder_llm_bbox(bbox_dict):
+                crop = _crop_from_normalized_bbox(im, bbox_dict)
             else:
-                x = int(0.05 * w)
-                y = int(0.12 * h)
-                bw = int(0.38 * w)
-                bh = int(0.48 * h)
+                crop = _crop_from_eu_fallback(im)
 
-            x2 = min(w, x + bw)
-            y2 = min(h, y + bh)
-            if x2 <= x or y2 <= y:
-                return None
-
-            crop = im.crop((x, y, x2, y2))
-            side = min(crop.size)
-            if side < 40:
+            if crop is None:
                 return None
 
             buf = io.BytesIO()
-            crop.save(buf, format="JPEG", quality=88)
+            crop.save(buf, format="JPEG", quality=92)
             buf.seek(0)
             return ContentFile(buf.read(), name="face.jpg")
     except Exception:
+        logger.exception("face crop failed", extra={"path": image_path})
         return None

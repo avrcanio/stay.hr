@@ -206,7 +206,7 @@ Primjer (gost #1128, belgijska putovnica): `200526_1128_pass.jpg`
 
 1. Rezervacija iz Booking XLS-a, Smoobu ili Channexa → **primarni** `Guest` (booker), `is_primary=True`.
 2. Ako je `adults_count` veći od broja imenovanih gostiju, import automatski dodaje placeholder goste **`Novi gost`** (`is_primary=False`) — spremni za check-in i eVisitor.
-3. **Djeca** se ne dodaju automatski; placeholderi se računaju samo prema `adults_count`.
+3. **Djeca** se ne dodaju automatski pri uvozu; pri **OCR batch apply** koristi se `max(adults_count, persons_count, broj OCR osoba)` — vidi [ocr-multi-guest-rules.md](../operations/ocr-multi-guest-rules.md).
 4. Svaki gost ima vlastiti `guest_id` u imenu datoteka i vlastiti `IdDocument`.
 
 Provjera:

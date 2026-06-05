@@ -4,6 +4,7 @@ from django.test import TestCase
 
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.channex.mapping import (
+    UZORITA_PRODUCTION_ROOM_TYPES,
     UZORITA_STAGING_ROOM_TYPES,
     channex_push_rate_for_unit,
 )
@@ -33,7 +34,14 @@ class ChannexMappingTests(TestCase):
             "R3",
         )
 
+    def test_uzorita_production_includes_r4(self):
+        codes = {row["unit_code"] for row in UZORITA_PRODUCTION_ROOM_TYPES}
+        self.assertIn("R4", codes)
+        r4 = next(row for row in UZORITA_PRODUCTION_ROOM_TYPES if row["unit_code"] == "R4")
+        self.assertEqual(r4["channex_title"], "Luxury Room Uzorita - R4")
+
     def test_channex_push_rate_reduction_model(self):
         self.assertEqual(channex_push_rate_for_unit("R3", Decimal("147.00")), Decimal("157.00"))
         self.assertEqual(channex_push_rate_for_unit("R6", Decimal("147.00")), Decimal("157.00"))
         self.assertEqual(channex_push_rate_for_unit("R1", Decimal("112.81")), Decimal("117.81"))
+        self.assertEqual(channex_push_rate_for_unit("R4", Decimal("65.00")), Decimal("70.00"))

@@ -8,6 +8,7 @@ from django.utils import timezone
 from apps.integrations.evisitor.config import EvisitorRuntimeConfig
 from apps.integrations.evisitor.exceptions import EvisitorValidationError
 from apps.integrations.evisitor.lookups import iso2_to_iso3, map_document_type_code
+from apps.reservations.mrz_parse import normalize_residence_address
 from apps.reservations.models import EvisitorGuestStatus, Guest, Reservation
 
 
@@ -44,7 +45,10 @@ def build_check_in_payload(
 
     gender = _map_gender(guest.sex)
     if not gender:
-        errors["sex"] = "Spol je obavezan (muški/ženski)."
+        errors["sex"] = (
+            "Spol je obavezan (muški/ženski). "
+            "Njemačka osobna često nema spol na dokumentu — unesite ručno u Hospiri."
+        )
 
     if not guest.date_of_birth:
         errors["date_of_birth"] = "Datum rođenja je obavezan."
@@ -78,10 +82,11 @@ def build_check_in_payload(
         country_of_residence = guest.document_country_iso3.strip().upper()[:3]
 
     city_of_residence = ""
-    if guest.address and "," in guest.address:
-        city_of_residence = guest.address.split(",")[0].strip()
-    elif guest.address:
-        city_of_residence = guest.address.strip()[:64]
+    normalized_address = normalize_residence_address(guest.address or "")
+    if normalized_address and "," in normalized_address:
+        city_of_residence = normalized_address.split(",")[0].strip()
+    elif normalized_address:
+        city_of_residence = normalized_address.strip()[:64]
 
     if errors:
         raise EvisitorValidationError(
@@ -103,7 +108,7 @@ def build_check_in_payload(
         "CityOfBirth": city_of_residence or "-",
         "CountryOfResidence": country_of_residence,
         "CityOfResidence": city_of_residence or "-",
-        "ResidenceAddress": (guest.address or "-").strip()[:128],
+        "ResidenceAddress": normalize_residence_address(guest.address or "-").strip()[:128],
         "DocumentType": document_type,
         "DocumentNumber": document_number[:16],
         "StayFrom": _format_yyyymmdd(reservation.check_in),

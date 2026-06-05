@@ -2,7 +2,7 @@
 
 Operativni zapis slučajeva koje je agent obavio na produkciji **stay.hr** (WhatsApp fotke → medij → `Guest` / `IdDocument` → eVisitor). Namijenjeno budućem AI agentu i recepciji.
 
-**Povezano:** [id-document-import.md](../development/id-document-import.md) (struktura mapa, modeli), [evisitor-adresa-res-190-2026-05-30.md](./evisitor-adresa-res-190-2026-05-30.md) (format adrese).
+**Povezano:** [id-document-import.md](../development/id-document-import.md) (struktura mapa, modeli), [ocr-multi-guest-rules.md](./ocr-multi-guest-rules.md) (batch OCR, više gostiju), [evisitor-adresa-res-190-2026-05-30.md](./evisitor-adresa-res-190-2026-05-30.md) (format adrese).
 
 **Media root:** `/opt/stacks/stay.hr/data/media` · **Django:** `docker exec stay_django python manage.py shell`
 
