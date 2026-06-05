@@ -76,6 +76,58 @@ def _guest_name(payload: dict[str, Any]) -> str:
     ).strip()
 
 
+def resolve_reservation_for_review(
+    tenant: Tenant,
+    *,
+    booking_id: str = "",
+    ota_reservation_id: str = "",
+) -> Reservation | None:
+    """Match a Channex review to a stay.hr reservation."""
+    booking_id = (booking_id or "").strip()
+    ota_reservation_id = (ota_reservation_id or "").strip()
+
+    if booking_id:
+        reservation = find_reservation_for_channex_booking(tenant, booking_id)
+        if reservation is not None:
+            return reservation
+
+    if not ota_reservation_id:
+        return None
+
+    reservation = (
+        Reservation.objects.filter(
+            tenant=tenant,
+            booking_code=ota_reservation_id,
+        )
+        .first()
+    )
+    if reservation is not None:
+        return reservation
+
+    return Reservation.objects.filter(
+        tenant=tenant,
+        external_id=ota_reservation_id,
+    ).first()
+
+
+def relink_unlinked_channex_reviews(tenant: Tenant) -> int:
+    """Retry reservation matching for reviews stored without a link."""
+    updated = 0
+    qs = ChannexReview.objects.filter(tenant=tenant, reservation__isnull=True)
+    for row in qs.iterator():
+        reservation = resolve_reservation_for_review(
+            tenant,
+            booking_id=row.channex_booking_id or "",
+            ota_reservation_id=row.ota_reservation_id or "",
+        )
+        if reservation is None:
+            continue
+        row.reservation = reservation
+        row.save(update_fields=["reservation", "updated_at"])
+        updated += 1
+    return updated
+
+
 def _review_fields_from_payload(
     flat: dict[str, Any],
     *,
@@ -126,8 +178,13 @@ def upsert_channex_review_from_payload(
     flat = _flatten_review_payload(payload)
     review_id = channex_review_id_from_payload(flat)
     booking_id = str(flat.get("booking_id") or "").strip()
-    if reservation is None and booking_id:
-        reservation = find_reservation_for_channex_booking(tenant, booking_id)
+    ota_reservation_id = str(flat.get("ota_reservation_id") or "").strip()
+    if reservation is None:
+        reservation = resolve_reservation_for_review(
+            tenant,
+            booking_id=booking_id,
+            ota_reservation_id=ota_reservation_id,
+        )
 
     field_values = _review_fields_from_payload(flat, reservation=reservation)
     existing = ChannexReview.objects.filter(channex_review_id=review_id).first()
@@ -138,12 +195,13 @@ def upsert_channex_review_from_payload(
             channex_review_id=review_id,
             **field_values,
         )
-        if reservation is None and booking_id:
+        if reservation is None and (booking_id or ota_reservation_id):
             logger.warning(
                 "channex review stored without reservation link",
                 extra={
                     "tenant_slug": tenant.slug,
                     "booking_id": booking_id,
+                    "ota_reservation_id": ota_reservation_id,
                     "review_id": review_id,
                 },
             )
@@ -192,7 +250,12 @@ def process_channex_review_webhook(
 
     tenant = integration_row.tenant
     booking_id = str(payload.get("booking_id") or "").strip()
-    reservation = find_reservation_for_channex_booking(tenant, booking_id) if booking_id else None
+    ota_reservation_id = str(payload.get("ota_reservation_id") or "").strip()
+    reservation = resolve_reservation_for_review(
+        tenant,
+        booking_id=booking_id,
+        ota_reservation_id=ota_reservation_id,
+    )
     row, created, content_just_arrived = upsert_channex_review_from_payload(
         tenant=tenant,
         integration=integration_row,
@@ -279,6 +342,7 @@ def sync_reviews_from_channex(
     finally:
         if owns_client and client is not None:
             client.close()
+    relink_unlinked_channex_reviews(integration_row.tenant)
     return stored
 
 
@@ -577,6 +641,8 @@ def serialize_channex_review(
     if reservation is not None:
         booking_code = reservation.booking_code or str(reservation.pk)
 
+    reservation_ref = booking_code or (row.ota_reservation_id or None)
+
     content_localized = row.content
     content_is_translated = False
     display_language = lang
@@ -592,6 +658,8 @@ def serialize_channex_review(
         "channex_review_id": row.channex_review_id,
         "reservation_id": row.reservation_id,
         "booking_code": booking_code,
+        "reservation_ref": reservation_ref,
+        "reservation_linkable": row.reservation_id is not None,
         "ota": row.ota,
         "ota_reservation_id": row.ota_reservation_id,
         "guest_name": row.guest_name,

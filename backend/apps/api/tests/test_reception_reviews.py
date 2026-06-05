@@ -101,6 +101,25 @@ class ReceptionReviewsTests(TestCase):
         self.assertEqual(data["total"], 1)
         self.assertEqual(len(data["reviews"]), 1)
         self.assertEqual(data["reviews"][0]["content"], "Excellent stay")
+        self.assertEqual(data["reviews"][0]["reservation_ref"], "5307026805")
+        self.assertTrue(data["reviews"][0]["reservation_linkable"])
+
+    def test_review_links_by_ota_reservation_id(self):
+        from apps.integrations.channex.review_service import upsert_channex_review_from_payload
+
+        row, created, _ = upsert_channex_review_from_payload(
+            tenant=self.tenant,
+            integration=self.integration,
+            payload={
+                "id": "review-uuid-2",
+                "ota": "BookingCom",
+                "ota_reservation_id": "5307026805",
+                "content": "Great stay",
+            },
+        )
+        self.assertTrue(created)
+        self.assertEqual(row.reservation_id, self.reservation.pk)
+        self.assertEqual(row.ota_reservation_id, "5307026805")
 
     @patch("apps.integrations.channex.review_service.translate_text")
     def test_review_translation_cached(self, mock_translate):
