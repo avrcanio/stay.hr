@@ -238,13 +238,13 @@ class ReceptionReservationReviewsView(TenantAPIView, APIView):
         except ChannexBookingIngestError as exc:
             raise ValidationError(str(exc)) from exc
 
-        sync_param = request.query_params.get("sync", "auto")
+        sync_param = request.query_params.get("sync", "0")
         try:
             rows = list_reviews_for_reservation(
                 integration,
                 reservation,
                 sync_if_empty=sync_param == "auto",
-                force_sync=sync_param == "1",
+                force_sync=sync_param in ("1", "true", "yes"),
             )
         except ChannexBookingIngestError as exc:
             raise ValidationError(str(exc)) from exc

@@ -37,10 +37,31 @@ _ISO2_TO_ISO3 = {
     "LU": "LUX",
     "IN": "IND",
     "CO": "COL",
+    "RO": "ROU",
+    "TR": "TUR",
+    "UA": "UKR",
+    "LT": "LTU",
+    "LV": "LVA",
+    "BR": "BRA",
+    "CA": "CAN",
+    "AR": "ARG",
+    "AU": "AUS",
+    "CL": "CHL",
+    "CN": "CHN",
+    "IL": "ISR",
+    "JP": "JPN",
+    "KR": "KOR",
+    "MT": "MLT",
+    "TH": "THA",
+    "TW": "TWN",
+    "CY": "CYP",
 }
 
 _ISO3_TO_ISO2 = {iso3: iso2 for iso2, iso3 in _ISO2_TO_ISO3.items()}
 _KNOWN_ISO2 = frozenset(_ISO2_TO_ISO3)
+
+# Truncated / invalid ISO2 codes that should fall through to document ISO3.
+_INVALID_ISO2 = frozenset({"PO"})
 
 
 def iso3_to_iso2(iso3: str) -> str:
@@ -57,7 +78,10 @@ def normalize_country_iso2(raw: str) -> str:
     if len(value) == 3:
         return iso3_to_iso2(value)
     if len(value) == 2:
-        return value if value in _KNOWN_ISO2 else ""
+        if value in _INVALID_ISO2:
+            return ""
+        if value in _KNOWN_ISO2 or value.isalpha():
+            return value
     return ""
 
 

@@ -19,6 +19,16 @@ class NationalityDisplayTests(SimpleTestCase):
     def test_normalize_country_iso2(self):
         self.assertEqual(normalize_country_iso2("PL"), "PL")
         self.assertEqual(normalize_country_iso2("DE"), "DE")
+        self.assertEqual(normalize_country_iso2("RO"), "RO")
+
+    def test_guest_nationality_ro(self):
+        from unittest.mock import Mock
+
+        guest = Mock()
+        guest.nationality = "RO"
+        guest.document_country_iso2 = "RO"
+        guest.document_country_iso3 = "ROU"
+        self.assertEqual(guest_nationality_iso2(guest), "RO")
 
     def test_invalid_truncated_iso2_rejected(self):
         self.assertEqual(normalize_country_iso2("PO"), "")

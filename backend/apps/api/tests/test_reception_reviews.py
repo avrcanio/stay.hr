@@ -244,6 +244,51 @@ class ReceptionReviewsTests(TestCase):
         self.assertEqual(data["reservation_id"], self.reservation.pk)
         self.assertEqual(len(data["reviews"]), 1)
 
+    @patch("apps.integrations.channex.review_service.sync_reviews_from_channex")
+    def test_reservation_reviews_default_skips_channex_sync(self, mock_sync):
+        empty_reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id=channex_external_id("channex-booking-empty"),
+            import_source="channex",
+            booking_code="9999999999",
+            check_in=date(2026, 7, 1),
+            check_out=date(2026, 7, 2),
+            booker_name="No Reviews Guest",
+            status=Reservation.Status.EXPECTED,
+        )
+        self._login()
+        response = self.client.get(
+            f"/api/v1/reception/reservations/{empty_reservation.pk}/reviews/",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["reservation_id"], empty_reservation.pk)
+        self.assertEqual(data["reviews"], [])
+        mock_sync.assert_not_called()
+
+    @patch("apps.integrations.channex.review_service.sync_reviews_from_channex")
+    def test_reservation_reviews_sync_one_triggers_channex(self, mock_sync):
+        empty_reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id=channex_external_id("channex-booking-sync"),
+            import_source="channex",
+            booking_code="8888888888",
+            check_in=date(2026, 7, 3),
+            check_out=date(2026, 7, 4),
+            booker_name="Sync Guest",
+            status=Reservation.Status.EXPECTED,
+        )
+        self._login()
+        response = self.client.get(
+            f"/api/v1/reception/reservations/{empty_reservation.pk}/reviews/?sync=1",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_sync.assert_called_once()
+
     def test_reservation_reviews_relinks_unlinked(self):
         unlinked = ChannexReview.objects.create(
             tenant=self.tenant,

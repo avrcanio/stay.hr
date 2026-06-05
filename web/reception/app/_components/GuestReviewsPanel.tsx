@@ -46,7 +46,7 @@ export function GuestReviewsPanel({ reservationId, compact = false }: Props) {
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ sync: "auto", lang: displayLang, translate: "1" });
+      const params = new URLSearchParams({ sync: "0", lang: displayLang, translate: "1" });
       const res = await fetch(`${baseUrl}?${params.toString()}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

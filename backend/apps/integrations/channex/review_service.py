@@ -452,7 +452,7 @@ def list_reviews_for_reservation(
     integration_row: IntegrationConfig,
     reservation: Reservation,
     *,
-    sync_if_empty: bool = True,
+    sync_if_empty: bool = False,
     force_sync: bool = False,
     client: ChannexClient | None = None,
 ) -> list[ChannexReview]:
