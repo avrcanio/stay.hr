@@ -141,6 +141,7 @@ GET /api/v1/reception/message-threads/?needs_reply=1&sync=auto
 - Default kanal slanja: **WhatsApp** ako `channels.whatsapp.available`, inače `booking` → `email`
 - Promjena kanala: **long-press** na Send → bottom sheet
 - AI compose: gumb u inputu → sheet (Check-in / Reply / Custom)
+- **WhatsApp resend:** long-press na **outbound WhatsApp** poruku (handoff) → odabir Channex ili mail → odmah pošalji isti tekst (compose `body_text` + send)
 
 ---
 
@@ -218,9 +219,23 @@ Content-Type: application/json
 
 | Polje | Obavezno | Vrijednosti |
 |-------|----------|-------------|
-| `intent` | Da | `checkin` \| `reply` \| `custom` |
+| `intent` | Da* | `checkin` \| `reply` \| `custom` |
+| `body_text` | Da* | Gotov tekst poruke — **bez LLM-a** (resend / relay s istim sadržajem) |
 | `hint` | Ne | Tekstualni hint za LLM; posebno `"checkin ready"` nakon OCR |
 | `language` | Ne | Override jezika (`hr`, `en`, `de`, `es`, `fr`) — rijetko potreban |
+
+\* Obavezno je **`intent`** ili **`body_text`** (ne oba). Ako je poslan `body_text`, backend kreira draft s točnim tekstom (`llm_used: false`).
+
+#### Resend primjer (WhatsApp → Channex / mail)
+
+```http
+POST /api/v1/reception/reservations/798/messages/compose/
+Content-Type: application/json
+
+{"body_text": "Parking is available behind the building."}
+```
+
+Zatim standardni `POST .../send/` s `channel: booking` ili `email`.
 
 #### Response (201)
 

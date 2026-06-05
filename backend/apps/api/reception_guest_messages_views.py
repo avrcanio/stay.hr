@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.api.reception_views import ReceptionReadView, ReceptionWriteView
-from apps.communications.guest_compose import compose_guest_message
+from apps.communications.guest_compose import compose_guest_message, create_draft_from_body_text
 from apps.communications.guest_message_send import (
     build_message_channels,
     default_email_subject,
@@ -30,9 +30,27 @@ from apps.reservations.models import Reservation
 
 
 class GuestMessageComposeSerializer(serializers.Serializer):
-    intent = serializers.ChoiceField(choices=GuestMessageIntent.choices)
+    intent = serializers.ChoiceField(choices=GuestMessageIntent.choices, required=False)
     hint = serializers.CharField(required=False, allow_blank=True, default="")
     language = serializers.CharField(required=False, allow_blank=True, default="")
+    body_text = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=8000,
+        trim_whitespace=True,
+    )
+
+    def validate(self, attrs):
+        body_text = (attrs.get("body_text") or "").strip()
+        intent = attrs.get("intent")
+        if body_text:
+            attrs["body_text"] = body_text
+            return attrs
+        if intent is None:
+            raise serializers.ValidationError(
+                {"intent": "Required unless body_text is provided."}
+            )
+        return attrs
 
 
 class GuestMessageSendSerializer(serializers.Serializer):
@@ -95,13 +113,22 @@ class ReceptionGuestMessageComposeView(ReceptionWriteView, APIView):
         language = (data.get("language") or "").strip() or None
         api_application = getattr(request, "api_application", None)
 
-        draft, channels, llm_used = compose_guest_message(
-            reservation,
-            intent=data["intent"],
-            hint=data.get("hint") or "",
-            api_application=api_application,
-            language=language,
-        )
+        body_text = (data.get("body_text") or "").strip()
+        if body_text:
+            draft, channels = create_draft_from_body_text(
+                reservation,
+                body_text,
+                api_application=api_application,
+            )
+            llm_used = False
+        else:
+            draft, channels, llm_used = compose_guest_message(
+                reservation,
+                intent=data["intent"],
+                hint=data.get("hint") or "",
+                api_application=api_application,
+                language=language,
+            )
 
         return Response(
             {

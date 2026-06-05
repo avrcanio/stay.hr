@@ -562,3 +562,109 @@ class ReceptionGuestMessagesAPITests(TestCase):
         self.assertTrue(data["channels"]["email"]["available"])
         self.assertFalse(data["channels"]["booking"]["available"])
         self.assertTrue(data["channels"]["whatsapp"]["available"])
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_compose_body_text_skips_llm(self):
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        exact = "Exact resend text without LLM regeneration."
+
+        response = self.client.post(
+            f"{self.base}/compose/",
+            {"body_text": exact},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["body_text"], exact)
+        self.assertFalse(data["llm_used"])
+        self.assertIn("draft_id", data)
+
+    @patch("apps.communications.guest_message_send.send_message_for_reservation")
+    @patch.dict(os.environ, {}, clear=False)
+    def test_resend_whatsapp_to_booking(self, mock_send):
+        from apps.integrations.channex.booking_service import channex_external_id
+        from apps.integrations.models import ChannexMessage, IntegrationConfig
+        from apps.tenants.models import ChannelManager, TenantReceptionSettings
+
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        TenantReceptionSettings.objects.create(
+            tenant=self.tenant,
+            channel_manager=ChannelManager.CHANNEX,
+        )
+        IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
+        self.reservation.import_source = "channex"
+        self.reservation.external_id = channex_external_id("test-booking-uuid")
+        self.reservation.save(update_fields=["import_source", "external_id"])
+
+        body = "Parking info resend via Channex."
+        mock_send.return_value = ChannexMessage.objects.create(
+            tenant=self.tenant,
+            channex_booking_id="test-booking-uuid",
+            channex_message_id="msg-resend-1",
+            direction=ChannexMessage.Direction.OUTBOUND,
+            sender=ChannexMessage.Sender.PROPERTY,
+            body=body,
+            reservation=self.reservation,
+        )
+
+        compose = self.client.post(
+            f"{self.base}/compose/",
+            {"body_text": body},
+            format="json",
+            **self.auth,
+        )
+        draft_id = compose.json()["draft_id"]
+
+        response = self.client.post(
+            f"{self.base}/send/",
+            {
+                "draft_id": draft_id,
+                "channel": "booking",
+                "body_text": body,
+            },
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["channel"], "booking")
+        self.assertEqual(data["body_text"], body)
+        mock_send.assert_called_once()
+
+    @patch("apps.communications.guest_message_send.send_guest_text_email")
+    @patch.dict(os.environ, {}, clear=False)
+    def test_resend_whatsapp_to_email(self, mock_send):
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        mock_send.return_value = {"sent": True, "to": "wolfgang@example.com"}
+        body = "Parking info resend via email."
+
+        compose = self.client.post(
+            f"{self.base}/compose/",
+            {"body_text": body},
+            format="json",
+            **self.auth,
+        )
+        draft_id = compose.json()["draft_id"]
+
+        response = self.client.post(
+            f"{self.base}/send/",
+            {
+                "draft_id": draft_id,
+                "channel": "email",
+                "body_text": body,
+            },
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["channel"], "email")
+        self.assertEqual(data["status"], "sent")
+        self.assertEqual(data["body_text"], body)
+        mock_send.assert_called_once()
+

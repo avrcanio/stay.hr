@@ -486,6 +486,34 @@ def _generate_body(
     return f"{greeting}\n\n{fallback_hint}\n\n{FOOTER}", used_llm, model_name
 
 
+def create_draft_from_body_text(
+    reservation: Reservation,
+    body_text: str,
+    *,
+    api_application: ApiApplication | None = None,
+) -> tuple[GuestMessageDraft, dict]:
+    """Create a draft from exact text (resend / relay) without LLM."""
+    text = (body_text or "").strip()
+    if not text:
+        raise ValueError("body_text is required")
+
+    lang = _lang_key(reservation, None)
+    channels = build_message_channels(reservation)
+    draft = GuestMessageDraft.objects.create(
+        tenant_id=reservation.tenant_id,
+        reservation=reservation,
+        intent=GuestMessageIntent.CUSTOM,
+        hint="resend",
+        llm_body_text=text,
+        final_body_text="",
+        language=lang,
+        llm_model="",
+        prompt_version=prompt_version(),
+        api_application=api_application,
+    )
+    return draft, channels
+
+
 def compose_guest_message(
     reservation: Reservation,
     *,
