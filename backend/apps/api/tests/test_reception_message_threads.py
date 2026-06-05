@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.communications.models import GuestMessageChannel, GuestOutboundMessage, GuestOutboundMessageStatus
-from apps.integrations.models import ChannexMessage, WhatsAppMessage
+from apps.integrations.models import ChannexMessage
 from apps.properties.models import Property, Unit
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.tenants.models import RECEPTION_DEVICE_SCOPES, ApiApplication, Tenant
