@@ -7,9 +7,11 @@ from django.test import TestCase, override_settings
 from apps.core.notifications import send_tenant_reception_push, tenant_fcm_tokens
 from apps.core.tasks import (
     notify_guest_message_inbound,
+    notify_guest_review_inbound,
     notify_new_reservation,
     notify_reservation_status_changed,
 )
+from apps.integrations.models import ChannexReview, IntegrationConfig
 from apps.properties.models import Property
 from apps.reservations.models import Reservation
 from apps.tenants.models import RECEPTION_DEVICE_SCOPES, ApiApplication, Tenant
@@ -223,4 +225,79 @@ class NotifyGuestMessageInboundTaskTests(TestCase):
         )
         self.assertEqual(result["sent"], 0)
         self.assertEqual(result["reason"], "empty_preview")
+        mock_push.assert_not_called()
+
+
+class NotifyGuestReviewInboundTaskTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Demo", slug="demo")
+        self.property = Property.objects.create(
+            tenant=self.tenant,
+            name="Demo Property",
+            slug="demo",
+        )
+        ApiApplication.create_with_token(
+            tenant=self.tenant,
+            name="Tablet",
+            scopes=RECEPTION_DEVICE_SCOPES,
+            fcm_token="token-abc-" + ("x" * 40),
+        )
+        self.reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            booking_code="5307026805",
+            check_in=date(2026, 6, 10),
+            check_out=date(2026, 6, 12),
+            status=Reservation.Status.EXPECTED,
+            booker_name="Joan March",
+            amount=Decimal("150.00"),
+        )
+        self.integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
+        self.review = ChannexReview.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            channex_review_id="review-uuid-push",
+            ota="BookingCom",
+            content="Excellent stay",
+            overall_score=Decimal("9.5"),
+            is_replied=False,
+        )
+
+    @patch("apps.core.notifications.send_tenant_reception_push")
+    def test_builds_review_received_payload(self, mock_push):
+        mock_push.return_value = ["msg-review-1"]
+        result = notify_guest_review_inbound(
+            self.reservation.pk,
+            review_id=self.review.pk,
+            ota="BookingCom",
+            score_preview="9.5",
+            content_preview="Excellent stay",
+        )
+        self.assertEqual(result["sent"], 1)
+        self.assertEqual(result["review_id"], self.review.pk)
+        kwargs = mock_push.call_args.kwargs
+        self.assertEqual(kwargs["title"], "Nova recenzija")
+        self.assertIn("Joan March", kwargs["body"])
+        self.assertIn("BookingCom", kwargs["body"])
+        self.assertIn("Excellent stay", kwargs["body"])
+        self.assertEqual(kwargs["data"]["type"], "guest.review.received")
+        self.assertEqual(kwargs["data"]["reservation_id"], str(self.reservation.pk))
+        self.assertEqual(kwargs["data"]["review_id"], str(self.review.pk))
+        self.assertEqual(kwargs["data"]["booking_code"], "5307026805")
+
+    @patch("apps.core.notifications.send_tenant_reception_push")
+    def test_skips_when_reservation_missing(self, mock_push):
+        result = notify_guest_review_inbound(
+            999999,
+            review_id=self.review.pk,
+            ota="BookingCom",
+            content_preview="Missing reservation",
+        )
+        self.assertEqual(result["sent"], 0)
+        self.assertEqual(result["reason"], "not_found")
         mock_push.assert_not_called()

@@ -1,6 +1,8 @@
 from datetime import date
 from decimal import Decimal
 
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from apps.integrations.channex.booking_service import channex_external_id
@@ -77,6 +79,75 @@ class ChannexReviewWebhookTests(TestCase):
         self.assertEqual(row.ota, "BookingCom")
         self.assertEqual(row.overall_score, Decimal("10.0"))
         self.assertFalse(row.is_replied)
+
+    @patch("apps.core.tasks.notify_guest_review_inbound.delay")
+    def test_review_webhook_queues_push(self, mock_notify_delay):
+        record_channex_webhook(
+            integration_row=self.integration,
+            tenant=self.tenant,
+            event="review",
+            property_id="prop-uuid-123",
+            body={"payload": self.payload},
+        )
+
+        row = ChannexReview.objects.get(channex_review_id=self.review_id)
+        mock_notify_delay.assert_called_once_with(
+            self.reservation.id,
+            review_id=row.pk,
+            ota="BookingCom",
+            score_preview="10.0",
+            content_preview="",
+        )
+
+    @patch("apps.core.tasks.notify_guest_review_inbound.delay")
+    def test_updated_review_with_content_queues_push(self, mock_notify_delay):
+        record_channex_webhook(
+            integration_row=self.integration,
+            tenant=self.tenant,
+            event="review",
+            property_id="prop-uuid-123",
+            body={"payload": self.payload},
+        )
+        mock_notify_delay.reset_mock()
+
+        updated = {
+            **self.payload,
+            "content": "Great stay, thank you!",
+        }
+        record_channex_webhook(
+            integration_row=self.integration,
+            tenant=self.tenant,
+            event="updated_review",
+            property_id="prop-uuid-123",
+            body={"payload": updated},
+        )
+
+        row = ChannexReview.objects.get(channex_review_id=self.review_id)
+        mock_notify_delay.assert_called_once_with(
+            self.reservation.id,
+            review_id=row.pk,
+            ota="BookingCom",
+            score_preview="10.0",
+            content_preview="Great stay, thank you!",
+        )
+
+    @patch("apps.core.tasks.notify_guest_review_inbound.delay")
+    def test_unlinked_review_skips_push(self, mock_notify_delay):
+        unlinked_payload = {
+            **self.payload,
+            "booking_id": "unknown-booking",
+            "ota_reservation_id": "9999999999",
+        }
+        record_channex_webhook(
+            integration_row=self.integration,
+            tenant=self.tenant,
+            event="review",
+            property_id="prop-uuid-123",
+            body={"payload": unlinked_payload},
+        )
+
+        self.assertTrue(ChannexReview.objects.filter(channex_review_id=self.review_id).exists())
+        mock_notify_delay.assert_not_called()
 
     def test_updated_review_updates_content(self):
         body = {"payload": self.payload}

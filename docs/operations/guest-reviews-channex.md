@@ -64,7 +64,8 @@ Review text fields in list/detail responses:
 ## Push notifications
 
 Event type: `guest.review.received` (FCM data + notification).  
-Tablet: Postavke → obavijest **Recenzija gosta**.
+Tablet: Postavke → obavijest **Recenzija gosta**.  
+Tap (background) ili foreground SnackBar **Otvori** (s `review_id` u payloadu) → `/reservations/{id}/reviews/{reviewId}`; inače inbox `/reviews`.
 
 ## Manual test checklist
 
