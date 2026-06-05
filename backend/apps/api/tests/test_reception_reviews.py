@@ -196,6 +196,33 @@ class ReceptionReviewsTests(TestCase):
         self.assertEqual(data["reservation_id"], self.reservation.pk)
         self.assertEqual(len(data["reviews"]), 1)
 
+    def test_reservation_reviews_relinks_unlinked(self):
+        unlinked = ChannexReview.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=None,
+            channex_review_id="review-uuid-res-unlinked",
+            ota="BookingCom",
+            ota_reservation_id="5307026805",
+            content="Reservation endpoint relink",
+            overall_score=Decimal("8.0"),
+            is_replied=False,
+            received_at=timezone.now(),
+        )
+        self.assertIsNone(unlinked.reservation_id)
+
+        self._login()
+        response = self.client.get(
+            f"/api/v1/reception/reservations/{self.reservation.pk}/reviews/?sync=0",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        review_ids = [item["id"] for item in data["reviews"]]
+        self.assertIn(unlinked.pk, review_ids)
+        unlinked.refresh_from_db()
+        self.assertEqual(unlinked.reservation_id, self.reservation.pk)
+
     @patch("apps.integrations.channex.review_service.ChannexClient")
     def test_reply_to_review(self, mock_client_cls):
         mock_client = MagicMock()

@@ -384,6 +384,17 @@ def list_reviews_for_property(
     return rows, total
 
 
+def _reviews_queryset_for_reservation(reservation: Reservation) -> QuerySet[ChannexReview]:
+    booking_ids = _booking_ids_for_reservation(reservation)
+    filters = Q(reservation=reservation)
+    if booking_ids:
+        filters |= Q(channex_booking_id__in=booking_ids)
+    ota_code = (reservation.booking_code or "").strip()
+    if ota_code:
+        filters |= Q(ota_reservation_id=ota_code)
+    return ChannexReview.objects.filter(tenant=reservation.tenant).filter(filters)
+
+
 def list_reviews_for_reservation(
     integration_row: IntegrationConfig,
     reservation: Reservation,
@@ -392,15 +403,12 @@ def list_reviews_for_reservation(
     force_sync: bool = False,
     client: ChannexClient | None = None,
 ) -> list[ChannexReview]:
-    qs = ChannexReview.objects.filter(
-        tenant=reservation.tenant,
-        reservation=reservation,
-    )
+    relink_unlinked_channex_reviews(reservation.tenant)
+    qs = _reviews_queryset_for_reservation(reservation)
     if force_sync or (sync_if_empty and not qs.exists()):
         sync_reviews_from_channex(integration_row, client=client, max_pages=10)
-        qs = ChannexReview.objects.filter(
-            tenant=reservation.tenant,
-        ).filter(Q(reservation=reservation) | Q(channex_booking_id__in=_booking_ids_for_reservation(reservation)))
+        relink_unlinked_channex_reviews(reservation.tenant)
+        qs = _reviews_queryset_for_reservation(reservation)
     return list(qs.order_by("-received_at", "-created_at"))
 
 
