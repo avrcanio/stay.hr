@@ -328,3 +328,33 @@ class WhatsAppWebhookTests(TestCase):
         )
         greeting = mock_send.call_args.kwargs["body"]
         self.assertIn("BCOM-9001", greeting)
+
+    @patch("apps.core.tasks.notify_guest_message_inbound.delay")
+    @patch("apps.integrations.whatsapp.tasks.send_text_message")
+    def test_inbound_push_when_auto_reply_disabled(self, mock_send, mock_notify):
+        self.integration_a.set_config_dict(
+            {
+                **self.integration_a.get_config_dict(),
+                "auto_reply": False,
+            }
+        )
+        self.integration_a.save()
+
+        payload = _sample_webhook_payload(
+            phone_number_id=self.phone_number_id_a,
+            wa_id="385911111111",
+            wamid="wamid.inbound.no-autoreply",
+            body="Imam pitanje o check-inu",
+        )
+        request = _signed_post(self.factory, self._url(), payload)
+        response = WhatsAppWebhookView.as_view()(request)
+        self.assertEqual(response.status_code, 200)
+
+        inbound = WhatsAppMessage.objects.get(wamid="wamid.inbound.no-autoreply")
+        self.assertEqual(inbound.reservation_id, self.reservation_a.id)
+        mock_send.assert_not_called()
+        mock_notify.assert_called_once_with(
+            self.reservation_a.pk,
+            channel="whatsapp",
+            body_preview="Imam pitanje o check-inu",
+        )

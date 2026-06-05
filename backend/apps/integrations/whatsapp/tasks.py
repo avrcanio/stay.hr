@@ -12,22 +12,33 @@ from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 
 logger = logging.getLogger(__name__)
 
+_WHATSAPP_NON_TEXT_PREVIEW = "Poruka (WhatsApp)"
 
-@shared_task
-def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
-    row = (
-        WhatsAppMessage.objects.select_related("integration", "tenant")
-        .filter(pk=message_id, direction=WhatsAppMessage.Direction.INBOUND)
-        .first()
-    )
-    if row is None:
-        return {"status": "missing"}
 
-    integration_row = row.integration
-    if integration_row is None or not integration_row.is_active:
-        return {"status": "no_integration"}
+def _inbound_body_preview(row: WhatsAppMessage) -> str:
+    if row.message_type == "text":
+        return row.body or ""
+    return _WHATSAPP_NON_TEXT_PREVIEW
 
-    runtime = WhatsAppRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+
+def _link_inbound_to_reservation(row: WhatsAppMessage) -> None:
+    if row.reservation_id is not None:
+        return
+    reservation = find_reservation_for_wa_id(tenant_id=row.tenant_id, wa_id=row.wa_id)
+    if reservation is None:
+        return
+    row.reservation = reservation
+    row.save(update_fields=["reservation"])
+
+
+def _maybe_send_auto_reply(
+    *,
+    row: WhatsAppMessage,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+    reservation,
+    profile_name: str,
+) -> dict:
     if not runtime.auto_reply:
         return {"status": "auto_reply_disabled"}
 
@@ -35,7 +46,6 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
         logger.warning("WhatsApp auto-reply skipped: missing credentials tenant=%s", row.tenant_id)
         return {"status": "missing_credentials"}
 
-    reservation = find_reservation_for_wa_id(tenant_id=row.tenant_id, wa_id=row.wa_id)
     greeting = build_greeting(
         integration_row=integration_row,
         reservation=reservation,
@@ -50,7 +60,7 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
             body=greeting,
         )
     except WhatsAppApiError as exc:
-        logger.warning("WhatsApp reply failed message_id=%s: %s", message_id, exc)
+        logger.warning("WhatsApp reply failed message_id=%s: %s", row.pk, exc)
         return {"status": "send_failed", "detail": str(exc)}
 
     outbound_wamid = _extract_outbound_wamid(response)
@@ -68,14 +78,56 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
             raw_payload=response,
         )
 
-    if reservation is not None and row.reservation_id is None:
-        row.reservation = reservation
-        row.save(update_fields=["reservation"])
-
     return {
         "status": "replied",
-        "reservation_id": reservation.pk if reservation else None,
         "outbound_wamid": outbound_wamid,
+    }
+
+
+def _maybe_notify_guest_message_inbound(row: WhatsAppMessage) -> None:
+    if row.reservation_id is None:
+        return
+
+    from apps.core.tasks import notify_guest_message_inbound
+
+    notify_guest_message_inbound.delay(
+        row.reservation_id,
+        channel="whatsapp",
+        body_preview=_inbound_body_preview(row),
+    )
+
+
+@shared_task
+def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
+    row = (
+        WhatsAppMessage.objects.select_related("integration", "tenant", "reservation")
+        .filter(pk=message_id, direction=WhatsAppMessage.Direction.INBOUND)
+        .first()
+    )
+    if row is None:
+        return {"status": "missing"}
+
+    integration_row = row.integration
+    if integration_row is None or not integration_row.is_active:
+        return {"status": "no_integration"}
+
+    _link_inbound_to_reservation(row)
+    reservation = row.reservation
+
+    runtime = WhatsAppRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+    reply_result = _maybe_send_auto_reply(
+        row=row,
+        integration_row=integration_row,
+        runtime=runtime,
+        reservation=reservation,
+        profile_name=profile_name,
+    )
+
+    _maybe_notify_guest_message_inbound(row)
+
+    return {
+        **reply_result,
+        "reservation_id": reservation.pk if reservation else None,
     }
 
 

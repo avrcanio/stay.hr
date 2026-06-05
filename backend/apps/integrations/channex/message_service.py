@@ -176,6 +176,19 @@ def process_channex_message_webhook(
             "reservation_id": row.reservation_id,
         },
     )
+    if (
+        created
+        and row.reservation_id
+        and row.sender == ChannexMessage.Sender.GUEST
+        and (row.body or "").strip()
+    ):
+        from apps.core.tasks import notify_guest_message_inbound
+
+        notify_guest_message_inbound.delay(
+            row.reservation_id,
+            channel="booking",
+            body_preview=row.body or "",
+        )
     return {
         "message_id": row.channex_message_id,
         "created": created,

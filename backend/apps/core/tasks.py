@@ -114,6 +114,88 @@ def notify_reservation_status_changed(
     }
 
 
+_GUEST_MESSAGE_CHANNEL_LABELS = {
+    "booking": "Booking.com",
+    "whatsapp": "WhatsApp",
+}
+
+
+def _truncate_preview(text: str, *, limit: int = 100) -> str:
+    snippet = (text or "").strip()
+    if len(snippet) <= limit:
+        return snippet
+    return snippet[: limit - 3] + "..."
+
+
+def _guest_message_push_body(
+    reservation,
+    *,
+    channel: str,
+    body_preview: str,
+) -> tuple[str, str]:
+    channel_label = _GUEST_MESSAGE_CHANNEL_LABELS.get(channel, channel)
+    name = reservation.booker_name or reservation.booking_code or str(reservation.pk)
+    snippet = _truncate_preview(body_preview)
+    if snippet:
+        body = f"{name} · {channel_label}: {snippet}"
+    else:
+        body = f"{name} · {channel_label}"
+    return body, snippet
+
+
+@shared_task
+def notify_guest_message_inbound(
+    reservation_id: int,
+    *,
+    channel: str,
+    body_preview: str = "",
+) -> dict:
+    from apps.core.notifications import send_tenant_reception_push
+    from apps.core.push_payload import reception_push_data
+    from apps.reservations.models import Reservation
+
+    reservation = (
+        Reservation.objects.select_related("tenant", "property")
+        .filter(pk=reservation_id)
+        .first()
+    )
+    if reservation is None:
+        return {"sent": 0, "reservation_id": reservation_id, "reason": "not_found"}
+
+    preview = (body_preview or "").strip()
+    if not preview and channel != "whatsapp":
+        return {"sent": 0, "reservation_id": reservation_id, "reason": "empty_preview"}
+
+    title = "Nova poruka"
+    body, summary = _guest_message_push_body(
+        reservation,
+        channel=channel,
+        body_preview=preview or "Poruka (WhatsApp)",
+    )
+    booking_code = reservation.booking_code or str(reservation.pk)
+    data = reception_push_data(
+        event_type="guest.message.received",
+        reservation_id=reservation.pk,
+        summary=summary or preview,
+        booking_code=booking_code,
+        channel=channel,
+        tenant_id=str(reservation.tenant_id),
+    )
+
+    message_ids = send_tenant_reception_push(
+        tenant_id=reservation.tenant_id,
+        title=title,
+        body=body,
+        data=data,
+    )
+    return {
+        "sent": len(message_ids),
+        "reservation_id": reservation_id,
+        "channel": channel,
+        "message_ids": message_ids,
+    }
+
+
 def _auto_checkout_skipped_body(count: int, booking_codes: list[str]) -> str:
     if count == 1:
         base = "1 rezervacija nije odjavljena (eVisitor)"

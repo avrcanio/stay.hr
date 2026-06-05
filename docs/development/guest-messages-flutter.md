@@ -218,11 +218,25 @@ Nakon uspješnog OCR apply postavi lokalni flag; sljedeći Reply → Compose aut
 
 ---
 
+## FCM push (inbound poruke)
+
+Backend šalje FCM event **`guest.message.received`** kad stigne nova inbound poruka s linkane rezervacije:
+
+| Izvor | Trigger |
+|-------|---------|
+| Channex / Booking.com | `process_channex_message_webhook` — samo nova guest poruka (`created=True`) |
+| WhatsApp | `process_inbound_message` — nakon linkanja na rezervaciju |
+
+Payload (data): `type`, `reservation_id`, `channel` (`booking` \| `whatsapp`), `summary` (snippet teksta).
+
+Flutter: refresh timeline/badge, tap → `/reservations/:id/messages`. Toggle u Postavkama: **Poruka od gosta** (`guest_message`).
+
+---
+
 ## Što ne implementirati u fazi 1
 
 - Email inbound (mailbox parse) — nema API-ja
 - Channex attachments — `have_attachment` postoji, download nije implementiran
-- FCM push za nove Channex poruke — koristi refresh pri otvaranju ekrana
 
 ---
 

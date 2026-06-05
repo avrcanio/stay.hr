@@ -5,7 +5,11 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 
 from apps.core.notifications import send_tenant_reception_push, tenant_fcm_tokens
-from apps.core.tasks import notify_new_reservation, notify_reservation_status_changed
+from apps.core.tasks import (
+    notify_guest_message_inbound,
+    notify_new_reservation,
+    notify_reservation_status_changed,
+)
 from apps.properties.models import Property
 from apps.reservations.models import Reservation
 from apps.tenants.models import RECEPTION_DEVICE_SCOPES, ApiApplication, Tenant
@@ -151,4 +155,72 @@ class NotifyReservationStatusChangedTaskTests(TestCase):
         )
         self.assertEqual(result["sent"], 0)
         self.assertEqual(result["reason"], "unchanged")
+        mock_push.assert_not_called()
+
+
+class NotifyGuestMessageInboundTaskTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Demo", slug="demo")
+        self.property = Property.objects.create(
+            tenant=self.tenant,
+            name="Demo Property",
+            slug="demo",
+        )
+        ApiApplication.create_with_token(
+            tenant=self.tenant,
+            name="Tablet",
+            scopes=RECEPTION_DEVICE_SCOPES,
+            fcm_token="token-abc-" + ("x" * 40),
+        )
+        self.reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            booking_code="TEST-003",
+            check_in=date(2026, 6, 10),
+            check_out=date(2026, 6, 12),
+            status=Reservation.Status.EXPECTED,
+            booker_name="Petra Perić",
+            amount=Decimal("150.00"),
+        )
+
+    @patch("apps.core.notifications.send_tenant_reception_push")
+    def test_builds_booking_message_payload(self, mock_push):
+        mock_push.return_value = ["msg-3"]
+        result = notify_guest_message_inbound(
+            self.reservation.pk,
+            channel="booking",
+            body_preview="Dobro jutro, imamo pitanje o parkingu.",
+        )
+        self.assertEqual(result["sent"], 1)
+        kwargs = mock_push.call_args.kwargs
+        self.assertEqual(kwargs["title"], "Nova poruka")
+        self.assertIn("Petra Perić", kwargs["body"])
+        self.assertIn("Booking.com", kwargs["body"])
+        self.assertIn("parking", kwargs["body"])
+        self.assertEqual(kwargs["data"]["type"], "guest.message.received")
+        self.assertEqual(kwargs["data"]["reservation_id"], str(self.reservation.pk))
+        self.assertEqual(kwargs["data"]["channel"], "booking")
+
+    @patch("apps.core.notifications.send_tenant_reception_push")
+    def test_builds_whatsapp_fallback_preview(self, mock_push):
+        mock_push.return_value = ["msg-4"]
+        result = notify_guest_message_inbound(
+            self.reservation.pk,
+            channel="whatsapp",
+            body_preview="",
+        )
+        self.assertEqual(result["sent"], 1)
+        kwargs = mock_push.call_args.kwargs
+        self.assertIn("WhatsApp", kwargs["body"])
+        self.assertEqual(kwargs["data"]["channel"], "whatsapp")
+
+    @patch("apps.core.notifications.send_tenant_reception_push")
+    def test_skips_empty_booking_preview(self, mock_push):
+        result = notify_guest_message_inbound(
+            self.reservation.pk,
+            channel="booking",
+            body_preview="   ",
+        )
+        self.assertEqual(result["sent"], 0)
+        self.assertEqual(result["reason"], "empty_preview")
         mock_push.assert_not_called()
