@@ -306,6 +306,12 @@ def whatsapp_outbound_media_upload_to(instance, filename: str) -> str:
     return f"whatsapp_outbound/{tenant_id}/{message_id}/{filename}"
 
 
+def channex_message_media_upload_to(instance, filename: str) -> str:
+    tenant_id = getattr(instance, "tenant_id", None) or "unknown"
+    message_id = getattr(instance, "pk", None) or "unknown"
+    return f"channex_messages/{tenant_id}/{message_id}/{filename}"
+
+
 class WhatsAppMessage(TenantScopedModel):
     class Direction(models.TextChoices):
         INBOUND = "inbound", "Inbound"
@@ -379,6 +385,11 @@ class ChannexMessage(TenantScopedModel):
     sender = models.CharField(max_length=16, choices=Sender.choices)
     body = models.TextField(blank=True)
     have_attachment = models.BooleanField(default=False)
+    media_file = models.FileField(
+        upload_to=channex_message_media_upload_to,
+        blank=True,
+        null=True,
+    )
     raw_payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

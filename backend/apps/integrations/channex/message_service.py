@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone as dt_timezone
 from typing import Any
 
+from django.core.files.base import ContentFile
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -74,6 +75,26 @@ def _message_body(payload: dict[str, Any]) -> str:
     return str(payload.get("message") or payload.get("body") or "").strip()
 
 
+def _attachment_paths(payload: dict[str, Any]) -> list[str]:
+    raw = payload.get("attachments")
+    if not isinstance(raw, list):
+        return []
+    paths: list[str] = []
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            paths.append(item.strip())
+        elif isinstance(item, dict):
+            link = str(item.get("url") or item.get("link") or "").strip()
+            if link:
+                paths.append(link)
+    return paths
+
+
+def first_attachment_path(payload: dict[str, Any]) -> str | None:
+    paths = _attachment_paths(payload)
+    return paths[0] if paths else None
+
+
 def _message_sender(payload: dict[str, Any]) -> str:
     sender = str(payload.get("sender") or "").strip().lower()
     if sender == ChannexMessage.Sender.GUEST:
@@ -126,7 +147,7 @@ def upsert_channex_message_from_payload(
         "direction": _direction_for_sender(sender),
         "sender": sender,
         "body": _message_body(flat),
-        "have_attachment": bool(flat.get("have_attachment")),
+        "have_attachment": bool(flat.get("have_attachment")) or bool(_attachment_paths(flat)),
         "raw_payload": flat,
     }
     inserted_at = _message_created_at(flat)
@@ -298,6 +319,81 @@ def send_message_for_reservation(
             payload=payload,
             reservation=reservation,
         )
+        return row
+    except ChannexApiError:
+        raise
+    finally:
+        if owns_client and client is not None:
+            client.close()
+
+
+def send_image_for_reservation(
+    integration_row: IntegrationConfig,
+    reservation: Reservation,
+    *,
+    file_bytes: bytes,
+    filename: str,
+    mime_type: str,
+    caption: str = "",
+    client: ChannexClient | None = None,
+) -> ChannexMessage:
+    if not file_bytes:
+        raise ChannexBookingIngestError("Empty image file.")
+
+    booking_id = parse_channex_booking_id(reservation.external_id)
+    if not booking_id:
+        raise ChannexBookingIngestError("Reservation is not linked to a Channex booking.")
+
+    if reservation.import_source != "channex":
+        raise ChannexBookingIngestError("Reservation was not imported from Channex.")
+
+    if not mime_type.startswith("image/"):
+        raise ChannexBookingIngestError("Unsupported media type.")
+
+    config = ChannexRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+    owns_client = client is None
+    if owns_client:
+        client = ChannexClient(config)
+
+    text = (caption or "").strip()
+    try:
+        attachment_id = client.upload_attachment(
+            file_bytes=file_bytes,
+            file_name=filename,
+            file_type=mime_type,
+        )
+        response = client.send_booking_message(
+            booking_id,
+            text,
+            attachment_id=attachment_id,
+        )
+        rows = _extract_message_rows(response)
+        payload: dict[str, Any]
+        if rows:
+            payload = rows[0]
+        else:
+            payload = {
+                "id": f"local-outbound-image:{reservation.pk}:{ChannexMessage.objects.count() + 1}",
+                "booking_id": booking_id,
+                "sender": ChannexMessage.Sender.PROPERTY,
+                "message": text,
+                "have_attachment": True,
+            }
+        if not payload.get("booking_id"):
+            payload = {**payload, "booking_id": booking_id}
+        if payload.get("sender") != ChannexMessage.Sender.PROPERTY:
+            payload = {**payload, "sender": ChannexMessage.Sender.PROPERTY}
+        row, _created = upsert_channex_message_from_payload(
+            tenant=reservation.tenant,
+            integration=integration_row,
+            payload=payload,
+            reservation=reservation,
+        )
+        display_body = text or "📷 Slika poslana"
+        row.body = display_body
+        row.have_attachment = True
+        row.media_file.save(filename, ContentFile(file_bytes), save=False)
+        row.save(update_fields=["body", "have_attachment", "media_file"])
         return row
     except ChannexApiError:
         raise

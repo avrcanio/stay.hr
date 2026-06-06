@@ -32,6 +32,7 @@ from apps.api.reception_guest_messages_views import (
     ReceptionGuestMessageTranslateView,
     ReceptionGuestMessagesView,
     GuestOutboundMessageMediaView,
+    ChannexMessageMediaView,
     WhatsAppMessageMediaView,
 )
 from apps.api.reception_message_threads_views import ReceptionMessageThreadsListView
@@ -188,6 +189,11 @@ urlpatterns = [
         "guest-outbound-messages/<int:message_id>/media/",
         GuestOutboundMessageMediaView.as_view(),
         name="reception-guest-outbound-message-media",
+    ),
+    path(
+        "channex-messages/<int:message_id>/media/",
+        ChannexMessageMediaView.as_view(),
+        name="reception-channex-message-media",
     ),
     path(
         "reservations/<int:reservation_id>/messages/dismiss-reply/",

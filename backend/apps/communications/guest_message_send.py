@@ -27,7 +27,7 @@ from apps.communications.models import (
 from apps.integrations.channex.ari_service import get_active_channex_integration
 from apps.integrations.channex.booking_service import parse_channex_booking_id
 from apps.integrations.channex.exceptions import ChannexBookingIngestError
-from apps.integrations.channex.message_service import send_message_for_reservation
+from apps.integrations.channex.message_service import send_image_for_reservation, send_message_for_reservation
 from apps.integrations.channel_manager.resolver import get_channel_manager
 from apps.integrations.models import ChannexMessage, IntegrationConfig, WhatsAppMessage
 from apps.integrations.whatsapp.client import (
@@ -511,6 +511,56 @@ def send_guest_email_image(
     draft.save(update_fields=["final_body_text", "channel", "sent_at"])
 
     return outbound
+
+
+def send_guest_channex_image(
+    *,
+    reservation: Reservation,
+    draft: GuestMessageDraft,
+    uploaded_file,
+    caption: str = "",
+) -> ChannexMessage:
+    """Send image via Channex Booking.com / Airbnb / Expedia messages API."""
+    if not _booking_channel_available(reservation):
+        raise ValueError("booking_channel_unavailable")
+
+    integration = get_active_channex_integration(reservation.tenant.slug)
+    if integration is None:
+        raise ValueError("channex_not_configured")
+
+    file_bytes = uploaded_file.read()
+    uploaded_file.seek(0)
+    if not file_bytes:
+        raise ValueError("empty_file")
+
+    mime_type = getattr(uploaded_file, "content_type", None) or mimetypes.guess_type(
+        getattr(uploaded_file, "name", "") or ""
+    )[0] or "image/jpeg"
+    if not mime_type.startswith("image/"):
+        raise ValueError("unsupported_media_type")
+
+    filename = getattr(uploaded_file, "name", None) or "image.jpg"
+    body_text = (caption or "").strip() or _OUTBOUND_IMAGE_BODY
+
+    try:
+        row = send_image_for_reservation(
+            integration,
+            reservation,
+            file_bytes=file_bytes,
+            filename=filename,
+            mime_type=mime_type,
+            caption=(caption or "").strip(),
+        )
+    except ChannexBookingIngestError as exc:
+        raise ValueError(str(exc)) from exc
+
+    now = timezone.now()
+    draft.final_body_text = body_text
+    draft.channel = GuestMessageChannel.BOOKING
+    draft.sent_at = now
+    draft.save(update_fields=["final_body_text", "channel", "sent_at"])
+
+    return row
 
 
 def _send_whatsapp_handoff(

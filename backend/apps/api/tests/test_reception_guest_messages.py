@@ -738,3 +738,129 @@ class ReceptionGuestMessagesAPITests(TestCase):
         self.assertEqual(len(timeline.json()), 1)
         self.assertEqual(timeline.json()[0]["message_type"], "image")
 
+    @patch("apps.integrations.channex.message_service.ChannexClient")
+    def test_send_image_booking(self, mock_client_cls):
+        from apps.integrations.channex.booking_service import channex_external_id
+        from apps.integrations.models import ChannexMessage, IntegrationConfig
+        from apps.tenants.models import ChannelManager, TenantReceptionSettings
+
+        TenantReceptionSettings.objects.create(
+            tenant=self.tenant,
+            channel_manager=ChannelManager.CHANNEX,
+        )
+        IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
+        self.reservation.import_source = "channex"
+        self.reservation.external_id = channex_external_id("test-booking-uuid")
+        self.reservation.save(update_fields=["import_source", "external_id"])
+
+        mock_client = mock_client_cls.return_value
+        mock_client.upload_attachment.return_value = "attach-uuid-1"
+        mock_client.send_booking_message.return_value = {
+            "data": {
+                "id": "outbound-image-1",
+                "attributes": {
+                    "message": "Room photo",
+                    "sender": "property",
+                    "booking_id": "test-booking-uuid",
+                    "have_attachment": True,
+                },
+            }
+        }
+
+        response = self.client.post(
+            f"{self.base}/send-image/",
+            {
+                "file": _tiny_jpeg(),
+                "channel": "booking",
+                "caption": "Room photo",
+            },
+            format="multipart",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["channel"], "booking")
+        self.assertEqual(data["status"], "sent")
+        self.assertEqual(data["message_type"], "image")
+        self.assertIn("/channex-messages/", data["media_url"])
+        mock_client.upload_attachment.assert_called_once()
+        mock_client.send_booking_message.assert_called_once_with(
+            "test-booking-uuid",
+            "Room photo",
+            attachment_id="attach-uuid-1",
+        )
+        self.assertTrue(
+            ChannexMessage.objects.filter(channex_message_id="outbound-image-1").exists()
+        )
+
+        timeline = self.client.get(f"{self.base}/", **self.auth)
+        self.assertEqual(len(timeline.json()), 1)
+        self.assertEqual(timeline.json()[0]["message_type"], "image")
+
+    @patch("apps.integrations.channex.message_service.ChannexClient")
+    def test_send_image_booking(self, mock_client_cls):
+        from apps.integrations.channex.booking_service import channex_external_id
+        from apps.integrations.models import ChannexMessage, IntegrationConfig
+        from apps.tenants.models import ChannelManager, TenantReceptionSettings
+
+        TenantReceptionSettings.objects.create(
+            tenant=self.tenant,
+            channel_manager=ChannelManager.CHANNEX,
+        )
+        IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
+        self.reservation.import_source = "channex"
+        self.reservation.external_id = channex_external_id("test-booking-uuid")
+        self.reservation.save(update_fields=["import_source", "external_id"])
+
+        mock_client = mock_client_cls.return_value
+        mock_client.upload_attachment.return_value = "attach-uuid-1"
+        mock_client.send_booking_message.return_value = {
+            "data": {
+                "id": "outbound-image-1",
+                "attributes": {
+                    "message": "Room photo",
+                    "sender": "property",
+                    "booking_id": "test-booking-uuid",
+                    "have_attachment": True,
+                },
+            }
+        }
+
+        response = self.client.post(
+            f"{self.base}/send-image/",
+            {
+                "file": _tiny_jpeg(),
+                "channel": "booking",
+                "caption": "Room photo",
+            },
+            format="multipart",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["channel"], "booking")
+        self.assertEqual(data["status"], "sent")
+        self.assertEqual(data["message_type"], "image")
+        self.assertIn("/channex-messages/", data["media_url"])
+        mock_client.upload_attachment.assert_called_once()
+        mock_client.send_booking_message.assert_called_once_with(
+            "test-booking-uuid",
+            "Room photo",
+            attachment_id="attach-uuid-1",
+        )
+        self.assertTrue(
+            ChannexMessage.objects.filter(channex_message_id="outbound-image-1").exists()
+        )
+
+        timeline = self.client.get(f"{self.base}/", **self.auth)
+        self.assertEqual(len(timeline.json()), 1)
+        self.assertEqual(timeline.json()[0]["message_type"], "image")
+

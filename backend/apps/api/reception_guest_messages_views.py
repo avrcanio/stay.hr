@@ -23,6 +23,7 @@ from apps.communications.guest_message_translate import (
 from apps.communications.guest_message_send import (
     build_message_channels,
     default_email_subject,
+    send_guest_channex_image,
     send_guest_email_image,
     send_guest_message,
     send_guest_whatsapp_image,
@@ -41,6 +42,10 @@ from apps.communications.models import (
     GuestMessageThreadState,
     GuestOutboundMessage,
 )
+from apps.integrations.channex.ari_service import get_active_channex_integration
+from apps.integrations.channex.client import ChannexClient
+from apps.integrations.channex.config import ChannexRuntimeConfig
+from apps.integrations.channex.message_service import first_attachment_path
 from apps.integrations.models import ChannexMessage, WhatsAppMessage
 from apps.reservations.models import Reservation
 
@@ -268,8 +273,11 @@ class ReceptionGuestMessageSendImageView(ReceptionWriteView, APIView):
                 raise ValidationError({"channel": "No guest phone on this reservation."})
             if not channels["whatsapp"].get("api_send"):
                 raise ValidationError({"channel": "WhatsApp API send is not available for this tenant."})
+        elif channel == GuestMessageChannel.BOOKING:
+            if not channels["booking"]["available"]:
+                raise ValidationError({"channel": "Booking.com messaging is not available for this reservation."})
         else:
-            raise ValidationError({"channel": "Image attachments are not supported for this channel."})
+            raise ValidationError({"channel": f"Unsupported channel: {channel}"})
 
         draft_id = data.get("draft_id")
         draft = None
@@ -299,6 +307,13 @@ class ReceptionGuestMessageSendImageView(ReceptionWriteView, APIView):
                     caption=data.get("caption") or "",
                     api_application=api_application,
                 )
+            elif channel == GuestMessageChannel.BOOKING:
+                channex_message = send_guest_channex_image(
+                    reservation=reservation,
+                    draft=draft,
+                    uploaded_file=data["file"],
+                    caption=data.get("caption") or "",
+                )
             else:
                 wa_message = send_guest_whatsapp_image(
                     reservation=reservation,
@@ -312,6 +327,13 @@ class ReceptionGuestMessageSendImageView(ReceptionWriteView, APIView):
 
         if channel == GuestMessageChannel.EMAIL:
             payload = serialize_outbound(outbound)
+            if api_application is not None:
+                payload["sent_by_name"] = api_application.name
+            return Response(payload, status=status.HTTP_201_CREATED)
+
+        if channel == GuestMessageChannel.BOOKING:
+            payload = serialize_channex(channex_message)
+            payload["status"] = "sent"
             if api_application is not None:
                 payload["sent_by_name"] = api_application.name
             return Response(payload, status=status.HTTP_201_CREATED)
@@ -353,6 +375,46 @@ class GuestOutboundMessageMediaView(ReceptionReadView, APIView):
         return FileResponse(
             row.media_file.open("rb"),
             content_type=content_type or "image/jpeg",
+        )
+
+
+class ChannexMessageMediaView(ReceptionReadView, APIView):
+    def get(self, request, message_id: int):
+        import mimetypes
+
+        from django.http import FileResponse, HttpResponse
+
+        row = (
+            ChannexMessage.objects.filter(tenant=request.tenant, pk=message_id)
+            .select_related("integration")
+            .first()
+        )
+        if row is None:
+            raise NotFound("Media nije dostupna.")
+
+        if row.media_file:
+            content_type, _ = mimetypes.guess_type(row.media_file.name)
+            return FileResponse(
+                row.media_file.open("rb"),
+                content_type=content_type or "image/jpeg",
+            )
+
+        attachment_path = first_attachment_path(row.raw_payload or {})
+        if not attachment_path:
+            raise NotFound("Media nije dostupna.")
+
+        integration = row.integration or get_active_channex_integration(request.tenant.slug)
+        if integration is None:
+            raise NotFound("Channex integracija nije dostupna.")
+
+        config = ChannexRuntimeConfig.from_integration_dict(integration.get_config_dict())
+        with ChannexClient(config) as client:
+            file_bytes, content_type = client.fetch_attachment_bytes(attachment_path)
+
+        guessed, _ = mimetypes.guess_type(attachment_path)
+        return HttpResponse(
+            file_bytes,
+            content_type=guessed or content_type or "image/jpeg",
         )
 
 

@@ -8,6 +8,7 @@ from apps.communications.models import (
     GuestOutboundMessage,
     GuestOutboundMessageStatus,
 )
+from apps.integrations.channex.message_service import first_attachment_path
 from apps.integrations.models import ChannexMessage, WhatsAppMessage
 from apps.reservations.models import DocumentIntakeJob, Reservation
 
@@ -33,6 +34,10 @@ def whatsapp_message_media_url(message_id: int) -> str:
 
 def outbound_message_media_url(outbound_id: int) -> str:
     return f"/api/v1/reception/guest-outbound-messages/{outbound_id}/media/"
+
+
+def channex_message_media_url(message_id: int) -> str:
+    return f"/api/v1/reception/channex-messages/{message_id}/media/"
 
 
 def media_kind_for_message_type(message_type: str) -> str | None:
@@ -157,21 +162,37 @@ def serialize_inbound(inbound: GuestInboundMessage) -> dict:
 
 def serialize_channex(msg: ChannexMessage) -> dict:
     direction = "inbound" if msg.sender == ChannexMessage.Sender.GUEST else "outbound"
+    message_type = "text"
+    media_url = None
+    media_kind = None
+    body = (msg.body or "").strip()
+    if getattr(msg, "media_file", None) and msg.media_file:
+        message_type = "image"
+        media_url = channex_message_media_url(msg.pk)
+        media_kind = "image"
+        if not body:
+            body = _OUTBOUND_IMAGE_PREVIEW
+    elif msg.have_attachment and first_attachment_path(msg.raw_payload or {}):
+        message_type = "image"
+        media_url = channex_message_media_url(msg.pk)
+        media_kind = "image"
+        if not body:
+            body = _MEDIA_PREVIEW.get("image", "📷 Dokument poslan")
     return {
         "id": CHANNEX_ID_OFFSET + msg.pk,
         "source": "booking",
         "direction": direction,
         "channel": "booking",
-        "body_text": msg.body or "",
+        "body_text": body,
         "created_at": msg.created_at.isoformat(),
-        "status": None,
+        "status": "sent" if direction == "outbound" else None,
         "sent_by_name": None,
         "from_email": None,
         "wa_me_url": None,
-        "message_type": "text",
+        "message_type": message_type,
         "document_intake_job_id": None,
-        "media_url": None,
-        "media_kind": None,
+        "media_url": media_url,
+        "media_kind": media_kind,
     }
 
 
@@ -197,7 +218,9 @@ def timeline_for_reservation(reservation: Reservation) -> list[dict]:
         rows.append((msg.created_at.isoformat(), serialize_whatsapp(msg)))
 
     for msg in ChannexMessage.objects.filter(reservation=reservation):
-        if (msg.body or "").strip():
+        if (msg.body or "").strip() or msg.have_attachment or (
+            getattr(msg, "media_file", None) and msg.media_file
+        ):
             rows.append((msg.created_at.isoformat(), serialize_channex(msg)))
 
     for msg in GuestInboundMessage.objects.filter(reservation=reservation):

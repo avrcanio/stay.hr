@@ -108,12 +108,71 @@ class ChannexClient:
     def list_booking_messages(self, booking_id: str) -> dict[str, Any]:
         return self._request("GET", f"/bookings/{booking_id}/messages")
 
-    def send_booking_message(self, booking_id: str, message: str) -> dict[str, Any]:
+    def upload_attachment(
+        self,
+        *,
+        file_bytes: bytes,
+        file_name: str,
+        file_type: str,
+    ) -> str:
+        import base64
+
+        payload = self._request(
+            "POST",
+            "/attachments",
+            json={
+                "attachment": {
+                    "file": base64.b64encode(file_bytes).decode("ascii"),
+                    "file_name": file_name,
+                    "file_type": file_type,
+                }
+            },
+        )
+        data = payload.get("data")
+        if isinstance(data, dict) and data.get("id"):
+            return str(data["id"])
+        raise ChannexApiError("Channex attachment upload missing id.")
+
+    def send_booking_message(
+        self,
+        booking_id: str,
+        message: str = "",
+        *,
+        attachment_id: str | None = None,
+    ) -> dict[str, Any]:
+        msg_body: dict[str, Any] = {}
+        if attachment_id:
+            msg_body["attachment_id"] = attachment_id
+        text = (message or "").strip()
+        if text:
+            msg_body["message"] = text
+        if not msg_body:
+            raise ChannexApiError("Message body or attachment_id is required.")
         return self._request(
             "POST",
             f"/bookings/{booking_id}/messages",
-            json={"message": {"message": message}},
+            json={"message": msg_body},
         )
+
+    def fetch_attachment_bytes(self, attachment_path: str) -> tuple[bytes, str]:
+        """Download attachment; path may be relative (attachments/...) or absolute URL."""
+        path = (attachment_path or "").strip()
+        if not path:
+            raise ChannexApiError("Empty attachment path.")
+        if path.startswith("http://") or path.startswith("https://"):
+            url = path
+        else:
+            url = f"{self._config.base_url}/{path.lstrip('/')}"
+        try:
+            response = self._session.get(url)
+        except httpx.HTTPError as exc:
+            raise ChannexApiError(f"Channex attachment HTTP error: {exc}") from exc
+        if response.status_code >= 400:
+            raise ChannexApiError(
+                f"Channex GET attachment failed ({response.status_code}): {response.text[:500]}"
+            )
+        content_type = response.headers.get("content-type") or "application/octet-stream"
+        return response.content, content_type
 
     def list_message_thread_messages(self, thread_id: str) -> dict[str, Any]:
         return self._request("GET", f"/message_threads/{thread_id}/messages")
