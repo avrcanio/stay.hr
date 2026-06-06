@@ -131,6 +131,12 @@ class ReceptionGuestMessagesView(ReceptionReadView, APIView):
         return Response(timeline_for_reservation(reservation))
 
 
+class ReceptionGuestMessageChannelsView(ReceptionReadView, APIView):
+    def get(self, request, reservation_id: int):
+        reservation = _reservation_or_404(request.tenant, reservation_id)
+        return Response(build_message_channels(reservation))
+
+
 class ReceptionGuestMessageComposeView(ReceptionWriteView, APIView):
     def post(self, request, reservation_id: int):
         reservation = _reservation_or_404(request.tenant, reservation_id)

@@ -25,6 +25,7 @@ from apps.api.billing_views import (
 )
 from apps.api.reception_guest_messages_views import (
     ReceptionGuestMessageComposeView,
+    ReceptionGuestMessageChannelsView,
     ReceptionGuestMessageDismissReplyView,
     ReceptionGuestMessageSendImageView,
     ReceptionGuestMessageSendView,
@@ -161,6 +162,11 @@ urlpatterns = [
         "reservations/<int:reservation_id>/messages/compose/",
         ReceptionGuestMessageComposeView.as_view(),
         name="reception-reservation-messages-compose",
+    ),
+    path(
+        "reservations/<int:reservation_id>/messages/channels/",
+        ReceptionGuestMessageChannelsView.as_view(),
+        name="reception-reservation-messages-channels",
     ),
     path(
         "reservations/<int:reservation_id>/messages/send/",

@@ -69,7 +69,15 @@ class ReceptionGuestMessagesAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
 
-    @patch.dict(os.environ, {}, clear=False)
+    def test_message_channels(self):
+        response = self.client.get(f"{self.base}/channels/", **self.auth)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["email"]["available"])
+        self.assertEqual(data["email"]["to"], "wolfgang@example.com")
+        self.assertTrue(data["whatsapp"]["available"])
+        self.assertIn("api_send", data["whatsapp"])
+        self.assertIn("491701234567", data["whatsapp"]["phone_wa"])
     def test_compose_checkin_fallback(self):
         os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
         self.reservation.booker_country = "HR"
