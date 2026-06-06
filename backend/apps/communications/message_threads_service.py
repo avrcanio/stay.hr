@@ -9,7 +9,11 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from apps.communications.guest_message_timeline import last_timeline_entry
-from apps.communications.models import GuestMessageThreadState, GuestOutboundMessage
+from apps.communications.models import (
+    GuestInboundMessage,
+    GuestMessageThreadState,
+    GuestOutboundMessage,
+)
 from apps.core.timezone import tenant_local_now
 from apps.integrations.channex.booking_service import parse_channex_booking_id
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
@@ -25,6 +29,9 @@ def _reservation_ids_with_messages(tenant: Tenant) -> set[int]:
     ids: set[int] = set()
     ids.update(
         GuestOutboundMessage.objects.filter(tenant=tenant).values_list("reservation_id", flat=True)
+    )
+    ids.update(
+        GuestInboundMessage.objects.filter(tenant=tenant).values_list("reservation_id", flat=True)
     )
     ids.update(
         WhatsAppMessage.objects.filter(tenant=tenant, reservation_id__isnull=False).values_list(

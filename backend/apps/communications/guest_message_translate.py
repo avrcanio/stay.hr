@@ -8,10 +8,12 @@ from apps.ai.translate import translation_available, translate_text
 from apps.api.language import normalize_app_language
 from apps.communications.guest_message_timeline import (
     CHANNEX_ID_OFFSET,
+    INBOUND_ID_OFFSET,
     WA_ID_OFFSET,
     whatsapp_display_body,
 )
 from apps.communications.models import (
+    GuestInboundMessage,
     GuestMessageTranslation,
     GuestMessageTranslationSource,
     GuestOutboundMessage,
@@ -36,6 +38,22 @@ def resolve_timeline_message(
     reservation: Reservation,
     timeline_id: int,
 ) -> ResolvedTimelineMessage:
+    if timeline_id >= INBOUND_ID_OFFSET:
+        source_id = timeline_id - INBOUND_ID_OFFSET
+        row = GuestInboundMessage.objects.filter(
+            tenant_id=reservation.tenant_id,
+            reservation=reservation,
+            pk=source_id,
+        ).first()
+        if row is None:
+            raise GuestMessageTranslateError("Message not found.")
+        return ResolvedTimelineMessage(
+            timeline_id=timeline_id,
+            message_source=GuestMessageTranslationSource.INBOUND,
+            source_id=source_id,
+            body_text=(row.body_text or "").strip(),
+        )
+
     if timeline_id >= CHANNEX_ID_OFFSET:
         source_id = timeline_id - CHANNEX_ID_OFFSET
         row = ChannexMessage.objects.filter(

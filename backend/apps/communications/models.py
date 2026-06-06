@@ -132,6 +132,32 @@ class GuestOutboundMessage(TenantScopedModel):
         )
 
 
+class GuestInboundMessage(TenantScopedModel):
+    """Manually imported or future-ingested inbound guest message (e.g. email reply)."""
+
+    reservation = models.ForeignKey(
+        "reservations.Reservation",
+        on_delete=models.CASCADE,
+        related_name="guest_inbound_messages",
+    )
+    channel = models.CharField(max_length=16, choices=GuestMessageChannel.choices)
+    body_text = models.TextField()
+    from_email = models.EmailField(blank=True, default="")
+    subject = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(fields=["tenant", "reservation", "created_at"]),
+        ]
+        verbose_name = "Guest inbound message"
+        verbose_name_plural = "Guest inbound messages"
+
+    def __str__(self) -> str:
+        return f"Inbound #{self.pk} {self.channel} res={self.reservation_id}"
+
+
 class GuestMessageThreadState(TenantScopedModel):
     """Per-reservation inbox flags (e.g. dismissed needs-reply)."""
 
@@ -157,6 +183,7 @@ class GuestMessageTranslationSource(models.TextChoices):
     WHATSAPP = "whatsapp", "WhatsApp"
     OUTBOUND = "outbound", "Outbound"
     BOOKING = "booking", "Booking.com"
+    INBOUND = "inbound", "Inbound"
 
 
 class GuestMessageTranslation(TenantScopedModel):

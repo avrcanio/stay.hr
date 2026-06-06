@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from apps.communications.models import GuestOutboundMessage, GuestOutboundMessageStatus, GuestMessageChannel
+from apps.communications.models import (
+    GuestInboundMessage,
+    GuestMessageChannel,
+    GuestOutboundMessage,
+    GuestOutboundMessageStatus,
+)
 from apps.integrations.models import ChannexMessage, WhatsAppMessage
 from apps.reservations.models import DocumentIntakeJob, Reservation
 
 WA_ID_OFFSET = 2_000_000_000
 CHANNEX_ID_OFFSET = 3_000_000_000
+INBOUND_ID_OFFSET = 4_000_000_000
 
 _MEDIA_PREVIEW = {
     "image": "📷 Dokument poslan",
@@ -82,6 +88,23 @@ def _whatsapp_outbound_mirrors_guest_outbound(
     return False
 
 
+def serialize_inbound(inbound: GuestInboundMessage) -> dict:
+    return {
+        "id": INBOUND_ID_OFFSET + inbound.pk,
+        "source": "inbound",
+        "direction": "inbound",
+        "channel": inbound.channel,
+        "body_text": inbound.body_text or "",
+        "created_at": inbound.created_at.isoformat(),
+        "status": None,
+        "sent_by_name": None,
+        "from_email": inbound.from_email or None,
+        "wa_me_url": None,
+        "message_type": "text",
+        "document_intake_job_id": None,
+    }
+
+
 def serialize_channex(msg: ChannexMessage) -> dict:
     direction = "inbound" if msg.sender == ChannexMessage.Sender.GUEST else "outbound"
     return {
@@ -124,6 +147,10 @@ def timeline_for_reservation(reservation: Reservation) -> list[dict]:
     for msg in ChannexMessage.objects.filter(reservation=reservation):
         if (msg.body or "").strip():
             rows.append((msg.created_at.isoformat(), serialize_channex(msg)))
+
+    for msg in GuestInboundMessage.objects.filter(reservation=reservation):
+        if (msg.body_text or "").strip():
+            rows.append((msg.created_at.isoformat(), serialize_inbound(msg)))
 
     rows.sort(key=lambda r: r[0])
     return [item for _, item in rows]
