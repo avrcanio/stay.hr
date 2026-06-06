@@ -25,7 +25,9 @@ from apps.api.billing_views import (
 )
 from apps.api.reception_guest_messages_views import (
     ReceptionGuestMessageComposeView,
+    ReceptionGuestMessageDismissReplyView,
     ReceptionGuestMessageSendView,
+    ReceptionGuestMessageTranslateView,
     ReceptionGuestMessagesView,
 )
 from apps.api.reception_message_threads_views import ReceptionMessageThreadsListView
@@ -156,6 +158,16 @@ urlpatterns = [
         "reservations/<int:reservation_id>/messages/send/",
         ReceptionGuestMessageSendView.as_view(),
         name="reception-reservation-messages-send",
+    ),
+    path(
+        "reservations/<int:reservation_id>/messages/dismiss-reply/",
+        ReceptionGuestMessageDismissReplyView.as_view(),
+        name="reception-reservation-messages-dismiss-reply",
+    ),
+    path(
+        "reservations/<int:reservation_id>/messages/translate/",
+        ReceptionGuestMessageTranslateView.as_view(),
+        name="reception-reservation-messages-translate",
     ),
     path(
         "message-threads/",

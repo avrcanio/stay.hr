@@ -130,3 +130,62 @@ class GuestOutboundMessage(TenantScopedModel):
             f"Outbound #{self.pk} {self.channel} {self.status} "
             f"res={self.reservation_id}"
         )
+
+
+class GuestMessageThreadState(TenantScopedModel):
+    """Per-reservation inbox flags (e.g. dismissed needs-reply)."""
+
+    reservation = models.OneToOneField(
+        "reservations.Reservation",
+        on_delete=models.CASCADE,
+        related_name="guest_message_thread_state",
+    )
+    reply_dismissed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Guest message thread state"
+        verbose_name_plural = "Guest message thread states"
+        indexes = [
+            models.Index(fields=["tenant", "reservation"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"ThreadState res={self.reservation_id}"
+
+
+class GuestMessageTranslationSource(models.TextChoices):
+    WHATSAPP = "whatsapp", "WhatsApp"
+    OUTBOUND = "outbound", "Outbound"
+    BOOKING = "booking", "Booking.com"
+
+
+class GuestMessageTranslation(TenantScopedModel):
+    """Cached OpenAI translation for a timeline message."""
+
+    message_source = models.CharField(
+        max_length=16,
+        choices=GuestMessageTranslationSource.choices,
+    )
+    source_id = models.PositiveIntegerField()
+    target_lang = models.CharField(max_length=8)
+    translated_text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Guest message translation"
+        verbose_name_plural = "Guest message translations"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "message_source", "source_id", "target_lang"],
+                name="guestmessagetranslation_unique_cache",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "message_source", "source_id"]),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"Translation {self.message_source}:{self.source_id} "
+            f"→ {self.target_lang}"
+        )

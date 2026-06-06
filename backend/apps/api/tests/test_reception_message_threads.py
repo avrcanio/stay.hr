@@ -151,3 +151,62 @@ class ReceptionMessageThreadsAPITests(TestCase):
         data = response.json()
         self.assertEqual(data["total"], 1)
         self.assertEqual(data["threads"][0]["reservation_id"], self.reservation.pk)
+
+    def test_dismiss_reply_clears_needs_reply(self):
+        ChannexMessage.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            channex_booking_id="b1",
+            channex_message_id="m-dismiss",
+            direction=ChannexMessage.Direction.INBOUND,
+            sender=ChannexMessage.Sender.GUEST,
+            body="Need reply",
+        )
+        list_url = "/api/v1/reception/message-threads/?sync=0"
+        response = self.client.get(list_url, **self.auth)
+        self.assertEqual(response.json()["needs_reply_count"], 1)
+
+        dismiss_url = (
+            f"/api/v1/reception/reservations/{self.reservation.pk}/messages/dismiss-reply/"
+        )
+        dismiss = self.client.post(dismiss_url, **self.auth)
+        self.assertEqual(dismiss.status_code, 200)
+        self.assertIn("reply_dismissed_at", dismiss.json())
+
+        response = self.client.get(list_url, **self.auth)
+        data = response.json()
+        self.assertEqual(data["needs_reply_count"], 0)
+        self.assertFalse(data["threads"][0]["needs_reply"])
+
+    def test_new_inbound_after_dismiss_restores_needs_reply(self):
+        ChannexMessage.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            channex_booking_id="b1",
+            channex_message_id="m-old",
+            direction=ChannexMessage.Direction.INBOUND,
+            sender=ChannexMessage.Sender.GUEST,
+            body="Old",
+        )
+        dismiss_url = (
+            f"/api/v1/reception/reservations/{self.reservation.pk}/messages/dismiss-reply/"
+        )
+        self.client.post(dismiss_url, **self.auth)
+
+        ChannexMessage.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            channex_booking_id="b1",
+            channex_message_id="m-new",
+            direction=ChannexMessage.Direction.INBOUND,
+            sender=ChannexMessage.Sender.GUEST,
+            body="New after dismiss",
+        )
+        response = self.client.get(
+            "/api/v1/reception/message-threads/?sync=0",
+            **self.auth,
+        )
+        data = response.json()
+        self.assertEqual(data["needs_reply_count"], 1)
+        self.assertTrue(data["threads"][0]["needs_reply"])
+        self.assertEqual(data["threads"][0]["last_message_preview"], "New after dismiss")

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.api.language import resolve_request_language
 from apps.api.reception_views import ReceptionReadView, ReceptionWriteView
 from apps.communications.guest_compose import compose_guest_message, create_draft_from_body_text
+from apps.communications.guest_message_translate import (
+    GuestMessageTranslateError,
+    translate_guest_message,
+)
 from apps.communications.guest_message_send import (
     build_message_channels,
     default_email_subject,
@@ -24,6 +30,7 @@ from apps.communications.models import (
     GuestMessageChannel,
     GuestMessageDraft,
     GuestMessageIntent,
+    GuestMessageThreadState,
 )
 from apps.integrations.models import ChannexMessage
 from apps.reservations.models import Reservation
@@ -58,6 +65,11 @@ class GuestMessageSendSerializer(serializers.Serializer):
     channel = serializers.ChoiceField(choices=GuestMessageChannel.choices)
     body_text = serializers.CharField(max_length=8000, trim_whitespace=True)
     subject = serializers.CharField(required=False, allow_blank=True, default="", max_length=200)
+
+
+class GuestMessageTranslateSerializer(serializers.Serializer):
+    timeline_id = serializers.IntegerField(min_value=1)
+    lang = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 def _reservation_or_404(tenant, reservation_id: int) -> Reservation:
@@ -197,3 +209,39 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
             payload["wa_me_url"] = outbound.wa_me_url
         payload["edited"] = draft.edited
         return Response(payload, status=status.HTTP_201_CREATED)
+
+
+class ReceptionGuestMessageDismissReplyView(ReceptionWriteView, APIView):
+    def post(self, request, reservation_id: int):
+        reservation = _reservation_or_404(request.tenant, reservation_id)
+        now = timezone.now()
+        state, _ = GuestMessageThreadState.objects.get_or_create(
+            tenant=request.tenant,
+            reservation=reservation,
+        )
+        state.reply_dismissed_at = now
+        state.save(update_fields=["reply_dismissed_at"])
+        return Response({"reply_dismissed_at": state.reply_dismissed_at.isoformat()})
+
+
+class ReceptionGuestMessageTranslateView(ReceptionWriteView, APIView):
+    def post(self, request, reservation_id: int):
+        reservation = _reservation_or_404(request.tenant, reservation_id)
+        serializer = GuestMessageTranslateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        lang = (data.get("lang") or "").strip()
+        if not lang:
+            lang = resolve_request_language(request, tenant=request.tenant)
+
+        try:
+            payload = translate_guest_message(
+                reservation=reservation,
+                timeline_id=data["timeline_id"],
+                target_lang=lang,
+            )
+        except GuestMessageTranslateError as exc:
+            raise ValidationError({"timeline_id": str(exc)}) from exc
+
+        return Response(payload)

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+
 from apps.communications.guest_message_timeline import last_timeline_entry
-from apps.communications.models import GuestOutboundMessage
+from apps.communications.models import GuestMessageThreadState, GuestOutboundMessage
 from apps.core.timezone import tenant_local_now
 from apps.integrations.channex.booking_service import parse_channex_booking_id
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
@@ -71,7 +74,37 @@ def _sync_channex_for_reservations(
             continue
 
 
-def _serialize_thread(reservation: Reservation, last: dict) -> dict[str, Any]:
+def _parse_timeline_datetime(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    parsed = parse_datetime(raw)
+    if parsed is None:
+        return None
+    if timezone.is_naive(parsed):
+        return timezone.make_aware(parsed)
+    return parsed
+
+
+def _needs_reply(last: dict, reply_dismissed_at: datetime | None) -> bool:
+    if last.get("direction") != "inbound":
+        return False
+    if reply_dismissed_at is None:
+        return True
+    last_at = _parse_timeline_datetime(last.get("created_at"))
+    if last_at is None:
+        return True
+    dismissed = reply_dismissed_at
+    if timezone.is_naive(dismissed):
+        dismissed = timezone.make_aware(dismissed)
+    return last_at > dismissed
+
+
+def _serialize_thread(
+    reservation: Reservation,
+    last: dict,
+    *,
+    reply_dismissed_at: datetime | None = None,
+) -> dict[str, Any]:
     preview = (last.get("body_text") or "").strip()
     if len(preview) > 200:
         preview = preview[:197] + "..."
@@ -88,7 +121,7 @@ def _serialize_thread(reservation: Reservation, last: dict) -> dict[str, Any]:
         "last_message_preview": preview,
         "last_channel": last.get("channel") or "",
         "last_direction": last.get("direction") or "",
-        "needs_reply": last.get("direction") == "inbound",
+        "needs_reply": _needs_reply(last, reply_dismissed_at),
     }
 
 
@@ -117,13 +150,26 @@ def list_message_threads_for_tenant(
     if integration is not None and sync_param in ("auto", "1"):
         _sync_channex_for_reservations(integration, reservations, sync_param=sync_param)
 
+    reservation_pks = [r.pk for r in reservations]
+    dismissed_map = {
+        row.reservation_id: row.reply_dismissed_at
+        for row in GuestMessageThreadState.objects.filter(
+            tenant=tenant,
+            reservation_id__in=reservation_pks,
+        )
+    }
+
     threads: list[dict[str, Any]] = []
     needs_reply_count = 0
     for reservation in reservations:
         last = last_timeline_entry(reservation)
         if last is None:
             continue
-        row = _serialize_thread(reservation, last)
+        row = _serialize_thread(
+            reservation,
+            last,
+            reply_dismissed_at=dismissed_map.get(reservation.pk),
+        )
         if row["needs_reply"]:
             needs_reply_count += 1
         if needs_reply_only and not row["needs_reply"]:
