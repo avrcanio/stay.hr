@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import mimetypes
+
 from django.conf import settings
+from django.http import FileResponse
 from rest_framework import serializers, status
+from rest_framework.exceptions import NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.api.reception_views import ReceptionWriteView, _max_photo_bytes, _validate_photo_file
+from apps.api.reception_views import ReceptionReadView, ReceptionWriteView, _max_photo_bytes, _validate_photo_file
 from apps.api.request_context import installation_id_from_request
 from apps.reservations.document_intake_service import (
     apply_document_intake_job,
@@ -159,4 +163,35 @@ class DocumentIntakeJobApplyView(ReceptionWriteView, APIView):
                 "applied": applied,
                 "job": job_to_dict(job, request=request),
             }
+        )
+
+
+class DocumentIntakeJobImageView(ReceptionReadView, APIView):
+    def get(self, request, job_id: int, index: int):
+        job = DocumentIntakeJob.objects.filter(tenant=request.tenant, pk=job_id).first()
+        if job is None:
+            raise NotFound("Job nije pronađen.")
+
+        row = (
+            DocumentIntakeImage.objects.filter(tenant=request.tenant, job_id=job.pk, sort_order=index)
+            .order_by("id")
+            .first()
+        )
+        if row is None:
+            rows = list(
+                DocumentIntakeImage.objects.filter(tenant=request.tenant, job_id=job.pk).order_by(
+                    "sort_order", "id"
+                )
+            )
+            if index < 0 or index >= len(rows):
+                raise NotFound("Slika nije pronađena.")
+            row = rows[index]
+
+        if not row.image:
+            raise NotFound("Slika nije dostupna.")
+
+        content_type, _ = mimetypes.guess_type(row.image.name)
+        return FileResponse(
+            row.image.open("rb"),
+            content_type=content_type or "image/jpeg",
         )

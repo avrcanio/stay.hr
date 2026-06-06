@@ -300,6 +300,12 @@ class UnitAvailabilityBlock(TenantScopedModel):
         return f"{self.unit.code} block {self.check_in}..{self.check_out}"
 
 
+def whatsapp_outbound_media_upload_to(instance, filename: str) -> str:
+    tenant_id = getattr(instance, "tenant_id", None) or "unknown"
+    message_id = getattr(instance, "pk", None) or "unknown"
+    return f"whatsapp_outbound/{tenant_id}/{message_id}/{filename}"
+
+
 class WhatsAppMessage(TenantScopedModel):
     class Direction(models.TextChoices):
         INBOUND = "inbound", "Inbound"
@@ -325,6 +331,11 @@ class WhatsAppMessage(TenantScopedModel):
     direction = models.CharField(max_length=16, choices=Direction.choices)
     message_type = models.CharField(max_length=32, blank=True)
     body = models.TextField(blank=True)
+    media_file = models.FileField(
+        upload_to=whatsapp_outbound_media_upload_to,
+        blank=True,
+        default="",
+    )
     raw_payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

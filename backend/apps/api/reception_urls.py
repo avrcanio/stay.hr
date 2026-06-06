@@ -26,9 +26,11 @@ from apps.api.billing_views import (
 from apps.api.reception_guest_messages_views import (
     ReceptionGuestMessageComposeView,
     ReceptionGuestMessageDismissReplyView,
+    ReceptionGuestMessageSendImageView,
     ReceptionGuestMessageSendView,
     ReceptionGuestMessageTranslateView,
     ReceptionGuestMessagesView,
+    WhatsAppMessageMediaView,
 )
 from apps.api.reception_message_threads_views import ReceptionMessageThreadsListView
 from apps.api.reception_reviews_views import (
@@ -43,6 +45,7 @@ from apps.api.reception_document_intake_views import (
     DocumentIntakeBatchView,
     DocumentIntakeJobApplyView,
     DocumentIntakeJobDetailView,
+    DocumentIntakeJobImageView,
     DocumentIntakeJobProcessView,
 )
 from apps.api.reception_views import (
@@ -77,6 +80,11 @@ urlpatterns = [
         "document-intake/jobs/<int:job_id>/",
         DocumentIntakeJobDetailView.as_view(),
         name="reception-document-intake-detail",
+    ),
+    path(
+        "document-intake/jobs/<int:job_id>/images/<int:index>/",
+        DocumentIntakeJobImageView.as_view(),
+        name="reception-document-intake-image",
     ),
     path(
         "document-intake/jobs/<int:job_id>/apply/",
@@ -158,6 +166,16 @@ urlpatterns = [
         "reservations/<int:reservation_id>/messages/send/",
         ReceptionGuestMessageSendView.as_view(),
         name="reception-reservation-messages-send",
+    ),
+    path(
+        "reservations/<int:reservation_id>/messages/send-image/",
+        ReceptionGuestMessageSendImageView.as_view(),
+        name="reception-reservation-messages-send-image",
+    ),
+    path(
+        "whatsapp-messages/<int:message_id>/media/",
+        WhatsAppMessageMediaView.as_view(),
+        name="reception-whatsapp-message-media",
     ),
     path(
         "reservations/<int:reservation_id>/messages/dismiss-reply/",

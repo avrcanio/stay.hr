@@ -20,6 +20,23 @@ _MEDIA_PREVIEW = {
     "document": "📎 Datoteka poslana",
 }
 
+_OUTBOUND_IMAGE_PREVIEW = "📷 Slika poslana"
+
+
+def document_intake_image_url(job_id: int, index: int = 0) -> str:
+    return f"/api/v1/reception/document-intake/jobs/{job_id}/images/{index}/"
+
+
+def whatsapp_message_media_url(message_id: int) -> str:
+    return f"/api/v1/reception/whatsapp-messages/{message_id}/media/"
+
+
+def media_kind_for_message_type(message_type: str) -> str | None:
+    mt = (message_type or "").strip().lower()
+    if mt in {"image", "document"}:
+        return mt
+    return None
+
 
 def whatsapp_display_body(msg: WhatsAppMessage) -> str:
     body = (msg.body or "").strip()
@@ -43,7 +60,21 @@ def serialize_outbound(outbound: GuestOutboundMessage) -> dict:
         "wa_me_url": outbound.wa_me_url or None,
         "message_type": "text",
         "document_intake_job_id": None,
+        "media_url": None,
+        "media_kind": None,
     }
+
+
+def _whatsapp_media_fields(msg: WhatsAppMessage, job_id: int | None) -> tuple[str | None, str | None]:
+    message_type = msg.message_type or "text"
+    media_kind = media_kind_for_message_type(message_type)
+    if not media_kind:
+        return None, None
+    if getattr(msg, "media_file", None) and msg.media_file:
+        return whatsapp_message_media_url(msg.pk), media_kind
+    if job_id is not None:
+        return document_intake_image_url(job_id), media_kind
+    return None, media_kind
 
 
 def serialize_whatsapp(msg: WhatsAppMessage) -> dict:
@@ -53,12 +84,16 @@ def serialize_whatsapp(msg: WhatsAppMessage) -> dict:
         .first()
     )
     is_outbound = msg.direction == WhatsAppMessage.Direction.OUTBOUND
+    media_url, media_kind = _whatsapp_media_fields(msg, job_id)
+    body = whatsapp_display_body(msg)
+    if is_outbound and (msg.message_type or "") == "image" and not (msg.body or "").strip():
+        body = _OUTBOUND_IMAGE_PREVIEW
     return {
         "id": WA_ID_OFFSET + msg.pk,
         "source": "whatsapp",
         "direction": msg.direction,
         "channel": "whatsapp",
-        "body_text": whatsapp_display_body(msg),
+        "body_text": body,
         "created_at": msg.created_at.isoformat(),
         "status": "sent" if is_outbound else None,
         "sent_by_name": None,
@@ -66,6 +101,8 @@ def serialize_whatsapp(msg: WhatsAppMessage) -> dict:
         "wa_me_url": None,
         "message_type": msg.message_type or "text",
         "document_intake_job_id": job_id,
+        "media_url": media_url,
+        "media_kind": media_kind,
     }
 
 
@@ -102,6 +139,8 @@ def serialize_inbound(inbound: GuestInboundMessage) -> dict:
         "wa_me_url": None,
         "message_type": "text",
         "document_intake_job_id": None,
+        "media_url": None,
+        "media_kind": None,
     }
 
 
@@ -120,6 +159,8 @@ def serialize_channex(msg: ChannexMessage) -> dict:
         "wa_me_url": None,
         "message_type": "text",
         "document_intake_job_id": None,
+        "media_url": None,
+        "media_kind": None,
     }
 
 

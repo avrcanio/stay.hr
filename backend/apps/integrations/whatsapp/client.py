@@ -83,3 +83,122 @@ def send_text_message(
     if not isinstance(data, dict):
         raise WhatsAppApiError("WhatsApp API returned non-object JSON")
     return data
+
+
+def upload_media(
+    *,
+    file_bytes: bytes,
+    mime_type: str,
+    filename: str,
+    phone_number_id: str,
+    access_token: str,
+    api_version: str | None = None,
+    provider: str | None = None,
+    api_base_url: str | None = None,
+) -> str:
+    """Upload media to WhatsApp; returns media_id."""
+    if not file_bytes:
+        raise WhatsAppApiError("empty media file")
+
+    if is_360dialog_provider(provider):
+        base = (api_base_url or d360_api_base_url_from_env()).rstrip("/")
+        url = f"{base}/media"
+        api_key = (access_token or d360_api_key_from_env()).strip()
+        if not api_key:
+            raise WhatsAppApiError("360dialog API key missing (D360_API_KEY)")
+        headers = {"D360-API-KEY": api_key}
+    else:
+        if not phone_number_id or not access_token:
+            raise WhatsAppApiError("Meta WhatsApp credentials missing")
+        version = (api_version or api_version_from_env()).strip() or "v23.0"
+        url = f"https://graph.facebook.com/{version}/{phone_number_id}/media"
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+    files = {"file": (filename or "image.jpg", file_bytes, mime_type or "image/jpeg")}
+    data = {"messaging_product": "whatsapp", "type": mime_type or "image/jpeg"}
+
+    try:
+        response = httpx.post(url, data=data, files=files, headers=headers, timeout=60.0)
+    except httpx.HTTPError as exc:
+        raise WhatsAppApiError(f"WhatsApp media upload HTTP error: {exc}") from exc
+
+    if response.status_code >= 400:
+        logger.warning(
+            "WhatsApp media upload failed",
+            extra={"status_code": response.status_code, "body": response.text[:500]},
+        )
+        raise WhatsAppApiError(
+            f"WhatsApp media upload error {response.status_code}: {response.text[:500]}"
+        )
+
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise WhatsAppApiError("WhatsApp media upload returned non-object JSON")
+    media_id = str(payload.get("id") or "").strip()
+    if not media_id:
+        raise WhatsAppApiError("WhatsApp media upload missing id")
+    return media_id
+
+
+def send_image_message(
+    *,
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    media_id: str,
+    caption: str = "",
+    api_version: str | None = None,
+    provider: str | None = None,
+    api_base_url: str | None = None,
+) -> dict[str, Any]:
+    image_payload: dict[str, Any] = {"id": media_id}
+    caption_text = (caption or "").strip()
+    if caption_text:
+        image_payload["caption"] = caption_text
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_wa_id,
+        "type": "image",
+        "image": image_payload,
+    }
+
+    if is_360dialog_provider(provider):
+        base = (api_base_url or d360_api_base_url_from_env()).rstrip("/")
+        url = f"{base}/messages"
+        api_key = (access_token or d360_api_key_from_env()).strip()
+        if not api_key:
+            raise WhatsAppApiError("360dialog API key missing (D360_API_KEY)")
+        headers = {
+            "D360-API-KEY": api_key,
+            "Content-Type": "application/json",
+        }
+    else:
+        if not phone_number_id or not access_token:
+            raise WhatsAppApiError("Meta WhatsApp credentials missing")
+        version = (api_version or api_version_from_env()).strip() or "v23.0"
+        url = f"https://graph.facebook.com/{version}/{phone_number_id}/messages"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+
+    try:
+        response = httpx.post(url, json=payload, headers=headers, timeout=30.0)
+    except httpx.HTTPError as exc:
+        raise WhatsAppApiError(f"WhatsApp HTTP error: {exc}") from exc
+
+    if response.status_code >= 400:
+        logger.warning(
+            "WhatsApp image send failed",
+            extra={"status_code": response.status_code, "body": response.text[:500]},
+        )
+        raise WhatsAppApiError(
+            f"WhatsApp API error {response.status_code}: {response.text[:500]}"
+        )
+
+    data = response.json()
+    if not isinstance(data, dict):
+        raise WhatsAppApiError("WhatsApp API returned non-object JSON")
+    return data

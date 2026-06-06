@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 from urllib.parse import quote
+
+from django.core.files.base import ContentFile
 
 from django.core.mail import EmailMultiAlternatives
 from django.utils import timezone
@@ -27,7 +30,13 @@ from apps.integrations.channex.exceptions import ChannexBookingIngestError
 from apps.integrations.channex.message_service import send_message_for_reservation
 from apps.integrations.channel_manager.resolver import get_channel_manager
 from apps.integrations.models import ChannexMessage, IntegrationConfig, WhatsAppMessage
-from apps.integrations.whatsapp.client import WhatsAppApiError, extract_outbound_wamid, send_text_message
+from apps.integrations.whatsapp.client import (
+    WhatsAppApiError,
+    extract_outbound_wamid,
+    send_image_message,
+    send_text_message,
+    upload_media,
+)
 from apps.integrations.whatsapp.config import is_360dialog_provider
 from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
 from apps.integrations.whatsapp.phone import normalize_phone
@@ -334,6 +343,106 @@ def _send_whatsapp_api(
     draft.save(update_fields=["final_body_text", "channel", "sent_at"])
 
     return outbound
+
+
+_OUTBOUND_IMAGE_BODY = "📷 Slika poslana"
+
+
+def send_guest_whatsapp_image(
+    *,
+    reservation: Reservation,
+    draft: GuestMessageDraft,
+    uploaded_file,
+    caption: str = "",
+    api_application: ApiApplication | None,
+) -> WhatsAppMessage:
+    """Send image via 360dialog WhatsApp API; returns WhatsAppMessage row."""
+    integration, runtime = get_active_whatsapp_integration(reservation.tenant)
+    if integration is None or runtime is None:
+        raise ValueError("whatsapp_not_configured")
+    if not is_360dialog_provider(runtime.provider) or not runtime.send_credentials_ok():
+        raise ValueError("whatsapp_api_send_unavailable")
+
+    phone_raw = guest_phone_number(reservation)
+    phone_wa = normalize_phone(phone_raw)
+    if not phone_wa:
+        raise ValueError("no_phone")
+
+    file_bytes = uploaded_file.read()
+    uploaded_file.seek(0)
+    if not file_bytes:
+        raise ValueError("empty_file")
+
+    mime_type = getattr(uploaded_file, "content_type", None) or mimetypes.guess_type(
+        getattr(uploaded_file, "name", "") or ""
+    )[0] or "image/jpeg"
+    if not mime_type.startswith("image/"):
+        raise ValueError("unsupported_media_type")
+
+    filename = getattr(uploaded_file, "name", None) or "image.jpg"
+
+    outbound = GuestOutboundMessage.objects.create(
+        tenant_id=reservation.tenant_id,
+        reservation=reservation,
+        draft=draft,
+        channel=GuestMessageChannel.WHATSAPP,
+        body_text=(caption or "").strip() or _OUTBOUND_IMAGE_BODY,
+        status=GuestOutboundMessageStatus.QUEUED,
+        to_phone=phone_raw,
+        api_application=api_application,
+    )
+
+    try:
+        media_id = upload_media(
+            file_bytes=file_bytes,
+            mime_type=mime_type,
+            filename=filename,
+            phone_number_id=runtime.phone_number_id,
+            access_token=runtime.access_token,
+            provider=runtime.provider,
+            api_base_url=runtime.api_base_url,
+        )
+        response = send_image_message(
+            phone_number_id=runtime.phone_number_id,
+            access_token=runtime.access_token,
+            to_wa_id=phone_wa,
+            media_id=media_id,
+            caption=caption,
+            provider=runtime.provider,
+            api_base_url=runtime.api_base_url,
+        )
+    except WhatsAppApiError as exc:
+        outbound.status = GuestOutboundMessageStatus.FAILED
+        outbound.error_message = str(exc)
+        outbound.save(update_fields=["status", "error_message"])
+        raise ValueError(str(exc)) from exc
+
+    wamid = extract_outbound_wamid(response) or f"local.outbound.image.{outbound.pk}"
+    wa_message = WhatsAppMessage.objects.create(
+        tenant_id=reservation.tenant_id,
+        integration=integration,
+        reservation=reservation,
+        wamid=wamid,
+        wa_id=phone_wa,
+        phone_number_id=runtime.phone_number_id,
+        direction=WhatsAppMessage.Direction.OUTBOUND,
+        message_type="image",
+        body=(caption or "").strip(),
+        raw_payload=response,
+    )
+    wa_message.media_file.save(filename, ContentFile(file_bytes), save=True)
+
+    now = timezone.now()
+    outbound.status = GuestOutboundMessageStatus.SENT
+    outbound.error_message = ""
+    outbound.save(update_fields=["status", "error_message"])
+
+    draft.final_body_text = (caption or "").strip() or _OUTBOUND_IMAGE_BODY
+    draft.channel = GuestMessageChannel.WHATSAPP
+    draft.sent_at = now
+    draft.save(update_fields=["final_body_text", "channel", "sent_at"])
+
+    return wa_message
 
 
 def _send_whatsapp_handoff(

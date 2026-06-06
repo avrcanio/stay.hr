@@ -5,11 +5,12 @@ from __future__ import annotations
 from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.api.language import resolve_request_language
-from apps.api.reception_views import ReceptionReadView, ReceptionWriteView
+from apps.api.reception_views import ReceptionReadView, ReceptionWriteView, _validate_photo_file
 from apps.communications.guest_compose import (
     compose_guest_message,
     create_draft_from_body_text,
@@ -23,11 +24,13 @@ from apps.communications.guest_message_send import (
     build_message_channels,
     default_email_subject,
     send_guest_message,
+    send_guest_whatsapp_image,
     _booking_channel_available,
 )
 from apps.communications.guest_message_timeline import (
     serialize_channex,
     serialize_outbound,
+    serialize_whatsapp,
     timeline_for_reservation,
 )
 from apps.communications.models import (
@@ -36,7 +39,7 @@ from apps.communications.models import (
     GuestMessageIntent,
     GuestMessageThreadState,
 )
-from apps.integrations.models import ChannexMessage
+from apps.integrations.models import ChannexMessage, WhatsAppMessage
 from apps.reservations.models import Reservation
 
 
@@ -74,6 +77,15 @@ class GuestMessageSendSerializer(serializers.Serializer):
 class GuestMessageTranslateSerializer(serializers.Serializer):
     timeline_id = serializers.IntegerField(min_value=1)
     lang = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class GuestMessageSendImageSerializer(serializers.Serializer):
+    draft_id = serializers.IntegerField(required=False)
+    caption = serializers.CharField(required=False, allow_blank=True, default="", max_length=1024)
+    file = serializers.FileField()
+
+    def validate_file(self, value):
+        return _validate_photo_file(value)
 
 
 def _reservation_or_404(tenant, reservation_id: int) -> Reservation:
@@ -221,6 +233,74 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
             payload["wa_me_url"] = outbound.wa_me_url
         payload["edited"] = draft.edited
         return Response(payload, status=status.HTTP_201_CREATED)
+
+
+class ReceptionGuestMessageSendImageView(ReceptionWriteView, APIView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, reservation_id: int):
+        reservation = _reservation_or_404(request.tenant, reservation_id)
+        serializer = GuestMessageSendImageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        channels = build_message_channels(reservation)
+        if not channels["whatsapp"]["available"]:
+            raise ValidationError({"channel": "No guest phone on this reservation."})
+        if not channels["whatsapp"].get("api_send"):
+            raise ValidationError({"channel": "WhatsApp API send is not available for this tenant."})
+
+        draft_id = data.get("draft_id")
+        draft = None
+        if draft_id is not None:
+            draft = GuestMessageDraft.objects.filter(
+                tenant=request.tenant,
+                reservation=reservation,
+                pk=draft_id,
+            ).first()
+            if draft is None:
+                raise ValidationError({"draft_id": "Draft not found for this reservation."})
+        else:
+            caption = (data.get("caption") or "").strip()
+            draft, _ = create_draft_from_body_text(
+                reservation,
+                caption or "📷 Slika poslana",
+                api_application=getattr(request, "api_application", None),
+            )
+
+        api_application = getattr(request, "api_application", None)
+        try:
+            wa_message = send_guest_whatsapp_image(
+                reservation=reservation,
+                draft=draft,
+                uploaded_file=data["file"],
+                caption=data.get("caption") or "",
+                api_application=api_application,
+            )
+        except ValueError as exc:
+            raise ValidationError({"file": str(exc)}) from exc
+
+        payload = serialize_whatsapp(wa_message)
+        if api_application is not None:
+            payload["sent_by_name"] = api_application.name
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+
+class WhatsAppMessageMediaView(ReceptionReadView, APIView):
+    def get(self, request, message_id: int):
+        import mimetypes
+
+        from django.http import FileResponse
+
+        row = WhatsAppMessage.objects.filter(tenant=request.tenant, pk=message_id).first()
+        if row is None or not row.media_file:
+            raise NotFound("Media nije dostupna.")
+
+        content_type, _ = mimetypes.guess_type(row.media_file.name)
+        return FileResponse(
+            row.media_file.open("rb"),
+            content_type=content_type or "image/jpeg",
+        )
 
 
 class ReceptionGuestMessageDismissReplyView(ReceptionWriteView, APIView):

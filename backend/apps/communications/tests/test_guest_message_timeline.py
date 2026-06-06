@@ -28,6 +28,48 @@ class WhatsAppDisplayBodyTests(TestCase):
 
         self.assertEqual(whatsapp_display_body(Row()), "📷 Dokument poslan")
 
+    def test_serialize_whatsapp_includes_media_url_for_intake_job(self):
+        from apps.communications.guest_message_timeline import serialize_whatsapp
+        from apps.reservations.models import DocumentIntakeJob, DocumentIntakeJobSource, DocumentIntakeJobStatus
+
+        tenant = Tenant.objects.create(slug="media-test", name="Media Test")
+        prop = Property.objects.create(tenant=tenant, name="P", slug="p")
+        reservation = Reservation.objects.create(
+            tenant=tenant,
+            property=prop,
+            booker_name="Guest",
+            check_in=timezone.localdate(),
+            check_out=timezone.localdate() + timedelta(days=1),
+            status=Reservation.Status.EXPECTED,
+        )
+        integration = IntegrationConfig.objects.create(
+            tenant=tenant,
+            provider=IntegrationConfig.Provider.WHATSAPP,
+            routing_key="123",
+            is_active=True,
+        )
+        wa = WhatsAppMessage.objects.create(
+            tenant_id=tenant.pk,
+            integration=integration,
+            reservation=reservation,
+            wamid="wamid.media.test",
+            wa_id="385991234567",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="image",
+            body="",
+        )
+        job = DocumentIntakeJob.objects.create(
+            tenant_id=tenant.pk,
+            reservation=reservation,
+            whatsapp_message=wa,
+            source=DocumentIntakeJobSource.WHATSAPP,
+            status=DocumentIntakeJobStatus.DONE,
+        )
+        payload = serialize_whatsapp(wa)
+        self.assertEqual(payload["document_intake_job_id"], job.pk)
+        self.assertIn(f"/document-intake/jobs/{job.pk}/images/0/", payload["media_url"])
+        self.assertEqual(payload["media_kind"], "image")
+
     def test_text_body_preserved(self):
         class Row:
             body = "Bok"
