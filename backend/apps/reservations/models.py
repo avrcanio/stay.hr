@@ -383,6 +383,11 @@ class DocumentIntakeJobStatus(models.TextChoices):
     APPLIED = "applied", "Applied"
 
 
+class DocumentIntakeJobSource(models.TextChoices):
+    HOSPIRA_BATCH = "hospira_batch", "Hospira batch"
+    WHATSAPP = "whatsapp", "WhatsApp"
+
+
 def document_intake_image_upload_to(instance, filename: str) -> str:
     tenant_id = getattr(instance, "tenant_id", None) or "unknown"
     job_id = getattr(instance, "job_id", None) or "unknown"
@@ -397,6 +402,27 @@ class DocumentIntakeJob(TenantScopedModel):
         choices=DocumentIntakeJobStatus.choices,
         default=DocumentIntakeJobStatus.QUEUED,
     )
+    source = models.CharField(
+        max_length=32,
+        choices=DocumentIntakeJobSource.choices,
+        blank=True,
+        default="",
+    )
+    reservation = models.ForeignKey(
+        "reservations.Reservation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="document_intake_jobs",
+    )
+    whatsapp_message = models.ForeignKey(
+        "integrations.WhatsAppMessage",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="document_intake_jobs",
+    )
+    whatsapp_reply_sent = models.BooleanField(default=False)
     device_id = models.CharField(max_length=128, blank=True, default="")
     ocr_result = models.JSONField(default=dict, blank=True)
     matches = models.JSONField(default=list, blank=True)

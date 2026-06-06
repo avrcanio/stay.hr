@@ -218,7 +218,10 @@ export function GuestMessagesPanel({ reservationId }: Props) {
           timeline.map((item) => {
             const outbound = item.direction === "outbound";
             return (
-              <div key={item.id} className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
+              <div
+                key={`${item.source}-${item.id}`}
+                className={`flex ${outbound ? "justify-end" : "justify-start"}`}
+              >
                 <div
                   className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
                     outbound
@@ -232,6 +235,11 @@ export function GuestMessagesPanel({ reservationId }: Props) {
                     {item.sent_by_name ? <span>{item.sent_by_name}</span> : null}
                   </div>
                   <p className="whitespace-pre-wrap">{item.body_text}</p>
+                  {item.document_intake_job_id ? (
+                    <p className="mt-1 text-xs opacity-80">
+                      OCR #{item.document_intake_job_id}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             );

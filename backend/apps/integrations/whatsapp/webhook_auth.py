@@ -6,7 +6,11 @@ import secrets
 
 from django.http import HttpRequest
 
-from apps.integrations.whatsapp.config import app_secret_from_env, webhook_verify_token_from_env
+from apps.integrations.whatsapp.config import (
+    app_secret_from_env,
+    webhook_verify_signature_from_env,
+    webhook_verify_token_from_env,
+)
 
 SIGNATURE_HEADER = "X-Hub-Signature-256"
 
@@ -34,6 +38,9 @@ def verify_webhook_subscription(request: HttpRequest) -> str | None:
 
 
 def verify_webhook_signature(request: HttpRequest, *, raw_body: bytes) -> bool:
+    if not webhook_verify_signature_from_env():
+        return True
+
     app_secret = app_secret_from_env()
     if not app_secret:
         return False

@@ -35,6 +35,17 @@ class FaceCropHeuristicsTests(SimpleTestCase):
         best = _select_best_face(faces, image_w=w, image_h=h)
         self.assertEqual(best, (189, 528, 341, 341))
 
+    def test_select_best_face_passport_two_page_photo(self):
+        """Eagle/header false positive above biodata portrait (res #841 case)."""
+        w, h = 1152, 2048
+        faces = [
+            (777, 375, 118, 118),  # mid-page hologram
+            (22, 993, 330, 330),  # eagle/header false positive
+            (87, 1260, 235, 235),  # real biodata portrait
+        ]
+        best = _select_best_face(faces, image_w=w, image_h=h)
+        self.assertEqual(best, (87, 1260, 235, 235))
+
     def test_rejects_list_placeholder_bbox(self):
         self.assertTrue(_is_placeholder_llm_bbox([0.1, 0.2, 0.3, 0.4]))
 

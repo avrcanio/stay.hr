@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from apps.ai.document_ocr import DocumentOcrError, ocr_configured, run_document_batch_ocr
-from apps.reservations.document_intake_face import crop_face_jpeg
+from apps.reservations.document_intake_face import crop_face_jpeg, _coerce_bbox_dict
 from apps.reservations.document_intake_match import match_persons_to_guests, normalize_mrz_lines
 from apps.reservations.guest_slots import ensure_guest_slots_for_intake
 from apps.reservations.mrz_parse import normalize_residence_address, parse_sex_from_mrz
@@ -87,7 +87,11 @@ def process_document_intake_job(job_id: int) -> None:
                     img.detected_side = side
                     img.save(update_fields=["detected_side"])
 
-        matches = match_persons_to_guests(tenant_id=job.tenant_id, persons=persons)
+        matches = match_persons_to_guests(
+            tenant_id=job.tenant_id,
+            persons=persons,
+            reservation_id=job.reservation_id,
+        )
 
         job.ocr_result = ocr_result
         job.matches = matches
@@ -247,6 +251,10 @@ def apply_document_intake_job(
         job.status = DocumentIntakeJobStatus.APPLIED
         job.save(update_fields=["applied_result", "status", "updated_at"])
 
+    from apps.integrations.whatsapp.apply_reply import maybe_send_document_apply_whatsapp_reply
+
+    maybe_send_document_apply_whatsapp_reply(job, applied=applied)
+
     return applied
 
 
@@ -329,8 +337,10 @@ def _apply_person_to_guest(
 
     face_content = None
     if front_img is not None and front_img.image:
-        bbox = person.get("face_bbox") if isinstance(person.get("face_bbox"), dict) else None
-        face_content = crop_face_jpeg(front_img.image.path, bbox)
+        face_content = crop_face_jpeg(
+            front_img.image.path,
+            _coerce_bbox_dict(person.get("face_bbox")),
+        )
 
     if face_content is not None:
         id_document.face_photo.save(f"guest_{guest.pk}_face.jpg", face_content, save=False)
@@ -561,6 +571,9 @@ def job_to_dict(job: DocumentIntakeJob, *, request=None) -> dict[str, Any]:
         "matches": job.matches or [],
         "applied": job.applied_result or [],
         "created_at": job.created_at.isoformat(),
+        "source": job.source or "",
+        "reservation_id": job.reservation_id,
+        "whatsapp_message_id": job.whatsapp_message_id,
     }
     if request is not None and job.applied_result:
         for item in data["applied"]:

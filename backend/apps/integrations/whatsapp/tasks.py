@@ -5,8 +5,9 @@ import logging
 from celery import shared_task
 
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
-from apps.integrations.whatsapp.client import WhatsAppApiError, send_text_message
+from apps.integrations.whatsapp.client import WhatsAppApiError, extract_outbound_wamid, send_text_message
 from apps.integrations.whatsapp.reply import build_greeting
+from apps.integrations.whatsapp.document_intake_task import process_whatsapp_document_message
 from apps.integrations.whatsapp.reservation_lookup import find_reservation_for_wa_id
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 
@@ -42,7 +43,7 @@ def _maybe_send_auto_reply(
     if not runtime.auto_reply:
         return {"status": "auto_reply_disabled"}
 
-    if not runtime.access_token or not runtime.phone_number_id:
+    if not runtime.send_credentials_ok():
         logger.warning("WhatsApp auto-reply skipped: missing credentials tenant=%s", row.tenant_id)
         return {"status": "missing_credentials"}
 
@@ -58,12 +59,14 @@ def _maybe_send_auto_reply(
             access_token=runtime.access_token,
             to_wa_id=row.wa_id,
             body=greeting,
+            provider=runtime.provider,
+            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning("WhatsApp reply failed message_id=%s: %s", row.pk, exc)
         return {"status": "send_failed", "detail": str(exc)}
 
-    outbound_wamid = _extract_outbound_wamid(response)
+    outbound_wamid = extract_outbound_wamid(response)
     if outbound_wamid:
         WhatsAppMessage.objects.create(
             tenant_id=row.tenant_id,
@@ -114,6 +117,9 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
     _link_inbound_to_reservation(row)
     reservation = row.reservation
 
+    if row.message_type in ("image", "document"):
+        process_whatsapp_document_message.delay(row.pk)
+
     runtime = WhatsAppRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
     reply_result = _maybe_send_auto_reply(
         row=row,
@@ -129,11 +135,3 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
         **reply_result,
         "reservation_id": reservation.pk if reservation else None,
     }
-
-
-def _extract_outbound_wamid(response: dict) -> str:
-    for item in response.get("messages") or []:
-        wamid = str(item.get("id") or "").strip()
-        if wamid:
-            return wamid
-    return ""

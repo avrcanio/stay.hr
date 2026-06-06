@@ -7,6 +7,8 @@ from typing import Any
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
 from apps.integrations.whatsapp.tasks import process_inbound_message
 
+from apps.integrations.whatsapp.media_download import extract_media_from_message
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,6 +46,9 @@ def extract_inbound_messages(body: dict[str, Any]) -> list[ParsedInboundMessage]
                 text_body = ""
                 if message_type == "text":
                     text_body = str((message.get("text") or {}).get("body") or "").strip()
+                else:
+                    _, _, caption = extract_media_from_message(message)
+                    text_body = caption
                 messages.append(
                     ParsedInboundMessage(
                         phone_number_id=phone_number_id,
