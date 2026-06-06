@@ -13,6 +13,8 @@ from apps.ai.provider import (
     llm_model,
     prompt_version,
 )
+from apps.ai.translate import translate_text, translation_available
+from apps.api.language import normalize_app_language
 from apps.billing.models import Invoice
 from apps.billing.services.payment import resolve_payment_method
 from apps.communications.guest_compose_language import compose_language_for_reservation
@@ -262,6 +264,47 @@ def _normalize_hint(hint: str) -> str:
 
 def _lang_key(reservation: Reservation, override: str | None = None) -> str:
     return compose_language_for_reservation(reservation, override)
+
+
+def tenant_language_for_reservation(reservation: Reservation) -> str:
+    return normalize_app_language(
+        getattr(reservation.tenant, "default_language", None) or "hr"
+    )
+
+
+def body_text_for_tenant_preview(
+    reservation: Reservation,
+    guest_body: str,
+    guest_lang: str,
+) -> tuple[str, str]:
+    """Return (tenant_language, body_text_tenant) for compose UI preview."""
+    tenant_lang = tenant_language_for_reservation(reservation)
+    body = (guest_body or "").strip()
+    if not body:
+        return tenant_lang, ""
+    guest_base = (guest_lang or "").split("-")[0].lower()
+    if guest_base == tenant_lang:
+        return tenant_lang, body
+    if not translation_available():
+        return tenant_lang, body
+    return tenant_lang, translate_text(body, tenant_lang)
+
+
+def build_compose_response_fields(
+    reservation: Reservation,
+    *,
+    body_text: str,
+    guest_language: str,
+) -> dict[str, str]:
+    tenant_lang, body_tenant = body_text_for_tenant_preview(
+        reservation,
+        body_text,
+        guest_language,
+    )
+    return {
+        "body_text_tenant": body_tenant,
+        "tenant_language": tenant_lang,
+    }
 
 
 def _format_amount(amount: Decimal | None) -> str:

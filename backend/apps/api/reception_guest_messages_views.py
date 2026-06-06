@@ -10,7 +10,11 @@ from rest_framework.views import APIView
 
 from apps.api.language import resolve_request_language
 from apps.api.reception_views import ReceptionReadView, ReceptionWriteView
-from apps.communications.guest_compose import compose_guest_message, create_draft_from_body_text
+from apps.communications.guest_compose import (
+    compose_guest_message,
+    create_draft_from_body_text,
+    build_compose_response_fields,
+)
 from apps.communications.guest_message_translate import (
     GuestMessageTranslateError,
     translate_guest_message,
@@ -142,11 +146,19 @@ class ReceptionGuestMessageComposeView(ReceptionWriteView, APIView):
                 language=language,
             )
 
+        preview = build_compose_response_fields(
+            reservation,
+            body_text=draft.llm_body_text,
+            guest_language=draft.language,
+        )
+
         return Response(
             {
                 "draft_id": draft.pk,
                 "body_text": draft.llm_body_text,
                 "language": draft.language,
+                "body_text_tenant": preview["body_text_tenant"],
+                "tenant_language": preview["tenant_language"],
                 "llm_used": llm_used,
                 "channels": channels,
             },

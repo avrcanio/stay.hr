@@ -94,6 +94,32 @@ class ReceptionGuestMessagesAPITests(TestCase):
         self.assertEqual(data["channels"]["email"]["to"], "wolfgang@example.com")
         self.assertTrue(data["channels"]["whatsapp"]["available"])
         self.assertIn("491701234567", data["channels"]["whatsapp"]["phone_wa"])
+        self.assertIn("body_text_tenant", data)
+        self.assertIn("tenant_language", data)
+
+    @patch("apps.communications.guest_compose.translate_text")
+    @patch.dict(os.environ, {}, clear=False)
+    def test_compose_checkin_dual_language_tenant_preview(self, mock_translate):
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        self.tenant.default_language = "hr"
+        self.tenant.save(update_fields=["default_language"])
+        self.reservation.booker_country = "DE"
+        self.reservation.save(update_fields=["booker_country"])
+        mock_translate.return_value = "Pozdrav Wolfgang, dobrodošli."
+
+        response = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "checkin"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data["language"], "de")
+        self.assertIn("Eingang", data["body_text"])
+        self.assertEqual(data["tenant_language"], "hr")
+        self.assertEqual(data["body_text_tenant"], "Pozdrav Wolfgang, dobrodošli.")
+        mock_translate.assert_called_once()
 
     @patch.dict(os.environ, {}, clear=False)
     def test_compose_checkin_language_de(self):
