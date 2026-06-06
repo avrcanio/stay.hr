@@ -71,6 +71,8 @@ class Command(BaseCommand):
                 updated += 1
                 continue
 
+            if doc.face_photo:
+                doc.face_photo.delete(save=False)
             doc.face_photo.save(f"guest_{guest_id}_face.jpg", face_content, save=True)
             self.stdout.write(f"guest {guest_id}: face_photo updated")
             updated += 1

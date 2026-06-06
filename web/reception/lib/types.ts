@@ -98,6 +98,8 @@ export type GuestMessageTimelineItem = {
   sent_by_name: string | null;
   from_email: string | null;
   wa_me_url: string | null;
+  message_type?: string | null;
+  document_intake_job_id?: number | null;
 };
 
 export type GuestMessageChannelInfo = {

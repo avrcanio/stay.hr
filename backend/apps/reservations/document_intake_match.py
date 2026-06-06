@@ -232,9 +232,19 @@ def match_persons_to_guests(
     *,
     tenant_id: int,
     persons: list[dict],
+    reservation_id: int | None = None,
 ) -> list[dict]:
     """Return match suggestions per person index."""
-    reservations = active_reservations_for_intake(tenant_id)
+    if reservation_id:
+        reservations = list(
+            Reservation.objects.filter(
+                pk=reservation_id,
+                tenant_id=tenant_id,
+                status__in=ACTIVE_STATUSES,
+            ).prefetch_related("guests")
+        )
+    else:
+        reservations = active_reservations_for_intake(tenant_id)
     results: list[dict] = []
     assigned_guest_ids: set[int] = set()
 

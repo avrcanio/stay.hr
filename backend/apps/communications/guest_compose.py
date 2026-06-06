@@ -418,6 +418,12 @@ def _render_checkin_ready_fallback(context: dict) -> str:
     )
 
 
+def render_checkin_ready_message(reservation: Reservation) -> str:
+    """Deterministic post-apply thank-you message (same as compose checkin ready)."""
+    context = build_compose_context(reservation)
+    return _render_checkin_ready_fallback(context)
+
+
 def _system_prompt() -> str:
     return (
         "You are a professional hotel reception assistant drafting short guest messages. "

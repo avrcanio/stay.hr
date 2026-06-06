@@ -212,6 +212,28 @@ class WhatsAppWebhookTests(TestCase):
         response = WhatsAppWebhookView.as_view()(request)
         self.assertEqual(response.status_code, 403)
 
+    @patch.dict("os.environ", {"WHATSAPP_WEBHOOK_VERIFY_SIGNATURE": "false"}, clear=False)
+    def test_post_accepts_unsigned_payload_when_signature_disabled(self):
+        payload = _sample_webhook_payload(
+            phone_number_id=self.phone_number_id_a,
+            wa_id="385911111111",
+            wamid="wamid.inbound.unsigned",
+            body="Bok",
+        )
+        request = self.factory.post(
+            self._url(),
+            data=json.dumps(payload).encode("utf-8"),
+            content_type="application/json",
+        )
+        with patch("apps.integrations.whatsapp.tasks.send_text_message") as mock_send:
+            mock_send.return_value = {"messages": [{"id": "wamid.outbound.unsigned"}]}
+            response = WhatsAppWebhookView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            WhatsAppMessage.objects.filter(wamid="wamid.inbound.unsigned").exists()
+        )
+
     def test_routes_by_phone_number_id(self):
         payload = _sample_webhook_payload(
             phone_number_id=self.phone_number_id_a,

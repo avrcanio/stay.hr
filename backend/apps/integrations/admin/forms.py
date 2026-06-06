@@ -181,12 +181,24 @@ class IntegrationConfigAdminForm(forms.ModelForm):
         )
 
     def _build_whatsapp_fields(self, config: dict[str, Any]) -> None:
-        self._secret_field("access_token", label="WhatsApp access token")
+        self._secret_field("access_token", label="Access token / D360 API key")
+        self._config_char_field(
+            "provider",
+            label="Provider",
+            initial=str(config.get("provider") or "meta"),
+            help_text="meta (Graph API) or 360dialog (Direct API).",
+        )
+        self._config_char_field(
+            "api_base_url",
+            label="360dialog API base URL",
+            initial=str(config.get("api_base_url") or ""),
+            required=False,
+        )
         self._config_char_field(
             "phone_number_id",
             label="Phone number ID",
             initial=str(config.get("phone_number_id") or ""),
-            help_text="Also synced to routing_key on save.",
+            help_text="Meta phone_number_id or 360dialog channel external ID; synced to routing_key.",
         )
         self._config_char_field(
             "display_phone_number",

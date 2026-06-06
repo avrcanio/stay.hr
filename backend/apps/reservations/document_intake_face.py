@@ -112,6 +112,18 @@ def _select_best_face(
     if not candidates:
         return None
 
+    # WhatsApp passport photos often show two open pages; Haar false positives on the
+    # eagle/header sit above the real biodata portrait on the left strip.
+    portrait_passport = image_h / max(image_w, 1) > 1.35
+    if portrait_passport:
+        left_portraits = [
+            box
+            for _, box in candidates
+            if (box[0] + box[2] / 2) / image_w < 0.30
+        ]
+        if len(left_portraits) >= 2:
+            return max(left_portraits, key=lambda b: b[1])
+
     candidates.sort(key=lambda item: item[0], reverse=True)
     return candidates[0][1]
 

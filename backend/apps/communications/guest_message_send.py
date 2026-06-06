@@ -1,4 +1,4 @@
-"""Send guest messages via email SMTP or WhatsApp handoff."""
+"""Send guest messages via email SMTP, WhatsApp API (360dialog), or WhatsApp handoff."""
 
 from __future__ import annotations
 
@@ -26,7 +26,10 @@ from apps.integrations.channex.booking_service import parse_channex_booking_id
 from apps.integrations.channex.exceptions import ChannexBookingIngestError
 from apps.integrations.channex.message_service import send_message_for_reservation
 from apps.integrations.channel_manager.resolver import get_channel_manager
-from apps.integrations.models import ChannexMessage, IntegrationConfig
+from apps.integrations.models import ChannexMessage, IntegrationConfig, WhatsAppMessage
+from apps.integrations.whatsapp.client import WhatsAppApiError, extract_outbound_wamid, send_text_message
+from apps.integrations.whatsapp.config import is_360dialog_provider
+from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
 from apps.integrations.whatsapp.phone import normalize_phone
 from apps.reservations.models import Reservation
 from apps.tenants.models import ApiApplication, ChannelManager
@@ -78,6 +81,12 @@ def build_message_channels(reservation: Reservation) -> dict:
     phone_raw = guest_phone_number(reservation)
     phone_wa = normalize_phone(phone_raw)
     booking_available = _booking_channel_available(reservation)
+    _, whatsapp_runtime = get_active_whatsapp_integration(reservation.tenant)
+    whatsapp_api_send = bool(
+        whatsapp_runtime
+        and is_360dialog_provider(whatsapp_runtime.provider)
+        and whatsapp_runtime.send_credentials_ok()
+    )
 
     return {
         "email": {
@@ -89,6 +98,7 @@ def build_message_channels(reservation: Reservation) -> dict:
             "phone_raw": phone_raw,
             "phone_wa": phone_wa,
             "wa_me_url": build_wa_me_url(phone_wa, "") if phone_wa else "",
+            "api_send": whatsapp_api_send,
         },
         "booking": {
             "available": booking_available,
@@ -172,7 +182,7 @@ def send_guest_message(
             subject=subject,
         )
     if channel == GuestMessageChannel.WHATSAPP:
-        return _send_whatsapp_handoff(
+        return _send_whatsapp_channel(
             reservation=reservation,
             draft=draft,
             body_text=text,
@@ -224,6 +234,104 @@ def _send_email_channel(
         draft.sent_at = timezone.now()
         update_fields.append("sent_at")
     draft.save(update_fields=update_fields)
+
+    return outbound
+
+
+def _send_whatsapp_channel(
+    *,
+    reservation: Reservation,
+    draft: GuestMessageDraft,
+    body_text: str,
+    api_application: ApiApplication | None,
+) -> GuestOutboundMessage:
+    integration, runtime = get_active_whatsapp_integration(reservation.tenant)
+    if (
+        integration is not None
+        and runtime is not None
+        and is_360dialog_provider(runtime.provider)
+        and runtime.send_credentials_ok()
+    ):
+        return _send_whatsapp_api(
+            reservation=reservation,
+            draft=draft,
+            body_text=body_text,
+            api_application=api_application,
+            integration=integration,
+            runtime=runtime,
+        )
+    return _send_whatsapp_handoff(
+        reservation=reservation,
+        draft=draft,
+        body_text=body_text,
+        api_application=api_application,
+    )
+
+
+def _send_whatsapp_api(
+    *,
+    reservation: Reservation,
+    draft: GuestMessageDraft,
+    body_text: str,
+    api_application: ApiApplication | None,
+    integration: IntegrationConfig,
+    runtime,
+) -> GuestOutboundMessage:
+    phone_raw = guest_phone_number(reservation)
+    phone_wa = normalize_phone(phone_raw)
+    if not phone_wa:
+        raise ValueError("no_phone")
+
+    outbound = GuestOutboundMessage.objects.create(
+        tenant_id=reservation.tenant_id,
+        reservation=reservation,
+        draft=draft,
+        channel=GuestMessageChannel.WHATSAPP,
+        body_text=body_text,
+        status=GuestOutboundMessageStatus.QUEUED,
+        to_phone=phone_raw,
+        api_application=api_application,
+    )
+
+    try:
+        response = send_text_message(
+            phone_number_id=runtime.phone_number_id,
+            access_token=runtime.access_token,
+            to_wa_id=phone_wa,
+            body=body_text,
+            provider=runtime.provider,
+            api_base_url=runtime.api_base_url,
+        )
+    except WhatsAppApiError as exc:
+        outbound.status = GuestOutboundMessageStatus.FAILED
+        outbound.error_message = str(exc)
+        outbound.save(update_fields=["status", "error_message"])
+        raise ValueError(str(exc)) from exc
+
+    wamid = extract_outbound_wamid(response)
+    if wamid:
+        WhatsAppMessage.objects.create(
+            tenant_id=reservation.tenant_id,
+            integration=integration,
+            reservation=reservation,
+            wamid=wamid,
+            wa_id=phone_wa,
+            phone_number_id=runtime.phone_number_id,
+            direction=WhatsAppMessage.Direction.OUTBOUND,
+            message_type="text",
+            body=body_text,
+            raw_payload=response,
+        )
+
+    now = timezone.now()
+    outbound.status = GuestOutboundMessageStatus.SENT
+    outbound.error_message = ""
+    outbound.save(update_fields=["status", "error_message"])
+
+    draft.final_body_text = body_text
+    draft.channel = GuestMessageChannel.WHATSAPP
+    draft.sent_at = now
+    draft.save(update_fields=["final_body_text", "channel", "sent_at"])
 
     return outbound
 
