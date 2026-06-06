@@ -49,6 +49,7 @@ MAPS_LINK = "https://maps.app.goo.gl/BN15CcMmmAapmjUs7"
 
 # Pre-filled WhatsApp text limit (chars before URL encoding).
 WA_ME_BODY_MAX_LEN = 1500
+_OUTBOUND_IMAGE_BODY = "📷 Slika poslana"
 
 
 def guest_phone_number(reservation: Reservation) -> str:
@@ -132,25 +133,32 @@ def send_guest_text_email(
     body_text: str,
     *,
     subject: str | None = None,
+    attachment: tuple[str, bytes, str] | None = None,
 ) -> dict:
-    """Send plain-text email to guest; returns {sent, to?, reason?}."""
+    """Send plain-text email to guest; returns {sent, to?, reason?}.
+
+    attachment: optional (filename, bytes, mime_type).
+    """
     recipient = _guest_recipient(reservation)
     if not recipient:
         return {"sent": False, "reason": "no_recipient"}
 
     text = (body_text or "").strip()
-    if not text:
+    if not text and attachment is None:
         return {"sent": False, "reason": "empty_body"}
 
     subj = (subject or default_email_subject(reservation)).strip()
     from_header, reply_to = _sender_for_reservation(reservation)
     message = EmailMultiAlternatives(
         subject=subj,
-        body=text,
+        body=text or _OUTBOUND_IMAGE_BODY,
         from_email=from_header,
         to=[recipient],
         reply_to=[reply_to] if reply_to else None,
     )
+    if attachment is not None:
+        filename, file_bytes, mime_type = attachment
+        message.attach(filename, file_bytes, mime_type)
     try:
         if not _send_guest_email(message, reservation):
             return {"sent": False, "reason": "smtp_not_configured"}
@@ -345,9 +353,6 @@ def _send_whatsapp_api(
     return outbound
 
 
-_OUTBOUND_IMAGE_BODY = "📷 Slika poslana"
-
-
 def send_guest_whatsapp_image(
     *,
     reservation: Reservation,
@@ -443,6 +448,69 @@ def send_guest_whatsapp_image(
     draft.save(update_fields=["final_body_text", "channel", "sent_at"])
 
     return wa_message
+
+
+def send_guest_email_image(
+    *,
+    reservation: Reservation,
+    draft: GuestMessageDraft,
+    uploaded_file,
+    caption: str = "",
+    api_application: ApiApplication | None,
+    subject: str | None = None,
+) -> GuestOutboundMessage:
+    """Send image attachment to guest via tenant SMTP."""
+    recipient = _guest_recipient(reservation) or ""
+    if not recipient:
+        raise ValueError("no_recipient")
+
+    file_bytes = uploaded_file.read()
+    uploaded_file.seek(0)
+    if not file_bytes:
+        raise ValueError("empty_file")
+
+    mime_type = getattr(uploaded_file, "content_type", None) or mimetypes.guess_type(
+        getattr(uploaded_file, "name", "") or ""
+    )[0] or "image/jpeg"
+    if not mime_type.startswith("image/"):
+        raise ValueError("unsupported_media_type")
+
+    filename = getattr(uploaded_file, "name", None) or "image.jpg"
+    body_text = (caption or "").strip() or _OUTBOUND_IMAGE_BODY
+
+    outbound = GuestOutboundMessage.objects.create(
+        tenant_id=reservation.tenant_id,
+        reservation=reservation,
+        draft=draft,
+        channel=GuestMessageChannel.EMAIL,
+        body_text=body_text,
+        status=GuestOutboundMessageStatus.QUEUED,
+        to_email=recipient,
+        api_application=api_application,
+    )
+
+    result = send_guest_text_email(
+        reservation,
+        body_text,
+        subject=subject,
+        attachment=(filename, file_bytes, mime_type),
+    )
+    if result.get("sent"):
+        outbound.status = GuestOutboundMessageStatus.SENT
+        outbound.error_message = ""
+        outbound.media_file.save(filename, ContentFile(file_bytes), save=True)
+    else:
+        outbound.status = GuestOutboundMessageStatus.FAILED
+        outbound.error_message = result.get("reason") or result.get("error") or "send_failed"
+        outbound.save(update_fields=["status", "error_message"])
+        raise ValueError(outbound.error_message)
+
+    draft.final_body_text = body_text
+    draft.channel = GuestMessageChannel.EMAIL
+    draft.sent_at = timezone.now()
+    draft.save(update_fields=["final_body_text", "channel", "sent_at"])
+
+    return outbound
 
 
 def _send_whatsapp_handoff(

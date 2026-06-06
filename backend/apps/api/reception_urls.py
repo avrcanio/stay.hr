@@ -31,6 +31,7 @@ from apps.api.reception_guest_messages_views import (
     ReceptionGuestMessageSendView,
     ReceptionGuestMessageTranslateView,
     ReceptionGuestMessagesView,
+    GuestOutboundMessageMediaView,
     WhatsAppMessageMediaView,
 )
 from apps.api.reception_message_threads_views import ReceptionMessageThreadsListView
@@ -182,6 +183,11 @@ urlpatterns = [
         "whatsapp-messages/<int:message_id>/media/",
         WhatsAppMessageMediaView.as_view(),
         name="reception-whatsapp-message-media",
+    ),
+    path(
+        "guest-outbound-messages/<int:message_id>/media/",
+        GuestOutboundMessageMediaView.as_view(),
+        name="reception-guest-outbound-message-media",
     ),
     path(
         "reservations/<int:reservation_id>/messages/dismiss-reply/",

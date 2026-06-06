@@ -5,6 +5,13 @@ from django.db import models
 from apps.core.models import TenantScopedModel
 
 
+def guest_outbound_media_upload_to(instance, filename: str) -> str:
+    return (
+        f"communications/guest-outbound/{instance.tenant_id}/"
+        f"{instance.reservation_id}/{instance.pk}_{filename}"
+    )
+
+
 class GuestMessageIntent(models.TextChoices):
     CHECKIN = "checkin", "Check-in"
     REPLY = "reply", "Reply"
@@ -107,6 +114,11 @@ class GuestOutboundMessage(TenantScopedModel):
     to_phone = models.CharField(max_length=64, blank=True, default="")
     wa_me_url = models.TextField(blank=True, default="")
     error_message = models.TextField(blank=True, default="")
+    media_file = models.FileField(
+        upload_to=guest_outbound_media_upload_to,
+        blank=True,
+        null=True,
+    )
     api_application = models.ForeignKey(
         "tenants.ApiApplication",
         on_delete=models.SET_NULL,

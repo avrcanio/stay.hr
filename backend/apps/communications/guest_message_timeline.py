@@ -31,6 +31,10 @@ def whatsapp_message_media_url(message_id: int) -> str:
     return f"/api/v1/reception/whatsapp-messages/{message_id}/media/"
 
 
+def outbound_message_media_url(outbound_id: int) -> str:
+    return f"/api/v1/reception/guest-outbound-messages/{outbound_id}/media/"
+
+
 def media_kind_for_message_type(message_type: str) -> str | None:
     mt = (message_type or "").strip().lower()
     if mt in {"image", "document"}:
@@ -47,6 +51,13 @@ def whatsapp_display_body(msg: WhatsAppMessage) -> str:
 
 def serialize_outbound(outbound: GuestOutboundMessage) -> dict:
     app = outbound.api_application
+    message_type = "text"
+    media_url = None
+    media_kind = None
+    if getattr(outbound, "media_file", None) and outbound.media_file:
+        message_type = "image"
+        media_url = outbound_message_media_url(outbound.pk)
+        media_kind = "image"
     return {
         "id": outbound.pk,
         "source": "outbound",
@@ -58,10 +69,10 @@ def serialize_outbound(outbound: GuestOutboundMessage) -> dict:
         "sent_by_name": app.name if app else None,
         "from_email": None,
         "wa_me_url": outbound.wa_me_url or None,
-        "message_type": "text",
+        "message_type": message_type,
         "document_intake_job_id": None,
-        "media_url": None,
-        "media_kind": None,
+        "media_url": media_url,
+        "media_kind": media_kind,
     }
 
 

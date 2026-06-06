@@ -1,13 +1,22 @@
 from decimal import Decimal
 import os
+from io import BytesIO
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from PIL import Image
 from rest_framework.test import APIClient
 
 from apps.properties.models import Property, Unit
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.tenants.models import RECEPTION_DEVICE_SCOPES, ApiApplication, Tenant
+
+
+def _tiny_jpeg(name: str = "chat.jpg") -> SimpleUploadedFile:
+    buf = BytesIO()
+    Image.new("RGB", (40, 40), color=(200, 180, 160)).save(buf, format="JPEG")
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/jpeg")
 
 
 class ReceptionGuestMessagesAPITests(TestCase):
@@ -701,4 +710,31 @@ class ReceptionGuestMessagesAPITests(TestCase):
         self.assertEqual(data["status"], "sent")
         self.assertEqual(data["body_text"], body)
         mock_send.assert_called_once()
+
+    @patch("apps.communications.guest_message_send.send_guest_text_email")
+    def test_send_image_email(self, mock_send):
+        mock_send.return_value = {"sent": True, "to": "wolfgang@example.com"}
+        response = self.client.post(
+            f"{self.base}/send-image/",
+            {
+                "file": _tiny_jpeg(),
+                "channel": "email",
+                "caption": "Parking map",
+            },
+            format="multipart",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["channel"], "email")
+        self.assertEqual(data["status"], "sent")
+        self.assertEqual(data["message_type"], "image")
+        self.assertIn("/guest-outbound-messages/", data["media_url"])
+        mock_send.assert_called_once()
+        _args, kwargs = mock_send.call_args
+        self.assertIsNotNone(kwargs.get("attachment"))
+
+        timeline = self.client.get(f"{self.base}/", **self.auth)
+        self.assertEqual(len(timeline.json()), 1)
+        self.assertEqual(timeline.json()[0]["message_type"], "image")
 
