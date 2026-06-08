@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import type {
   GuestMessageChannelInfo,
+  GuestMessageChannels,
   GuestMessageComposeResponse,
   GuestMessageTimelineItem,
 } from "@/lib/types";
@@ -14,7 +15,7 @@ type Props = {
 
 type ComposeIntent = "checkin" | "reply" | "custom";
 
-const CHANNEL_ORDER = ["booking", "email", "whatsapp"] as const;
+const CHANNEL_ORDER = ["email", "whatsapp", "booking"] as const;
 
 function formatMessageTime(iso: string): string {
   const date = new Date(iso);
@@ -35,7 +36,7 @@ function channelLabelKey(channel: string): string {
 
 function channelHint(
   channel: string,
-  channels: Record<string, GuestMessageChannelInfo>,
+  channels: GuestMessageChannels,
   t: (key: string, values?: Record<string, string>) => string,
 ): string | null {
   if (channel === "booking" && channels.booking?.available) {
@@ -63,7 +64,7 @@ export function GuestMessagesPanel({ reservationId }: Props) {
   const [composeHint, setComposeHint] = useState("");
   const [draftId, setDraftId] = useState<number | null>(null);
   const [bodyText, setBodyText] = useState("");
-  const [channels, setChannels] = useState<Record<string, GuestMessageChannelInfo>>({});
+  const [channels, setChannels] = useState<GuestMessageChannels>({});
   const [selectedChannel, setSelectedChannel] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
@@ -99,10 +100,18 @@ export function GuestMessagesPanel({ reservationId }: Props) {
       setSelectedChannel("");
       return;
     }
+    const preferred = channels.default_channel;
+    if (
+      preferred &&
+      availableChannels.includes(preferred as (typeof CHANNEL_ORDER)[number])
+    ) {
+      setSelectedChannel(preferred);
+      return;
+    }
     if (!selectedChannel || !availableChannels.includes(selectedChannel as (typeof CHANNEL_ORDER)[number])) {
       setSelectedChannel(availableChannels[0]);
     }
-  }, [availableChannels, selectedChannel]);
+  }, [availableChannels, selectedChannel, channels.default_channel]);
 
   async function handleCompose() {
     setBusy(true);

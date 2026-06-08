@@ -117,6 +117,7 @@ def notify_reservation_status_changed(
 _GUEST_MESSAGE_CHANNEL_LABELS = {
     "booking": "Booking.com",
     "whatsapp": "WhatsApp",
+    "email": "Email",
 }
 
 

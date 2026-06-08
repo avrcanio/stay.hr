@@ -110,8 +110,12 @@ export default function ReservationReviewDetailPage() {
         body: JSON.stringify({ reply: text }),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { detail?: string }).detail || t("replyFailed"));
+        const body = (await res.json().catch(() => ({}))) as {
+          detail?: string;
+          reply?: string[];
+        };
+        const replyError = Array.isArray(body.reply) ? body.reply[0] : undefined;
+        throw new Error(replyError || body.detail || t("replyFailed"));
       }
       const successKey =
         review.ota === "BookingCom" ? "replySuccessBooking" : "replySuccess";

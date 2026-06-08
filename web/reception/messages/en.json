@@ -382,7 +382,7 @@
     "needsReply": "Needs reply",
     "replyPendingModeration": "Pending moderation",
     "replyPublished": "Published",
-    "bookingModerationInfo": "Your reply is sent to Booking.com for moderation (up to 72 hours). Write in the review language or English. Avoid repeating unpleasant details from the review (cleanliness, noise, insects).",
+    "bookingModerationInfo": "Your reply is sent to Booking.com for moderation (up to 72 hours). Keep it short (2–4 sentences) in the review language or English. Do not use the guest's name, booking numbers, contact details, or links. Avoid repeating complaints from the review.",
     "noContentYet": "Review text not received yet.",
     "scoreOnlyEmpty": "Score only — no guest comment",
     "selectReview": "Select a review on the left.",

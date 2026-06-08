@@ -1,9 +1,11 @@
 from datetime import date, datetime, time, timedelta
+import html
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from django.test import TestCase, override_settings
 
+from apps.communications.guest_compose import render_autocheckin_whatsapp_intro_email_html
 from apps.communications.whatsapp_autocheckin_tasks import (
     is_immediate_autocheckin_eligible,
     iter_due_autocheckin_intro_emails,
@@ -157,8 +159,25 @@ class WhatsAppAutocheckinWelcomeTests(TestCase):
         self.reservation.refresh_from_db()
         self.assertIsNotNone(self.reservation.whatsapp_autocheckin_intro_email_sent_at)
         mock_email.assert_called_once()
+        call_kwargs = mock_email.call_args.kwargs
+        self.assertIn("body_html", call_kwargs)
+        self.assertIn("wa.me", call_kwargs["body_html"])
         body = mock_email.call_args.args[1]
         self.assertIn("wa.me", body)
+        self.assertIn("Auto check-in:", body)
+
+    def test_intro_email_html_renders_whatsapp_button(self):
+        wa_link = "https://wa.me/385976789626?text=Auto%20check-in"
+        body_html = render_autocheckin_whatsapp_intro_email_html(
+            self.reservation,
+            wa_link=wa_link,
+            display_phone="+385976789626",
+        )
+        self.assertIn(f'href="{wa_link}"', body_html)
+        self.assertIn("Auto check-in", body_html)
+        self.assertIn("#25D366", body_html)
+        self.assertNotIn("<script", body_html.lower())
+        self.assertIn(html.escape(self.reservation.booking_code), body_html)
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.communications.whatsapp_autocheckin_tasks.send_template_message")
@@ -286,6 +305,17 @@ class WhatsAppImmediateAutocheckinTests(TestCase):
 
         self.assertEqual(result["status"], "sent")
         mock_send.assert_called_once()
+
+    @patch("apps.communications.whatsapp_autocheckin_tasks.send_autocheckin_intro_email")
+    @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")
+    def test_immediate_task_does_not_send_intro_email(self, mock_now, mock_intro):
+        mock_now.return_value = datetime(2026, 6, 7, 10, 0, tzinfo=ZAGREB)
+        reservation = self._create_reservation(check_in=self.today + timedelta(days=30))
+
+        result = maybe_send_immediate_autocheckin_welcome(reservation.pk)
+
+        self.assertEqual(result["status"], "skipped")
+        mock_intro.assert_not_called()
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.communications.whatsapp_autocheckin_tasks.send_template_message")

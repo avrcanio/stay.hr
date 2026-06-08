@@ -4,6 +4,7 @@ import logging
 from datetime import date, datetime, timedelta
 
 from celery import shared_task
+from django.db import transaction
 from django.utils import timezone
 
 from apps.communications.guest_compose import (
@@ -11,6 +12,7 @@ from apps.communications.guest_compose import (
     autocheckin_wa_me_prefill,
     compose_language_for_reservation,
     render_autocheckin_whatsapp_intro_email,
+    render_autocheckin_whatsapp_intro_email_html,
 )
 from apps.communications.guest_email import _guest_recipient
 from apps.communications.guest_message_send import (
@@ -92,9 +94,6 @@ def send_autocheckin_intro_email(
     *,
     dry_run: bool = False,
 ) -> dict:
-    if reservation.whatsapp_autocheckin_intro_email_sent_at is not None:
-        return {"status": "already_sent", "reservation_id": reservation.pk}
-
     recipient = _guest_recipient(reservation)
     if not recipient:
         return {"status": "skipped", "reason": "no_email", "reservation_id": reservation.pk}
@@ -109,6 +108,11 @@ def send_autocheckin_intro_email(
         wa_link=wa_link,
         display_phone=display_phone,
     )
+    body_html = render_autocheckin_whatsapp_intro_email_html(
+        reservation,
+        wa_link=wa_link,
+        display_phone=display_phone,
+    )
 
     if dry_run:
         return {
@@ -116,40 +120,58 @@ def send_autocheckin_intro_email(
             "reservation_id": reservation.pk,
             "to": recipient,
             "wa_link": wa_link,
+            "has_html": True,
         }
 
-    subject = default_email_subject(reservation)
-    result = send_guest_text_email(reservation, body, subject=subject)
-    if not result.get("sent"):
-        return {
-            "status": "send_failed",
-            "reason": result.get("reason"),
-            "reservation_id": reservation.pk,
-        }
+    with transaction.atomic():
+        locked = (
+            Reservation.objects.select_for_update()
+            .filter(pk=reservation.pk)
+            .first()
+        )
+        if locked is None:
+            return {"status": "missing", "reservation_id": reservation.pk}
+        if locked.whatsapp_autocheckin_intro_email_sent_at is not None:
+            return {"status": "already_sent", "reservation_id": reservation.pk}
 
-    sent_at = timezone.now()
-    draft = GuestMessageDraft.objects.create(
-        tenant_id=reservation.tenant_id,
-        reservation=reservation,
-        intent=GuestMessageIntent.CHECKIN,
-        hint=HINT_AUTOCHECKIN_WHATSAPP_INTRO,
-        language=compose_language_for_reservation(reservation),
-        llm_body_text=body,
-        final_body_text=body,
-        channel=GuestMessageChannel.EMAIL,
-        sent_at=sent_at,
-    )
-    GuestOutboundMessage.objects.create(
-        tenant_id=reservation.tenant_id,
-        reservation=reservation,
-        draft=draft,
-        channel=GuestMessageChannel.EMAIL,
-        body_text=body,
-        status=GuestOutboundMessageStatus.SENT,
-        to_email=result.get("to") or recipient,
-    )
-    reservation.whatsapp_autocheckin_intro_email_sent_at = sent_at
-    reservation.save(update_fields=["whatsapp_autocheckin_intro_email_sent_at", "updated_at"])
+        subject = default_email_subject(locked)
+        result = send_guest_text_email(
+            locked,
+            body,
+            subject=subject,
+            body_html=body_html,
+        )
+        if not result.get("sent"):
+            return {
+                "status": "send_failed",
+                "reason": result.get("reason"),
+                "reservation_id": reservation.pk,
+            }
+
+        sent_at = timezone.now()
+        draft = GuestMessageDraft.objects.create(
+            tenant_id=locked.tenant_id,
+            reservation=locked,
+            intent=GuestMessageIntent.CHECKIN,
+            hint=HINT_AUTOCHECKIN_WHATSAPP_INTRO,
+            language=compose_language_for_reservation(locked),
+            llm_body_text=body,
+            final_body_text=body,
+            channel=GuestMessageChannel.EMAIL,
+            sent_at=sent_at,
+        )
+        GuestOutboundMessage.objects.create(
+            tenant_id=locked.tenant_id,
+            reservation=locked,
+            draft=draft,
+            channel=GuestMessageChannel.EMAIL,
+            body_text=body,
+            status=GuestOutboundMessageStatus.SENT,
+            to_email=result.get("to") or recipient,
+        )
+        locked.whatsapp_autocheckin_intro_email_sent_at = sent_at
+        locked.save(update_fields=["whatsapp_autocheckin_intro_email_sent_at", "updated_at"])
+
     return {"status": "sent", "reservation_id": reservation.pk, "to": recipient}
 
 
@@ -362,19 +384,10 @@ def maybe_send_immediate_autocheckin_welcome(reservation_id: int) -> dict:
     if reservation is None:
         return {"status": "missing", "reservation_id": reservation_id}
 
-    intro_result: dict | None = None
-    if reservation.whatsapp_autocheckin_intro_email_sent_at is None and _guest_recipient(reservation):
-        intro_result = send_autocheckin_intro_email(reservation)
-
     if not is_immediate_autocheckin_eligible(reservation):
-        if intro_result and intro_result.get("status") == "sent":
-            return {**intro_result, "welcome": "skipped", "reason": "not_eligible"}
         return {"status": "skipped", "reason": "not_eligible", "reservation_id": reservation_id}
 
-    welcome_result = send_welcome_template_for_reservation(reservation)
-    if intro_result:
-        return {**welcome_result, "intro": intro_result}
-    return welcome_result
+    return send_welcome_template_for_reservation(reservation)
 
 
 @shared_task

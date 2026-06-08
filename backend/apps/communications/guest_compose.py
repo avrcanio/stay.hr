@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 from decimal import Decimal
@@ -355,43 +356,52 @@ OPERATOR_CHECKIN_COMPLETE_BODY = {
     ),
 }
 
-AUTOCHECKIN_WHATSAPP_INTRO_BODY = {
+AUTOCHECKIN_WHATSAPP_INTRO_HEAD = {
     "hr": (
         "Danas možete obaviti brzi online check-in putem WhatsAppa.\n\n"
-        "Kontaktirat ćemo vas s broja {display_phone}. "
-        "Možete i sami započeti check-in:\n{wa_link}\n\n"
+        "Kontaktirat ćemo vas s broja {display_phone}. Možete i sami započeti check-in."
+    ),
+    "en": (
+        "You can complete a quick online check-in via WhatsApp today.\n\n"
+        "We will contact you from {display_phone}. You can also start check-in yourself."
+    ),
+    "de": (
+        "Heute können Sie den Online-Check-in per WhatsApp abschließen.\n\n"
+        "Wir kontaktieren Sie von {display_phone}. Sie können den Check-in auch selbst starten."
+    ),
+    "es": (
+        "Hoy puede completar el check-in online por WhatsApp.\n\n"
+        "Le contactaremos desde {display_phone}. También puede iniciar el check-in."
+    ),
+    "fr": (
+        "Aujourd’hui, vous pouvez effectuer l’enregistrement en ligne via WhatsApp.\n\n"
+        "Nous vous contacterons depuis {display_phone}. "
+        "Vous pouvez aussi démarrer l’enregistrement."
+    ),
+}
+
+AUTOCHECKIN_WHATSAPP_INTRO_TAIL = {
+    "hr": (
         "Ako check-in obavite preko linka, nećete dobiti zasebnu WhatsApp pozivnicu "
         "(utility poruku).\n\n"
         "Rezervacija: {booking_code}"
     ),
     "en": (
-        "You can complete a quick online check-in via WhatsApp today.\n\n"
-        "We will contact you from {display_phone}. "
-        "You can also start check-in yourself:\n{wa_link}\n\n"
         "If you check in via the link, you will not receive a separate WhatsApp invitation "
         "(utility message).\n\n"
         "Booking: {booking_code}"
     ),
     "de": (
-        "Heute können Sie den Online-Check-in per WhatsApp abschließen.\n\n"
-        "Wir kontaktieren Sie von {display_phone}. "
-        "Sie können den Check-in auch selbst starten:\n{wa_link}\n\n"
         "Wenn Sie den Check-in über den Link abschließen, erhalten Sie keine separate "
         "WhatsApp-Einladung (Utility-Nachricht).\n\n"
         "Buchung: {booking_code}"
     ),
     "es": (
-        "Hoy puede completar el check-in online por WhatsApp.\n\n"
-        "Le contactaremos desde {display_phone}. "
-        "También puede iniciar el check-in:\n{wa_link}\n\n"
         "Si completa el check-in mediante el enlace, no recibirá una invitación "
         "WhatsApp aparte (mensaje utility).\n\n"
         "Reserva: {booking_code}"
     ),
     "fr": (
-        "Aujourd’hui, vous pouvez effectuer l’enregistrement en ligne via WhatsApp.\n\n"
-        "Nous vous contacterons depuis {display_phone}. "
-        "Vous pouvez aussi démarrer l’enregistrement :\n{wa_link}\n\n"
         "Si vous terminez via le lien, vous ne recevrez pas d’invitation WhatsApp "
         "séparée (message utility).\n\n"
         "Réservation : {booking_code}"
@@ -733,6 +743,50 @@ def autocheckin_wa_me_prefill(language: str) -> str:
     return AUTOCHECKIN_WA_ME_PREFILL.get(lang, AUTOCHECKIN_WA_ME_PREFILL["en"])
 
 
+def _autocheckin_intro_booking_code(reservation: Reservation, context: dict) -> str:
+    return context["booking_code"] or str(reservation.pk)
+
+
+def _autocheckin_intro_cta_label(lang: str) -> str:
+    return autocheckin_wa_me_prefill(lang)
+
+
+def _autocheckin_intro_plain_cta_line(*, lang: str, wa_link: str) -> str:
+    label = _autocheckin_intro_cta_label(lang)
+    link = (wa_link or "").strip()
+    return f"{label}: {link}" if link else label
+
+
+def _whatsapp_cta_button_html(*, href: str, label: str) -> str:
+    href_esc = html.escape(href, quote=True)
+    label_esc = html.escape(label)
+    return (
+        '<table role="presentation" cellspacing="0" cellpadding="0" border="0">'
+        "<tr><td>"
+        f'<a href="{href_esc}" '
+        'style="display:inline-block;padding:12px 24px;background-color:#25D366;'
+        'color:#ffffff;text-decoration:none;font-weight:bold;">'
+        f"{label_esc}</a>"
+        "</td></tr></table>"
+    )
+
+
+def _render_autocheckin_intro_core(
+    *,
+    lang: str,
+    display_phone: str,
+    booking_code: str,
+    cta_line: str,
+) -> str:
+    head = _text_for_lang(AUTOCHECKIN_WHATSAPP_INTRO_HEAD, lang).format(
+        display_phone=display_phone or "",
+    )
+    tail = _text_for_lang(AUTOCHECKIN_WHATSAPP_INTRO_TAIL, lang).format(
+        booking_code=booking_code,
+    )
+    return "\n\n".join(part for part in (head, cta_line, tail) if part)
+
+
 def render_autocheckin_whatsapp_intro_email(
     reservation: Reservation,
     *,
@@ -741,10 +795,11 @@ def render_autocheckin_whatsapp_intro_email(
 ) -> str:
     context = build_compose_context(reservation)
     lang = context["language"]
-    body = _text_for_lang(AUTOCHECKIN_WHATSAPP_INTRO_BODY, lang).format(
+    body = _render_autocheckin_intro_core(
+        lang=lang,
         display_phone=display_phone or "",
-        wa_link=wa_link or "",
-        booking_code=context["booking_code"] or str(reservation.pk),
+        booking_code=_autocheckin_intro_booking_code(reservation, context),
+        cta_line=_autocheckin_intro_plain_cta_line(lang=lang, wa_link=wa_link),
     )
     return "\n".join(
         [
@@ -754,6 +809,55 @@ def render_autocheckin_whatsapp_intro_email(
             context["property_name"],
             "",
             FOOTER,
+        ]
+    )
+
+
+def render_autocheckin_whatsapp_intro_email_html(
+    reservation: Reservation,
+    *,
+    wa_link: str,
+    display_phone: str,
+) -> str:
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    booking_code = _autocheckin_intro_booking_code(reservation, context)
+    phone = html.escape(display_phone or "")
+    code = html.escape(booking_code)
+    property_name = html.escape(context["property_name"] or "")
+    sign_off = html.escape(_text_for_lang(SIGN_OFF, lang))
+    footer = html.escape(FOOTER)
+
+    head = html.escape(
+        _text_for_lang(AUTOCHECKIN_WHATSAPP_INTRO_HEAD, lang).format(
+            display_phone=display_phone or "",
+        )
+    ).replace("\n\n", "<br><br>")
+    tail_raw = _text_for_lang(AUTOCHECKIN_WHATSAPP_INTRO_TAIL, lang).format(
+        booking_code=booking_code,
+    )
+    tail_parts = tail_raw.split("\n\n", 1)
+    utility_note = html.escape(tail_parts[0])
+    booking_line = html.escape(tail_parts[1]) if len(tail_parts) > 1 else ""
+    if booking_code and booking_line:
+        booking_line = booking_line.replace(
+            html.escape(booking_code),
+            f"<strong>{html.escape(booking_code)}</strong>",
+            1,
+        )
+    cta = _whatsapp_cta_button_html(
+        href=wa_link or "",
+        label=_autocheckin_intro_cta_label(lang),
+    )
+
+    return "\n".join(
+        [
+            f"<p>{head}</p>",
+            f"<p>{cta}</p>",
+            f"<p>{utility_note}</p>",
+            f"<p>{booking_line}</p>" if booking_line else "",
+            f"<p>{sign_off}<br>{property_name}</p>",
+            f'<p style="color:#666;font-size:12px;">{footer}</p>',
         ]
     )
 

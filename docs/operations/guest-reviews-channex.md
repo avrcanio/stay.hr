@@ -83,11 +83,19 @@ All public replies on Booking.com are **moderated** before they appear on the ex
 **Content guidelines** (reduce rejection risk):
 
 - Reply in the **guest review language** or **English**
-- Keep it short (2–4 sentences), professional, thank the guest
+- Keep it short (2–4 sentences, under 500 characters), professional, thank the guest
+- **Do not** use the guest's name, booking numbers, room numbers, or stay dates
 - **Do not repeat** explicit negative details from the review (dirty bathroom, insects, noise specifics)
 - No contact details, links, or compensation offers
 
-If Booking shows *“Your response was not approved”*, shorten the reply, remove repeated complaints, and resubmit (stay.hr allows resend while `reply_published` is false).
+stay.hr validates replies server-side before POST to Channex; rejected drafts show field errors in the reception UI.
+
+**Appeal checklist** if Booking shows *“Your response was not approved”*:
+
+1. Remove guest name and any booking/reservation numbers
+2. Remove links, email addresses, and phone numbers
+3. Shorten to 2–4 neutral sentences; do not quote complaints from the review
+4. Use **Compose** again or edit manually, then resubmit (allowed while `reply_published` is false)
 
 ## UI
 

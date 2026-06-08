@@ -356,6 +356,49 @@ class ReceptionReviewsTests(TestCase):
         unlinked.refresh_from_db()
         self.assertEqual(unlinked.reservation_id, self.reservation.pk)
 
+    def test_reply_rejects_guest_name(self):
+        self.review.guest_name = "Guest Test"
+        self.review.save(update_fields=["guest_name", "updated_at"])
+        self._login()
+        response = self.client.post(
+            f"/api/v1/reception/reviews/{self.review.pk}/reply/",
+            {"reply": "Thank you Guest Test for your review."},
+            format="json",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("reply", response.json())
+
+    def test_reply_rejects_url(self):
+        self._login()
+        response = self.client.post(
+            f"/api/v1/reception/reviews/{self.review.pk}/reply/",
+            {"reply": "See https://example.com for more info."},
+            format="json",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch("apps.integrations.channex.review_service.complete_chat")
+    @patch("apps.integrations.channex.review_service.llm_configured", return_value=True)
+    def test_compose_bookingcom_omits_guest_name_from_llm_prompt(self, _mock_llm, mock_chat):
+        from apps.integrations.channex.review_reply_policy import booking_compliant_fallback
+
+        mock_chat.return_value = booking_compliant_fallback("en")
+        self.review.guest_name = "Secret Guest"
+        self.review.save(update_fields=["guest_name", "updated_at"])
+        self._login()
+        response = self.client.post(
+            f"/api/v1/reception/reviews/{self.review.pk}/compose-reply/",
+            {},
+            format="json",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 201)
+        user_prompt = mock_chat.call_args[0][1]
+        self.assertNotIn("Secret Guest", user_prompt)
+        self.assertNotIn("Guest name:", user_prompt)
+
     @patch("apps.integrations.channex.review_service.ChannexClient")
     def test_reply_to_review(self, mock_client_cls):
         mock_client = MagicMock()

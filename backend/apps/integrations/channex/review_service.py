@@ -19,6 +19,11 @@ from apps.integrations.channex.client import ChannexClient
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
 from apps.integrations.channex.message_service import find_reservation_for_channex_booking
+from apps.integrations.channex.review_reply_policy import (
+    booking_compliant_fallback,
+    hint_is_compliant,
+    validate_review_reply,
+)
 from apps.integrations.models import ChannexReview, IntegrationConfig
 from apps.reservations.models import Reservation
 from apps.tenants.models import Tenant
@@ -633,6 +638,15 @@ def reply_to_review(
     if not review_reply_allowed(row):
         raise ChannexBookingIngestError("This review cannot be replied to.")
 
+    errors = validate_review_reply(
+        text,
+        ota=row.ota or "",
+        guest_name=row.guest_name or "",
+        review_content=row.content or "",
+    )
+    if errors:
+        raise ChannexBookingIngestError(errors[0])
+
     config = ChannexRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
     owns_client = client is None
     if owns_client:
@@ -794,7 +808,8 @@ def compose_review_reply(
         "You write professional, warm public replies to OTA guest reviews for a small hotel. "
         "For Booking.com: replies are moderated before publication (up to 72 hours). "
         "Write in the guest review language or English. "
-        "Keep it concise (2–4 sentences), thank the guest, acknowledge feedback professionally. "
+        "Keep it concise (2–4 sentences, under 500 characters), thank the guest, acknowledge feedback professionally. "
+        "NEVER include the guest's name, booking number, room number, dates, contact details, URLs, or phone numbers. "
         "Do NOT repeat explicit negative details from the review (e.g. dirty bathroom, insects, noise specifics). "
         "Do not offer compensation, contact details, links, or off-platform communication. "
         "No markdown, no placeholder brackets."
@@ -809,16 +824,14 @@ def compose_review_reply(
         user_parts.append(f"Category scores: {scores_text}")
     if property_name:
         user_parts.append(f"Property: {property_name}")
-    if row.guest_name:
+    if row.ota != BOOKING_COM_OTA and row.guest_name:
         user_parts.append(f"Guest name: {row.guest_name}")
-    if hint.strip():
-        user_parts.append(f"Staff hint: {hint.strip()}")
+    staff_hint = (hint or "").strip()
+    if staff_hint and hint_is_compliant(staff_hint):
+        user_parts.append(f"Staff hint: {staff_hint}")
     user_parts.append(f"Write the reply in language code: {reply_lang}")
 
-    fallback = (
-        "Thank you for your review and for staying with us. "
-        "We appreciate your feedback and hope to welcome you again."
-    )
+    fallback = booking_compliant_fallback(reply_lang)
 
     if not llm_configured():
         return fallback, False, reply_lang
@@ -828,7 +841,18 @@ def compose_review_reply(
     except GuestComposeError:
         return fallback, False, reply_lang
 
-    return (body or fallback), True, reply_lang
+    body = (body or fallback).strip()
+    if row.ota == BOOKING_COM_OTA:
+        errors = validate_review_reply(
+            body,
+            ota=row.ota,
+            guest_name=row.guest_name or "",
+            review_content=original,
+        )
+        if errors:
+            body = booking_compliant_fallback(reply_lang)
+
+    return body, True, reply_lang
 
 
 def serialize_channex_review(

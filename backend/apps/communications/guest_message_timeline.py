@@ -142,13 +142,14 @@ def _whatsapp_outbound_mirrors_guest_outbound(
 
 
 def serialize_inbound(inbound: GuestInboundMessage) -> dict:
+    ts = inbound.received_at or inbound.created_at
     return {
         "id": INBOUND_ID_OFFSET + inbound.pk,
         "source": "inbound",
         "direction": "inbound",
         "channel": inbound.channel,
         "body_text": inbound.body_text or "",
-        "created_at": inbound.created_at.isoformat(),
+        "created_at": ts.isoformat(),
         "status": None,
         "sent_by_name": None,
         "from_email": inbound.from_email or None,
@@ -225,7 +226,8 @@ def timeline_for_reservation(reservation: Reservation) -> list[dict]:
 
     for msg in GuestInboundMessage.objects.filter(reservation=reservation):
         if (msg.body_text or "").strip():
-            rows.append((msg.created_at.isoformat(), serialize_inbound(msg)))
+            ts = msg.received_at or msg.created_at
+            rows.append((ts.isoformat(), serialize_inbound(msg)))
 
     rows.sort(key=lambda r: r[0])
     return [item for _, item in rows]

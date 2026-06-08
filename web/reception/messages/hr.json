@@ -382,7 +382,7 @@
     "needsReply": "Bez odgovora",
     "replyPendingModeration": "Na moderaciji",
     "replyPublished": "Objavljeno",
-    "bookingModerationInfo": "Odgovor se šalje Booking.com moderaciji (do 72 h). Pišite na jeziku recenzije ili engleskom. Izbjegavajte ponavljanje ružnih detalja iz recenzije (prljavost, buka, insekti).",
+    "bookingModerationInfo": "Odgovor se šalje Booking.com moderaciji (do 72 h). Pišite kratko (2–4 rečenice), na jeziku recenzije ili engleskom. Ne navodite ime gosta, broj rezervacije, kontakte ni linkove. Izbjegavajte ponavljanje pritužbi iz recenzije.",
     "noContentYet": "Tekst recenzije još nije stigao.",
     "scoreOnlyEmpty": "Samo ocjene — bez komentara gosta",
     "selectReview": "Odaberite recenziju s lijeve strane.",

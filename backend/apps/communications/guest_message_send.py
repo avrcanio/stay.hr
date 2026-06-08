@@ -106,13 +106,25 @@ def build_message_channels(reservation: Reservation) -> dict:
         and whatsapp_runtime.send_credentials_ok()
     )
 
+    email_available = bool(email)
+    whatsapp_available = bool(phone_wa)
+
+    if email_available:
+        default_channel = GuestMessageChannel.EMAIL
+    elif whatsapp_available:
+        default_channel = GuestMessageChannel.WHATSAPP
+    elif booking_available:
+        default_channel = GuestMessageChannel.BOOKING
+    else:
+        default_channel = ""
+
     return {
         "email": {
-            "available": bool(email),
+            "available": email_available,
             "to": email or "",
         },
         "whatsapp": {
-            "available": bool(phone_wa),
+            "available": whatsapp_available,
             "phone_raw": phone_raw,
             "phone_wa": phone_wa,
             "wa_me_url": build_wa_me_url(phone_wa, "") if phone_wa else "",
@@ -121,6 +133,7 @@ def build_message_channels(reservation: Reservation) -> dict:
         "booking": {
             "available": booking_available,
         },
+        "default_channel": default_channel,
     }
 
 
@@ -141,9 +154,10 @@ def send_guest_text_email(
     body_text: str,
     *,
     subject: str | None = None,
+    body_html: str | None = None,
     attachment: tuple[str, bytes, str] | None = None,
 ) -> dict:
-    """Send plain-text email to guest; returns {sent, to?, reason?}.
+    """Send guest email; plain text with optional HTML alternative.
 
     attachment: optional (filename, bytes, mime_type).
     """
@@ -164,6 +178,9 @@ def send_guest_text_email(
         to=[recipient],
         reply_to=[reply_to] if reply_to else None,
     )
+    html = (body_html or "").strip()
+    if html:
+        message.attach_alternative(html, "text/html")
     if attachment is not None:
         filename, file_bytes, mime_type = attachment
         message.attach(filename, file_bytes, mime_type)

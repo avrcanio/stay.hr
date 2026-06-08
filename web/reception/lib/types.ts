@@ -110,12 +110,16 @@ export type GuestMessageChannelInfo = {
   wa_me_url?: string;
 };
 
+export type GuestMessageChannels = Record<string, GuestMessageChannelInfo> & {
+  default_channel?: string;
+};
+
 export type GuestMessageComposeResponse = {
   draft_id: number;
   body_text: string;
   language: string;
   llm_used: boolean;
-  channels: Record<string, GuestMessageChannelInfo>;
+  channels: GuestMessageChannels;
 };
 
 export type ChannexReviewScore = {

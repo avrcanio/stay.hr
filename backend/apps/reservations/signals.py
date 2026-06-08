@@ -30,6 +30,8 @@ def reservation_maybe_immediate_autocheckin_welcome(
     created: bool,
     **kwargs,
 ):
+    if not created:
+        return
     if kwargs.get("raw"):
         return
     if instance.status in {

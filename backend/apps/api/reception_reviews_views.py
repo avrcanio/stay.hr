@@ -174,7 +174,7 @@ class ReceptionReviewReplyView(TenantAPIView, APIView):
                 serializer.validated_data["reply"],
             )
         except ChannexBookingIngestError as exc:
-            raise ValidationError(str(exc)) from exc
+            raise ValidationError({"reply": [str(exc)]}) from exc
         except ChannexApiError as exc:
             raise ValidationError(str(exc)) from exc
 

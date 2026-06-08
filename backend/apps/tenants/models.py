@@ -89,6 +89,14 @@ class TenantReceptionSettings(models.Model):
         default="",
         help_text="Encrypted SMTP password for guest_contact_email (mail.{domain}:587).",
     )
+    guest_imap_last_uid = models.PositiveIntegerField(
+        default=0,
+        help_text="Last processed IMAP UID for guest inbox polling (INBOX).",
+    )
+    guest_imap_enabled = models.BooleanField(
+        default=True,
+        help_text="Poll guest_contact_email inbox for Booking.com guest replies.",
+    )
     whatsapp_operator_phones = models.JSONField(
         default=list,
         blank=True,

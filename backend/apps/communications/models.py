@@ -156,13 +156,23 @@ class GuestInboundMessage(TenantScopedModel):
     channel = models.CharField(max_length=16, choices=GuestMessageChannel.choices)
     body_text = models.TextField()
     from_email = models.EmailField(blank=True, default="")
+    raw_from = models.CharField(max_length=512, blank=True, default="")
     subject = models.CharField(max_length=200, blank=True, default="")
+    message_id = models.CharField(max_length=255, blank=True, default="")
+    received_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["created_at", "id"]
         indexes = [
             models.Index(fields=["tenant", "reservation", "created_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "message_id"],
+                condition=models.Q(message_id__gt=""),
+                name="guestinboundmessage_unique_message_id_per_tenant",
+            ),
         ]
         verbose_name = "Guest inbound message"
         verbose_name_plural = "Guest inbound messages"

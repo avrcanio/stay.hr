@@ -200,6 +200,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 21600.0,
         "kwargs": {"tenant_slug": "uzorita"},
     },
+    "guest-email-imap-poll": {
+        "task": "apps.communications.email_ingest_tasks.poll_guest_email_inbox",
+        "schedule": 120.0,
+        "kwargs": {"tenant_slug": "uzorita"},
+    },
     "detect-overbooking-daily": {
         "task": "apps.reservations.overbooking_tasks.detect_overbooking_daily",
         "schedule": crontab(hour=6, minute=0),

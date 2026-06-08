@@ -8,11 +8,11 @@ Operativni runbook za slanje i primanje poruka gostima iz stay.hr recepcije (web
 
 | Kanal | Outbound | Inbound u stay.hr | Rezervacije |
 |-------|----------|-------------------|-------------|
-| **Mail** | Tenant SMTP (`room_reservations@uzorita.hr`) | Ne | Sve s emailom |
+| **Mail** | Tenant SMTP (`room_reservations@uzorita.hr`) | Da (IMAP poll, Booking.com `@guest.booking.com`) | Sve s emailom |
 | **Channex** | Channex Messages API → B.com Poruke | Da (webhook `message`) | `import_source=channex` |
 | **WhatsApp** | Handoff (`wa.me`) | Da (WhatsApp webhook) | S telefonom |
 
-**Vlastita booking platforma** (stay.hr web booking, `source=api`): nema guest app — koristi **Mail** (+ WhatsApp). Inbound odgovori gosta na mail **ne ulaze** u chat timeline.
+**Vlastita booking platforma** (stay.hr web booking, `source=api`): nema guest app — koristi **Mail** (+ WhatsApp). Inbound odgovori gosta na mail s `@guest.booking.com` ulaze u chat timeline (IMAP poll svake 2 min).
 
 **B.com PDF import** (`import_source=booking_pdf`): Mail na `@guest.booking.com` + WhatsApp; Channex API **nije** dostupan (nema Channex linka).
 
@@ -50,13 +50,16 @@ Detalj rezervacije → sekcija **Poruke gostu** ([`GuestMessagesPanel.tsx`](../.
 
 - Chat timeline
 - Generiraj (check-in / odgovor / prilagođeno)
-- Odabir kanala: Channex / Mail / WhatsApp (samo dostupni)
+- Odabir kanala: Mail / WhatsApp / Channex (samo dostupni); **Mail** je zadani kad je dostupan
 
 ---
 
 ## CLI
 
 ```bash
+# Poll IMAP inbox za inbound Booking.com mailove
+docker compose exec django python manage.py poll_guest_email --tenant=uzorita
+
 # Pošalji poruku preko Channexa
 docker compose exec django python manage.py send_channex_booking_message \
   --reservation-id 798 \
@@ -78,7 +81,8 @@ docker compose exec django python manage.py sync_channex_booking_messages \
 
 | Test | Očekivano |
 |------|-----------|
-| Gost piše na B.com | Inbound u admin → Channex messages; vidljivo u web/Flutter timeline |
+| Gost piše na B.com (email) | Inbound u timeline (IMAP poll); FCM push |
+| Gost piše na B.com (Channex) | Inbound u admin → Channex messages; vidljivo u web/Flutter timeline |
 | Send `booking` | Poruka u B.com extranet Poruke |
 | Send `email` | Mail na gostovu adresu; Sent u webmail |
 | Send `whatsapp` | Otvara WhatsApp s predloženim tekstom |
@@ -91,7 +95,7 @@ docker compose exec django python manage.py sync_channex_booking_messages \
 | Simptom | Rješenje |
 |---------|----------|
 | Send booking → 403 | Messages & Reviews app nije aktivan na Channex propertyju |
-| Inbound ne stiže | Webhook nema `message` event; provjeri Django log |
+| Inbound mail ne stiže | Provjeri `guest_imap_enabled`, SMTP lozinku, `poll_guest_email --tenant=uzorita`; mail mora biti s `@guest.booking.com` |
 | Poruka u Pulseu/mailu, ne u messengeru | Mail/Pulse nisu ingest kanal — samo Channex webhook/API. Provjeri `external_id` (`channex:uuid` vs samo booking code), `sync_channex_booking_messages --reservation-id`, Channex Messages & Reviews app |
 | `booking.available=false` | Rezervacija nije `import_source=channex` ili nema Channex linka (UUID, booking code ili revision) |
 | Mail ne odlazi | Tenant SMTP u Reception settings (`guest_contact_email` + password) |

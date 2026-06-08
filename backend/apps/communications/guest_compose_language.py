@@ -9,7 +9,7 @@ from apps.reservations.nationality_display import (
     reservation_nationality_iso2,
 )
 
-SUPPORTED_COMPOSE_LANGS = frozenset({"hr", "en", "de", "es", "fr"})
+SUPPORTED_COMPOSE_LANGS = frozenset({"hr", "en", "de", "es", "fr", "sk"})
 
 HR_COUNTRIES = frozenset({"HR", "RS", "BA", "ME", "SI", "MK"})
 DE_COUNTRIES = frozenset({"DE", "AT", "CH", "LI"})

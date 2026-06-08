@@ -63,7 +63,7 @@ flowchart TB
 
 | Kanal | API `channel` | UI labela | Kada je `available` | Outbound | Inbound u timeline |
 |-------|-----------------|-----------|---------------------|----------|-------------------|
-| **Mail** | `email` | Mail / Email | Gost ima email (`booker_email` ili primarni guest) | Tenant SMTP | **Ne** (nema email ingest) |
+| **Mail** | `email` | Mail / Email | Gost ima email (`booker_email` ili primarni guest) | Tenant SMTP | **Da** (IMAP poll, Booking.com `@guest.booking.com`) |
 | **Channex** | `booking` | Channex | `import_source=channex` + Channex booking ID + tenant `channel_manager=channex` | Channex → B.com Poruke | **Da** (webhook) |
 | **WhatsApp** | `whatsapp` | WhatsApp | Gost ima telefon (normaliziran `wa_id`) | `wa.me` handoff (ručno slanje) | **Da** (webhook) |
 
@@ -138,7 +138,7 @@ GET /api/v1/reception/message-threads/?needs_reply=1&sync=auto
 **Flutter UX (Hospira):**
 
 - Bottom nav srednji slot: **Recenzije** ↔ **Poruke** (ponovni tap dok je aktivan)
-- Default kanal slanja: **WhatsApp** ako `channels.whatsapp.available`, inače `booking` → `email`
+- Default kanal slanja: **`channels.default_channel`** iz API-ja (obično `email` kad je dostupan), inače WhatsApp → booking
 - Promjena kanala: **long-press** na Send → bottom sheet
 - AI compose: gumb u inputu → sheet (Check-in / Reply / Custom)
 - **WhatsApp resend:** long-press na **outbound WhatsApp** poruku (handoff) → odabir Channex ili mail → odmah pošalji isti tekst (compose `body_text` + send)
@@ -507,18 +507,21 @@ enum ComposeIntent { checkin, reply, custom }
 
 #### C2. Odabir kanala
 
-Redoslijed prikaza (kao web): `booking` → `email` → `whatsapp`
+Redoslijed prikaza (kao web): `email` → `whatsapp` → `booking`
 
 ```dart
 String defaultChannel(GuestMessageChannels channels) {
-  if (channels.booking.available) return 'booking';
+  if (channels.defaultChannel != null && channels.defaultChannel!.isNotEmpty) {
+    return channels.defaultChannel!;
+  }
   if (channels.email.available) return 'email';
   if (channels.whatsapp.available) return 'whatsapp';
+  if (channels.booking.available) return 'booking';
   return '';
 }
 
 List<String> availableChannels(GuestMessageChannels channels) {
-  const order = ['booking', 'email', 'whatsapp'];
+  const order = ['email', 'whatsapp', 'booking'];
   return order.where((c) => _isAvailable(channels, c)).toList();
 }
 ```
@@ -689,7 +692,7 @@ Integriraj u postojeći reservation detail — ne gradi zaseban tab bar ako već
 
 | Feature | Razlog |
 |---------|--------|
-| Email inbound (mailbox parse) | Backend nema ingest — gostov mail reply ne ulazi u chat |
+| Email inbound (mailbox parse) | **Da** — Celery `guest-email-imap-poll` (2 min) + `poll_guest_email` CLI |
 | Channex attachments | `have_attachment` postoji u modelu, download nije implementiran |
 | Legacy `/channex-messages/` endpoint | Zamijenjen unified `/messages/` |
 | Guest app / in-app messaging | Ne postoji za direct booking |

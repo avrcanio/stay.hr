@@ -1,10 +1,13 @@
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.test import TestCase
 from django.utils import timezone
 
+from apps.integrations.channex.review_reply_policy import booking_compliant_fallback
 from apps.integrations.channex.review_service import (
+    compose_review_reply,
     detect_review_language,
     reply_pending_moderation,
     reply_published,
@@ -76,3 +79,38 @@ class ChannexReviewReplyTests(TestCase):
         self.assertTrue(data["reply_pending_moderation"])
         self.assertFalse(data["reply_published"])
         self.assertTrue(data["can_reply"])
+
+
+class ChannexReviewComposePolicyTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(slug="uzorita", name="Uzorita")
+        self.integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
+
+    def _review(self, **kwargs) -> ChannexReview:
+        defaults = {
+            "tenant": self.tenant,
+            "integration": self.integration,
+            "channex_review_id": "review-compose-policy",
+            "ota": "BookingCom",
+            "content": "The bathroom was dirty.",
+            "guest_name": "Jane Doe",
+            "overall_score": Decimal("4.0"),
+            "received_at": timezone.now(),
+            "expired_at": timezone.now() + timedelta(days=90),
+        }
+        defaults.update(kwargs)
+        return ChannexReview.objects.create(**defaults)
+
+    @patch("apps.integrations.channex.review_service.complete_chat")
+    @patch("apps.integrations.channex.review_service.llm_configured", return_value=True)
+    def test_compose_uses_fallback_when_llm_non_compliant(self, _mock_llm, mock_chat):
+        mock_chat.return_value = "Jane, we apologize the bathroom was dirty. Call us at +385991234567."
+        row = self._review()
+        body, llm_used, lang = compose_review_reply(row)
+        self.assertTrue(llm_used)
+        self.assertEqual(body, booking_compliant_fallback(lang))
+        self.assertNotIn("Jane", body)
