@@ -9,13 +9,15 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from apps.integrations.channex.booking_service import (
+    _channex_booking_lookup_codes,
+    _resolve_channex_booking_payload,
     channex_external_id,
     parse_channex_booking_id,
 )
 from apps.integrations.channex.client import ChannexClient
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
-from apps.integrations.models import ChannexMessage, IntegrationConfig
+from apps.integrations.models import ChannexBookingRevision, ChannexMessage, IntegrationConfig
 from apps.reservations.models import Reservation
 from apps.tenants.models import Tenant
 
@@ -26,13 +28,154 @@ def find_reservation_for_channex_booking(tenant: Tenant, booking_id: str) -> Res
     booking_id = (booking_id or "").strip()
     if not booking_id:
         return None
-    return (
-        Reservation.objects.filter(
-            tenant=tenant,
-            external_id=channex_external_id(booking_id),
-        )
+
+    reservation = Reservation.objects.filter(
+        tenant=tenant,
+        external_id=channex_external_id(booking_id),
+    ).first()
+    if reservation is not None:
+        return reservation
+
+    revision = (
+        ChannexBookingRevision.objects.filter(tenant=tenant, booking_id=booking_id)
+        .select_related("reservation")
         .first()
     )
+    if revision is not None and revision.reservation_id is not None:
+        return revision.reservation
+
+    return None
+
+
+def resolve_reservation_for_channex_message(
+    tenant: Tenant,
+    *,
+    booking_id: str = "",
+    ota_reservation_id: str = "",
+) -> Reservation | None:
+    """Match inbound Channex message to a stay.hr reservation."""
+    booking_id = (booking_id or "").strip()
+    ota_reservation_id = (ota_reservation_id or "").strip()
+
+    if booking_id:
+        reservation = find_reservation_for_channex_booking(tenant, booking_id)
+        if reservation is not None:
+            return reservation
+
+    for code in (ota_reservation_id,):
+        if not code:
+            continue
+        reservation = Reservation.objects.filter(tenant=tenant, booking_code=code).first()
+        if reservation is not None:
+            return reservation
+        reservation = Reservation.objects.filter(tenant=tenant, external_id=code).first()
+        if reservation is not None:
+            return reservation
+
+    return None
+
+
+def repair_reservation_channex_external_id(
+    reservation: Reservation,
+    channex_booking_id: str,
+) -> bool:
+    """Set external_id to channex:{uuid} when legacy row used OTA code only."""
+    channex_booking_id = (channex_booking_id or "").strip()
+    if not channex_booking_id:
+        return False
+    target = channex_external_id(channex_booking_id)
+    if reservation.external_id == target:
+        return False
+    if parse_channex_booking_id(reservation.external_id):
+        return False
+    reservation.external_id = target
+    reservation.save(update_fields=["external_id", "updated_at"])
+    logger.info(
+        "repaired reservation Channex external_id",
+        extra={
+            "reservation_id": reservation.pk,
+            "booking_code": reservation.booking_code,
+            "external_id": target,
+        },
+    )
+    return True
+
+
+def resolve_channex_booking_id_for_reservation(
+    integration_row: IntegrationConfig,
+    reservation: Reservation,
+    *,
+    client: ChannexClient | None = None,
+    repair_external_id: bool = True,
+) -> str | None:
+    """Resolve Channex booking UUID for API calls; optionally repair legacy external_id."""
+    booking_id = parse_channex_booking_id(reservation.external_id)
+    if booking_id:
+        return booking_id
+
+    revision = (
+        ChannexBookingRevision.objects.filter(reservation=reservation)
+        .order_by("-id")
+        .first()
+    )
+    if revision is not None and (revision.booking_id or "").strip():
+        booking_id = revision.booking_id.strip()
+        if repair_external_id:
+            repair_reservation_channex_external_id(reservation, booking_id)
+        return booking_id
+
+    if not _channex_booking_lookup_codes(reservation):
+        return None
+
+    config = ChannexRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+    owns_client = client is None
+    if owns_client:
+        client = ChannexClient(config)
+    try:
+        resolved = _resolve_channex_booking_payload(client, reservation)
+    finally:
+        if owns_client and client is not None:
+            client.close()
+
+    if resolved is None:
+        return None
+
+    booking_id, _payload, lookup_method = resolved
+    if repair_external_id and lookup_method == "booking_code":
+        repair_reservation_channex_external_id(reservation, booking_id)
+    return booking_id or None
+
+
+def relink_unlinked_channex_messages(tenant: Tenant) -> int:
+    """Retry reservation matching for messages stored without a link."""
+    updated = 0
+    qs = ChannexMessage.objects.filter(tenant=tenant, reservation__isnull=True)
+    for row in qs.iterator():
+        flat = row.raw_payload if isinstance(row.raw_payload, dict) else {}
+        ota = str(
+            flat.get("ota_reservation_code") or flat.get("ota_reservation_id") or ""
+        ).strip()
+        reservation = resolve_reservation_for_channex_message(
+            tenant,
+            booking_id=row.channex_booking_id or "",
+            ota_reservation_id=ota,
+        )
+        if reservation is None:
+            continue
+        row.reservation = reservation
+        row.save(update_fields=["reservation"])
+        updated += 1
+    return updated
+
+
+def _reservation_can_sync_messages(reservation: Reservation) -> bool:
+    if reservation.import_source != "channex":
+        return False
+    if parse_channex_booking_id(reservation.external_id):
+        return True
+    if _channex_booking_lookup_codes(reservation):
+        return True
+    return ChannexBookingRevision.objects.filter(reservation=reservation).exists()
 
 
 def channex_message_id_from_payload(payload: dict[str, Any]) -> str:
@@ -134,7 +277,14 @@ def upsert_channex_message_from_payload(
 
     booking_id = str(flat.get("booking_id") or "").strip()
     if reservation is None and booking_id:
-        reservation = find_reservation_for_channex_booking(tenant, booking_id)
+        ota = str(
+            flat.get("ota_reservation_code") or flat.get("ota_reservation_id") or ""
+        ).strip()
+        reservation = resolve_reservation_for_channex_message(
+            tenant,
+            booking_id=booking_id,
+            ota_reservation_id=ota,
+        )
 
     sender = _message_sender(flat)
     create_kwargs: dict[str, Any] = {
@@ -179,7 +329,18 @@ def process_channex_message_webhook(
 
     tenant = integration_row.tenant
     booking_id = str(payload.get("booking_id") or "").strip()
-    reservation = find_reservation_for_channex_booking(tenant, booking_id) if booking_id else None
+    ota = str(
+        payload.get("ota_reservation_code") or payload.get("ota_reservation_id") or ""
+    ).strip()
+    reservation = (
+        resolve_reservation_for_channex_message(
+            tenant,
+            booking_id=booking_id,
+            ota_reservation_id=ota,
+        )
+        if booking_id or ota
+        else None
+    )
     row, created = upsert_channex_message_from_payload(
         tenant=tenant,
         integration=integration_row,
@@ -223,14 +384,19 @@ def sync_booking_messages_from_channex(
     *,
     client: ChannexClient | None = None,
 ) -> list[ChannexMessage]:
-    booking_id = parse_channex_booking_id(reservation.external_id)
-    if not booking_id:
-        raise ChannexBookingIngestError("Reservation is not linked to a Channex booking.")
-
     config = ChannexRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
     owns_client = client is None
     if owns_client:
         client = ChannexClient(config)
+
+    booking_id = resolve_channex_booking_id_for_reservation(
+        integration_row,
+        reservation,
+        client=client,
+        repair_external_id=True,
+    )
+    if not booking_id:
+        raise ChannexBookingIngestError("Reservation is not linked to a Channex booking.")
 
     stored: list[ChannexMessage] = []
     try:
@@ -263,13 +429,20 @@ def list_messages_for_reservation(
         tenant=reservation.tenant,
         reservation=reservation,
     )
-    booking_id = parse_channex_booking_id(reservation.external_id)
-    if booking_id and (force_sync or (sync_if_empty and not qs.exists())):
-        sync_booking_messages_from_channex(
-            integration_row,
-            reservation,
-            client=client,
-        )
+    if _reservation_can_sync_messages(reservation) and (
+        force_sync or (sync_if_empty and not qs.exists())
+    ):
+        try:
+            sync_booking_messages_from_channex(
+                integration_row,
+                reservation,
+                client=client,
+            )
+        except ChannexBookingIngestError:
+            logger.warning(
+                "channex message sync skipped",
+                extra={"reservation_id": reservation.pk},
+            )
     return list(qs.order_by("-created_at"))
 
 
@@ -284,17 +457,22 @@ def send_message_for_reservation(
     if not text:
         raise ChannexBookingIngestError("Message body is required.")
 
-    booking_id = parse_channex_booking_id(reservation.external_id)
+    config = ChannexRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+    owns_client = client is None
+    if owns_client:
+        client = ChannexClient(config)
+
+    booking_id = resolve_channex_booking_id_for_reservation(
+        integration_row,
+        reservation,
+        client=client,
+        repair_external_id=True,
+    )
     if not booking_id:
         raise ChannexBookingIngestError("Reservation is not linked to a Channex booking.")
 
     if reservation.import_source != "channex":
         raise ChannexBookingIngestError("Reservation was not imported from Channex.")
-
-    config = ChannexRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
-    owns_client = client is None
-    if owns_client:
-        client = ChannexClient(config)
 
     try:
         response = client.send_booking_message(booking_id, text)
@@ -340,10 +518,6 @@ def send_image_for_reservation(
     if not file_bytes:
         raise ChannexBookingIngestError("Empty image file.")
 
-    booking_id = parse_channex_booking_id(reservation.external_id)
-    if not booking_id:
-        raise ChannexBookingIngestError("Reservation is not linked to a Channex booking.")
-
     if reservation.import_source != "channex":
         raise ChannexBookingIngestError("Reservation was not imported from Channex.")
 
@@ -354,6 +528,15 @@ def send_image_for_reservation(
     owns_client = client is None
     if owns_client:
         client = ChannexClient(config)
+
+    booking_id = resolve_channex_booking_id_for_reservation(
+        integration_row,
+        reservation,
+        client=client,
+        repair_external_id=True,
+    )
+    if not booking_id:
+        raise ChannexBookingIngestError("Reservation is not linked to a Channex booking.")
 
     text = (caption or "").strip()
     try:

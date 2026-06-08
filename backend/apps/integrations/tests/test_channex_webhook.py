@@ -5,7 +5,7 @@ from rest_framework.test import APIRequestFactory
 
 from apps.integrations.channex.booking_service import channex_external_id
 from apps.integrations.channex.webhook_auth import (
-    EXPECTED_ENV,
+    EXPECTED_ENVS,
     EXPECTED_PROVIDER,
     WEBHOOK_HEADER_NAME,
     verify_channex_webhook_request,
@@ -28,7 +28,7 @@ class ChannexWebhookViewTests(TestCase):
         os.environ.pop("CHANNEX_WEBHOOK_SECRET", None)
 
     def _url(self):
-        return f"/api/v1/integrations/channex/webhook/?provider={EXPECTED_PROVIDER}&env={EXPECTED_ENV}"
+        return f"/api/v1/integrations/channex/webhook/?provider={EXPECTED_PROVIDER}&env=staging"
 
     def test_rejects_missing_header(self):
         request = self.factory.post(
@@ -119,3 +119,15 @@ class ChannexWebhookViewTests(TestCase):
         row = ChannexMessage.objects.get(channex_message_id="msg-http-1")
         self.assertEqual(row.reservation_id, reservation.id)
         self.assertEqual(row.body, "Inbound via HTTP webhook")
+
+    def test_accepts_production_env_query(self):
+        url = f"/api/v1/integrations/channex/webhook/?provider={EXPECTED_PROVIDER}&env=production"
+        request = self.factory.post(
+            url,
+            {"event": "ping", "property_id": "e00e6034-c154-4754-b5d9-9fff73ad12f6"},
+            format="json",
+            HTTP_X_STAY_CHANNEX_WEBHOOK="test-webhook-secret-value",
+        )
+        self.assertTrue(
+            verify_channex_webhook_request(request, config_secret="test-webhook-secret-value")
+        )

@@ -215,6 +215,22 @@ class IntegrationConfigAdminForm(forms.ModelForm):
             label="Auto reply enabled",
             initial=bool(config.get("auto_reply", True)),
         )
+        self._config_json_field(
+            "whatsapp_templates_json",
+            label="WhatsApp templates (JSON)",
+            config_key="whatsapp_templates",
+            initial_value=config.get("whatsapp_templates")
+            or {
+                "header_image_url": "https://stay.hr/static/whatsapp-header.png",
+                "welcome": {
+                    "hr": "stay_welcome_hr",
+                    "en": "stay_welcome_en",
+                    "de": "stay_welcome_de",
+                    "es": "stay_welcome_es",
+                    "fr": "stay_welcome_fr",
+                },
+            },
+        )
 
     def _build_evisitor_fields(self, config: dict[str, Any]) -> None:
         self._secret_field("password", label="eVisitor password")
@@ -298,6 +314,19 @@ class IntegrationConfigAdminForm(forms.ModelForm):
                             {field_name: f"{label} must be a JSON array."}
                         )
 
+        if provider == IntegrationConfig.Provider.WHATSAPP:
+            field_name = "whatsapp_templates_json"
+            if field_name in self.fields:
+                raw = cleaned.get(field_name)
+                try:
+                    parsed = _parse_json_field(raw or "", "WhatsApp templates")
+                except forms.ValidationError as exc:
+                    raise forms.ValidationError({field_name: exc.messages}) from exc
+                if parsed is not None and not isinstance(parsed, dict):
+                    raise forms.ValidationError(
+                        {field_name: "WhatsApp templates must be a JSON object."}
+                    )
+
         return cleaned
 
     def _merge_config(self) -> dict[str, Any]:
@@ -307,6 +336,7 @@ class IntegrationConfigAdminForm(forms.ModelForm):
         json_field_map = {
             "room_types_json": "room_types",
             "booking_test_rooms_json": "booking_test_rooms",
+            "whatsapp_templates_json": "whatsapp_templates",
         }
 
         for field_name in self._provider_config_fields:

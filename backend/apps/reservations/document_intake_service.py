@@ -15,6 +15,7 @@ from django.utils.dateparse import parse_date
 from apps.ai.document_ocr import DocumentOcrError, ocr_configured, run_document_batch_ocr
 from apps.reservations.document_intake_face import crop_face_jpeg, _coerce_bbox_dict
 from apps.reservations.document_intake_match import match_persons_to_guests, normalize_mrz_lines
+from apps.reservations.document_intake_sides import find_id_document_for_side_merge
 from apps.reservations.guest_slots import ensure_guest_slots_for_intake
 from apps.reservations.mrz_parse import normalize_residence_address, parse_sex_from_mrz
 from apps.reservations.nationality_display import guest_nationality_iso2, normalize_country_iso2
@@ -303,11 +304,24 @@ def _apply_person_to_guest(
             setattr(guest, field, value)
         guest.save(update_fields=list(guest_updates.keys()) + ["updated_at", "name"])
 
-    id_document = IdDocument.objects.create(
+    applying_front = front_img is not None
+    applying_back = back_img is not None
+    id_document = find_id_document_for_side_merge(
         guest=guest,
-        image_path="",
-        extracted_payload={"source": "document_intake", "person": person},
+        tip=tip,
+        applying_front=applying_front,
+        applying_back=applying_back,
     )
+    if id_document is None:
+        id_document = IdDocument.objects.create(
+            guest=guest,
+            image_path="",
+            extracted_payload={"source": "document_intake", "person": person},
+        )
+    else:
+        payload = id_document.extracted_payload if isinstance(id_document.extracted_payload, dict) else {}
+        payload = {**payload, "source": "document_intake", "person": person}
+        id_document.extracted_payload = payload
     id_document_id = id_document.id
     id_document._passport_photo = tip == "passport"
 

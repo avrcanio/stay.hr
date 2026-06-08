@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { BookingPdfImportForm } from "@/app/_components/BookingPdfImportForm";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
 import { UnitAvailabilityDatePicker } from "@/app/_components/UnitAvailabilityDatePicker";
+import { isValidBookerPhone, sanitizePhoneInput } from "@/lib/phoneInput";
 import { singlePropertySlug } from "@/lib/app-config";
 import type { AppConfig, BookingPdfImportResult } from "@/lib/types";
 import {
@@ -31,6 +32,7 @@ export default function NewReservationPage() {
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
   const [bookerName, setBookerName] = useState("");
+  const [bookerPhone, setBookerPhone] = useState("");
   const [blockedNights, setBlockedNights] = useState<Set<string>>(new Set());
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
 
@@ -123,6 +125,11 @@ export default function NewReservationPage() {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (!datesValid) return;
+    const phone = bookerPhone.trim();
+    if (phone && !isValidBookerPhone(phone)) {
+      setError(t("phoneInvalid"));
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -135,6 +142,7 @@ export default function NewReservationPage() {
           check_in: checkIn,
           check_out: checkOut,
           booker_name: bookerName,
+          booker_phone: phone,
         }),
       });
       const data = (await res.json()) as { id?: number; detail?: string; unit_id?: string[] };
@@ -263,6 +271,18 @@ export default function NewReservationPage() {
               value={bookerName}
               onChange={(e) => setBookerName(e.target.value)}
               required
+            />
+          </label>
+
+          <label className="block text-sm">
+            <span className="label">{t("bookerPhone")}</span>
+            <input
+              className="input mt-1"
+              value={bookerPhone}
+              onChange={(e) => setBookerPhone(sanitizePhoneInput(e.target.value))}
+              inputMode="tel"
+              autoComplete="tel"
+              placeholder={t("bookerPhonePlaceholder")}
             />
           </label>
 

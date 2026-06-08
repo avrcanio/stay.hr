@@ -5,6 +5,7 @@ from rest_framework import serializers
 from apps.properties.models import Property, Unit, UnitBed, UnitBathroom
 from apps.reservations.availability import validate_unit_available_for_booking
 from apps.reservations.models import Guest, Reservation, ReservationUnit
+from apps.reservations.phone_validation import validate_booker_phone
 from apps.tenants.models import Tenant
 
 
@@ -135,6 +136,9 @@ class GuestInputSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False, allow_blank=True)
     phone = serializers.CharField(max_length=32, required=False, allow_blank=True)
 
+    def validate_phone(self, value: str) -> str:
+        return validate_booker_phone(value)
+
 
 class PublicReservationStatusSerializer(serializers.Serializer):
     booking_code = serializers.CharField()
@@ -153,7 +157,10 @@ class PublicReservationCreateSerializer(serializers.Serializer):
     check_out = serializers.DateField()
     booker_name = serializers.CharField(max_length=255)
     booker_email = serializers.EmailField(required=False, allow_blank=True)
-    booker_phone = serializers.CharField(max_length=32, required=False, allow_blank=True)
+    booker_phone = serializers.CharField(max_length=64, required=False, allow_blank=True)
+
+    def validate_booker_phone(self, value: str) -> str:
+        return validate_booker_phone(value)
     total_amount = serializers.DecimalField(
         max_digits=12,
         decimal_places=2,

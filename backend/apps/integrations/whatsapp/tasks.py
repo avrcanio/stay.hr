@@ -1,13 +1,29 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from celery import shared_task
+from django.utils import timezone
 
+from apps.communications.guest_compose import render_documents_message
+from apps.communications.models import (
+    GuestMessageChannel,
+    GuestMessageDraft,
+    GuestMessageIntent,
+    GuestOutboundMessage,
+    GuestOutboundMessageStatus,
+)
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
 from apps.integrations.whatsapp.client import WhatsAppApiError, extract_outbound_wamid, send_text_message
+from apps.integrations.whatsapp.whatsapp_document_batch import (
+    handle_whatsapp_document_batch_reply,
+    inbound_interactive_button_id,
+    is_documents_all_no_reply,
+    is_documents_all_yes_reply,
+    on_whatsapp_document_received,
+)
 from apps.integrations.whatsapp.reply import build_greeting
-from apps.integrations.whatsapp.document_intake_task import process_whatsapp_document_message
 from apps.integrations.whatsapp.reservation_lookup import find_reservation_for_wa_id
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 
@@ -15,10 +31,59 @@ logger = logging.getLogger(__name__)
 
 _WHATSAPP_NON_TEXT_PREVIEW = "Poruka (WhatsApp)"
 
+_AUTO_CHECKIN_REPLY_TEXTS = frozenset(
+    {
+        "auto check in",
+        "auto checkin",
+        "autocheck in",
+        "autocheckin",
+        "auto check-in",
+        "automatischer check-in",
+        "automatischer check in",
+        "check-in automatique",
+        "check in automatico",
+        "check-in automático",
+    }
+)
+
+
+def _normalize_quick_reply_text(text: str) -> str:
+    lowered = (text or "").strip().lower()
+    lowered = re.sub(r"[_\-]+", " ", lowered)
+    return re.sub(r"\s+", " ", lowered).strip()
+
+
+def is_auto_checkin_quick_reply(body: str) -> bool:
+    return _normalize_quick_reply_text(body) in _AUTO_CHECKIN_REPLY_TEXTS
+
+
+def _inbound_action_text(row: WhatsAppMessage) -> str:
+    """Text from body or template/quick-reply button payload (type button/interactive)."""
+    body = (row.body or "").strip()
+    if body:
+        return body
+
+    payload = row.raw_payload or {}
+    message_type = (row.message_type or payload.get("type") or "").strip()
+    if message_type == "button":
+        button = payload.get("button") or {}
+        return str(button.get("text") or button.get("payload") or "").strip()
+    if message_type == "interactive":
+        interactive = payload.get("interactive") or {}
+        interactive_type = str(interactive.get("type") or "").strip()
+        if interactive_type == "button_reply":
+            return str((interactive.get("button_reply") or {}).get("title") or "").strip()
+        if interactive_type == "list_reply":
+            return str((interactive.get("list_reply") or {}).get("title") or "").strip()
+    return ""
+
 
 def _inbound_body_preview(row: WhatsAppMessage) -> str:
     if row.message_type == "text":
         return row.body or ""
+    action = _inbound_action_text(row)
+    if action:
+        return action
     return _WHATSAPP_NON_TEXT_PREVIEW
 
 
@@ -87,6 +152,72 @@ def _maybe_send_auto_reply(
     }
 
 
+def _maybe_send_autocheckin_documents_reply(
+    *,
+    row: WhatsAppMessage,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+    reservation,
+) -> dict:
+    if reservation is None:
+        return {"status": "skipped", "reason": "no_reservation"}
+
+    if not runtime.send_credentials_ok():
+        return {"status": "missing_credentials"}
+
+    body = render_documents_message(reservation)
+    try:
+        response = send_text_message(
+            phone_number_id=runtime.phone_number_id,
+            access_token=runtime.access_token,
+            to_wa_id=row.wa_id,
+            body=body,
+            provider=runtime.provider,
+            api_base_url=runtime.api_base_url,
+        )
+    except WhatsAppApiError as exc:
+        logger.warning("WhatsApp documents reply failed message_id=%s: %s", row.pk, exc)
+        return {"status": "send_failed", "detail": str(exc)}
+
+    outbound_wamid = extract_outbound_wamid(response)
+    if outbound_wamid:
+        WhatsAppMessage.objects.create(
+            tenant_id=row.tenant_id,
+            integration=integration_row,
+            reservation=reservation,
+            wamid=outbound_wamid,
+            wa_id=row.wa_id,
+            phone_number_id=runtime.phone_number_id,
+            direction=WhatsAppMessage.Direction.OUTBOUND,
+            message_type="text",
+            body=body,
+            raw_payload=response,
+        )
+
+    draft = GuestMessageDraft.objects.create(
+        tenant_id=row.tenant_id,
+        reservation=reservation,
+        intent=GuestMessageIntent.CHECKIN,
+        hint="autocheckin documents",
+        language="",
+        llm_body_text=body,
+        final_body_text=body,
+        channel=GuestMessageChannel.WHATSAPP,
+        sent_at=timezone.now(),
+    )
+    GuestOutboundMessage.objects.create(
+        tenant_id=row.tenant_id,
+        reservation=reservation,
+        draft=draft,
+        channel=GuestMessageChannel.WHATSAPP,
+        body_text=body,
+        status=GuestOutboundMessageStatus.SENT,
+        to_phone=reservation.booker_phone or row.wa_id,
+    )
+
+    return {"status": "documents_sent", "outbound_wamid": outbound_wamid}
+
+
 def _maybe_notify_guest_message_inbound(row: WhatsAppMessage) -> None:
     if row.reservation_id is None:
         return
@@ -118,16 +249,31 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
     reservation = row.reservation
 
     if row.message_type in ("image", "document"):
-        process_whatsapp_document_message.delay(row.pk)
-
-    runtime = WhatsAppRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
-    reply_result = _maybe_send_auto_reply(
-        row=row,
-        integration_row=integration_row,
-        runtime=runtime,
-        reservation=reservation,
-        profile_name=profile_name,
-    )
+        on_whatsapp_document_received.delay(row.pk)
+        reply_result = {"status": "auto_reply_skipped", "reason": "media"}
+    else:
+        runtime = WhatsAppRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+        button_id = inbound_interactive_button_id(row)
+        action_text = _inbound_action_text(row)
+        if is_documents_all_yes_reply(button_id=button_id, text=action_text) or is_documents_all_no_reply(
+            button_id=button_id, text=action_text
+        ):
+            reply_result = handle_whatsapp_document_batch_reply(row.pk)
+        elif is_auto_checkin_quick_reply(action_text):
+            reply_result = _maybe_send_autocheckin_documents_reply(
+                row=row,
+                integration_row=integration_row,
+                runtime=runtime,
+                reservation=reservation,
+            )
+        else:
+            reply_result = _maybe_send_auto_reply(
+                row=row,
+                integration_row=integration_row,
+                runtime=runtime,
+                reservation=reservation,
+                profile_name=profile_name,
+            )
 
     _maybe_notify_guest_message_inbound(row)
 

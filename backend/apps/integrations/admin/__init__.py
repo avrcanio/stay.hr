@@ -156,6 +156,7 @@ class IntegrationConfigAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                 "display_phone_number",
                 "waba_id",
                 "auto_reply",
+                "whatsapp_templates_json",
             ),
             IntegrationConfig.Provider.EVISITOR: (
                 "enabled",

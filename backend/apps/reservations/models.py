@@ -75,6 +75,7 @@ class Reservation(TenantScopedModel):
         blank=True,
         null=True,
     )
+    whatsapp_welcome_sent_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -455,6 +456,50 @@ class DocumentIntakeImage(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"DocumentIntakeImage #{self.pk} job={self.job_id}"
+
+
+class WhatsAppDocumentBatchStatus(models.TextChoices):
+    COLLECTING = "collecting", "Collecting"
+    AWAITING_CONFIRM = "awaiting_confirm", "Awaiting confirm"
+    AFTER_NO = "after_no", "After no"
+    PROCESSING = "processing", "Processing"
+    DONE = "done", "Done"
+
+
+class WhatsAppDocumentBatchSession(TenantScopedModel):
+    """Debounce WhatsApp document photos before batch OCR."""
+
+    reservation = models.ForeignKey(
+        Reservation,
+        on_delete=models.CASCADE,
+        related_name="whatsapp_document_batch_sessions",
+    )
+    job = models.ForeignKey(
+        DocumentIntakeJob,
+        on_delete=models.CASCADE,
+        related_name="whatsapp_batch_sessions",
+    )
+    wa_id = models.CharField(max_length=32)
+    status = models.CharField(
+        max_length=20,
+        choices=WhatsAppDocumentBatchStatus.choices,
+        default=WhatsAppDocumentBatchStatus.COLLECTING,
+    )
+    last_media_at = models.DateTimeField(null=True, blank=True)
+    prompt_sent_at = models.DateTimeField(null=True, blank=True)
+    prompt_count = models.PositiveSmallIntegerField(default=0)
+    after_no_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+        indexes = [
+            models.Index(fields=["reservation", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"WhatsAppDocumentBatchSession #{self.pk} reservation={self.reservation_id} status={self.status}"
 
 
 class MonthlyStatisticsOverride(TenantScopedModel):

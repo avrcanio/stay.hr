@@ -141,6 +141,9 @@ export type ChannexReview = {
   translation_available?: boolean;
   reply: string | null;
   is_replied: boolean;
+  reply_published?: boolean;
+  reply_pending_moderation?: boolean;
+  suggested_reply_language?: string;
   is_hidden: boolean;
   expired_at: string | null;
   received_at: string | null;

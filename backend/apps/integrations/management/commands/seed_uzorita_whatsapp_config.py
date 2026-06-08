@@ -58,8 +58,8 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--auto-reply",
-            default="true",
-            help="Enable inbound auto-reply (true/false).",
+            default="false",
+            help="Enable inbound auto-reply (true/false). Default false for stateful autocheck-in flow.",
         )
 
     def handle(self, *args, **options):
@@ -114,7 +114,7 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(f"Tenant not found: {options['tenant_slug']}"))
             return
 
-        auto_reply_raw = str(options["auto_reply"] or "true").strip().lower()
+        auto_reply_raw = str(options["auto_reply"] or "false").strip().lower()
         auto_reply = auto_reply_raw not in ("0", "false", "no", "off")
 
         config = {
@@ -124,6 +124,16 @@ class Command(BaseCommand):
             "waba_id": waba_id,
             "access_token": access_token,
             "auto_reply": auto_reply,
+            "whatsapp_templates": {
+                "header_image_url": "https://stay.hr/static/whatsapp-header.png",
+                "welcome": {
+                    "hr": "stay_welcome_hr",
+                    "en": "stay_welcome_en",
+                    "de": "stay_welcome_de",
+                    "es": "stay_welcome_es",
+                    "fr": "stay_welcome_fr",
+                },
+            },
         }
         if api_base_url:
             config["api_base_url"] = api_base_url

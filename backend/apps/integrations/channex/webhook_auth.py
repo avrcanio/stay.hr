@@ -10,7 +10,7 @@ WEBHOOK_HEADER_NAME = "X-Stay-Channex-Webhook"
 WEBHOOK_QUERY_PROVIDER = "provider"
 WEBHOOK_QUERY_ENV = "env"
 EXPECTED_PROVIDER = "stay"
-EXPECTED_ENV = "staging"
+EXPECTED_ENVS = frozenset({"staging", "production"})
 
 
 def generate_webhook_secret() -> str:
@@ -33,8 +33,8 @@ def verify_channex_webhook_request(request: HttpRequest, *, config_secret: str) 
     if request.GET.get(WEBHOOK_QUERY_PROVIDER) != EXPECTED_PROVIDER:
         return False
 
-    env = request.GET.get(WEBHOOK_QUERY_ENV, EXPECTED_ENV)
-    if env and env != EXPECTED_ENV:
+    env = request.GET.get(WEBHOOK_QUERY_ENV, "staging")
+    if env and env not in EXPECTED_ENVS:
         return False
 
     return True

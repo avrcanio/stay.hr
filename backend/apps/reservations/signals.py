@@ -24,6 +24,37 @@ def reservation_created_notify(sender, instance: Reservation, created: bool, **k
 
 
 @receiver(post_save, sender=Reservation)
+def reservation_maybe_immediate_autocheckin_welcome(
+    sender,
+    instance: Reservation,
+    created: bool,
+    **kwargs,
+):
+    if kwargs.get("raw"):
+        return
+    if instance.status in {
+        Reservation.Status.CANCELED,
+        Reservation.Status.NO_SHOW,
+    }:
+        return
+
+    from apps.reservations.booking_lifecycle import is_web_pending_booking
+
+    if is_web_pending_booking(instance):
+        return
+
+    from apps.communications.whatsapp_autocheckin_tasks import (
+        maybe_send_immediate_autocheckin_welcome,
+    )
+
+    transaction.on_commit(
+        lambda reservation_id=instance.pk: maybe_send_immediate_autocheckin_welcome.delay(
+            reservation_id
+        )
+    )
+
+
+@receiver(post_save, sender=Reservation)
 def reservation_outbound_on_create(sender, instance: Reservation, created: bool, **kwargs):
     if not created:
         return

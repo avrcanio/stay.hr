@@ -18,6 +18,7 @@ from apps.properties.models import Property, Unit
 from apps.reservations.channel_sync import is_pdf_authoritative
 from apps.reservations.guest_slots import ensure_adult_guest_slots
 from apps.reservations.models import Guest, Reservation, ReservationUnit
+from apps.reservations.phone_validation import normalize_booker_phone
 from apps.integrations.channex.booking_room_mismatch import (
     check_channex_revision_room_mismatch,
     flag_channex_ingest_room_warnings,
@@ -312,7 +313,7 @@ def _upsert_reservation_from_revision(
         "booking_status": str(attrs.get("status") or ""),
         "booker_name": _customer_name(customer),
         "booker_email": str(customer.get("mail") or "").strip(),
-        "booker_phone": str(customer.get("phone") or "").strip(),
+        "booker_phone": normalize_booker_phone(str(customer.get("phone") or "")),
         "booker_country": _customer_country_iso2(customer),
         "booker_address": str(customer.get("address") or "").strip(),
         "amount": _parse_decimal(attrs.get("amount")),
@@ -526,8 +527,10 @@ def process_channex_booking_revision(
             )
         )
         from apps.integrations.channex.review_service import relink_unlinked_channex_reviews
+        from apps.integrations.channex.message_service import relink_unlinked_channex_messages
 
         transaction.on_commit(lambda t=tenant: relink_unlinked_channex_reviews(t))
+        transaction.on_commit(lambda t=tenant: relink_unlinked_channex_messages(t))
         return reservation
     finally:
         if owns_client and client is not None:

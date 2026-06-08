@@ -18,6 +18,7 @@ from apps.integrations.channex.review_service import (
     list_reviews_for_property,
     list_reviews_for_reservation,
     reply_to_review,
+    reservation_should_auto_sync_reviews,
     serialize_channex_review,
     submit_airbnb_guest_review,
 )
@@ -87,6 +88,7 @@ class ReceptionReviewsListView(TenantAPIView, APIView):
                 page=page,
                 page_size=page_size,
                 sync_if_empty=sync_param == "auto",
+                sync_if_stale=sync_param == "auto",
                 force_sync=sync_param == "1",
             )
         except ChannexBookingIngestError as exc:
@@ -238,12 +240,15 @@ class ReceptionReservationReviewsView(TenantAPIView, APIView):
         except ChannexBookingIngestError as exc:
             raise ValidationError(str(exc)) from exc
 
-        sync_param = request.query_params.get("sync", "0")
+        sync_param = request.query_params.get("sync")
+        if sync_param is None:
+            sync_param = "auto" if reservation_should_auto_sync_reviews(reservation) else "0"
         try:
             rows = list_reviews_for_reservation(
                 integration,
                 reservation,
                 sync_if_empty=sync_param == "auto",
+                sync_if_stale=sync_param == "auto",
                 force_sync=sync_param in ("1", "true", "yes"),
             )
         except ChannexBookingIngestError as exc:

@@ -27,6 +27,18 @@ Webhook URL:
 https://api.stay.hr/api/v1/integrations/channex/webhook/?provider=stay&env=production
 ```
 
+## Periodic sync
+
+Celery beat runs `sync_channex_reviews_periodic` every **6 hours** for `uzorita` (same tenant as message sync). Manual backfill:
+
+```bash
+docker compose exec django python manage.py sync_channex_reviews --tenant-slug=uzorita
+```
+
+Opening **Recenzije** with default `sync=auto` re-pulls from Channex when the last sync is older than 6 hours.
+
+Reservation **checked out within the last 7 days**: `GET .../reservations/{id}/reviews/` defaults to `sync=auto` (pull if empty or stale).
+
 ## Backend storage
 
 - Model: **Integrations → Channex reviews** (`ChannexReview`)
@@ -53,6 +65,29 @@ Review text fields in list/detail responses:
 - `content_localized` — text in requested `lang` (cached in `ChannexReview.content_translations`)
 - `content_is_translated` — whether localized text differs from original
 - `translation_available` — OpenAI translate configured
+- `reply_published` — Booking.com (or OTA) confirmed publication (`reply_sent_at` set)
+- `reply_pending_moderation` — Booking.com reply submitted but not yet published
+- `suggested_reply_language` — detected language for compose (match guest review when possible)
+- `can_reply` — `true` while no published reply and deadline not expired (allows resubmit after moderation rejection)
+
+## Booking.com reply moderation
+
+All public replies on Booking.com are **moderated** before they appear on the extranet (up to **72 hours**).
+
+| Signal | Meaning |
+|--------|---------|
+| Channex `is_replied: true` | stay.hr successfully POSTed a reply to Channex |
+| `reply_sent_at` set | Publication confirmed (visible on Booking.com) |
+| `reply` text + `reply_sent_at` null | Pending moderation or **rejected** — staff can edit and resend from stay.hr |
+
+**Content guidelines** (reduce rejection risk):
+
+- Reply in the **guest review language** or **English**
+- Keep it short (2–4 sentences), professional, thank the guest
+- **Do not repeat** explicit negative details from the review (dirty bathroom, insects, noise specifics)
+- No contact details, links, or compensation offers
+
+If Booking shows *“Your response was not approved”*, shorten the reply, remove repeated complaints, and resubmit (stay.hr allows resend while `reply_published` is false).
 
 ## UI
 
@@ -87,6 +122,8 @@ Tap (background) ili foreground SnackBar **Otvori** (s `review_id` u payloadu) �
 |---------|-----|
 | 403 from Channex API | Enable **Messaging & Reviews** app on property |
 | Reviews not in webhook | Add `review` / `updated_review` events on webhook |
+| Review on Booking.com but not in stay.hr | Normal delay Booking.com → Channex; `sync=1` only helps after Channex has the row. Periodic sync every 6 h via Celery (`channex-reviews-periodic`). |
+| Inbox `sync=auto` missed a new review | Fixed: `sync=auto` now re-pulls if last sync is older than 6 h (not only when inbox is empty) |
 | No reservation link | Booking not yet in stay.hr; review stays in property inbox |
 | Airbnb reply disabled | Hidden review — submit **guest-review** first |
 | Reply shown as dict string in app | Run `sync_channex_reviews --tenant-slug=…` (includes reply repair) |

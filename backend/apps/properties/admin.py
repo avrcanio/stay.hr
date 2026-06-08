@@ -85,6 +85,15 @@ class PropertyAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             },
         ),
         (
+            "WhatsApp autocheck-in",
+            {
+                "fields": ("whatsapp_autocheckin_enabled", "whatsapp_autocheckin_time"),
+                "description": (
+                    "Dnevna welcome poruka gostima s check-inom danas (property lokalno vrijeme)."
+                ),
+            },
+        ),
+        (
             "Turistička pristojba",
             {
                 "fields": ("tourist_tax_zone", "tourist_tax_category"),

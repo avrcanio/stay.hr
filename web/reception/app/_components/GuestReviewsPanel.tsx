@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { ReviewContentText } from "@/app/_components/ReviewContentText";
 import type { ChannexReview } from "@/lib/types";
 import { reviewDisplayContent } from "@/lib/review-display";
+import { reviewStatusBadges } from "@/lib/review-status-badges";
 
 type Props = {
   reservationId: number;
@@ -130,9 +131,11 @@ export function GuestReviewsPanel({ reservationId, compact = false }: Props) {
             {review.received_at ? (
               <span className="text-muted">{formatReviewTime(review.received_at)}</span>
             ) : null}
-            {!review.is_replied ? (
-              <span className="text-xs text-amber-800">{t("needsReply")}</span>
-            ) : null}
+            {reviewStatusBadges(review).map((badge) => (
+              <span key={badge.key} className={badge.className}>
+                {t(badge.key)}
+              </span>
+            ))}
             {review.is_hidden ? (
               <span className="text-xs text-amber-700">{t("hiddenAirbnb")}</span>
             ) : null}

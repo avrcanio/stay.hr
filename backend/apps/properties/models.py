@@ -18,6 +18,8 @@ class Property(TenantScopedModel):
     language = models.CharField(max_length=10, blank=True)
     check_in_time = models.TimeField(default=time(15, 0))
     check_out_time = models.TimeField(default=time(11, 0))
+    whatsapp_autocheckin_enabled = models.BooleanField(default=False)
+    whatsapp_autocheckin_time = models.TimeField(default=time(8, 0))
     tourist_tax_zone = models.ForeignKey(
         "tourist_tax.TouristTaxZone",
         null=True,
@@ -46,6 +48,13 @@ class Property(TenantScopedModel):
 
     def __str__(self) -> str:
         return self.name
+
+    def clean(self) -> None:
+        super().clean()
+        if self.whatsapp_autocheckin_enabled and self.whatsapp_autocheckin_time is None:
+            raise ValidationError(
+                {"whatsapp_autocheckin_time": "Vrijeme je obavezno kad je autocheck-in uključen."}
+            )
 
 
 class Unit(TenantScopedModel):

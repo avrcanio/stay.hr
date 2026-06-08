@@ -16,6 +16,7 @@ class GuestMessageIntent(models.TextChoices):
     CHECKIN = "checkin", "Check-in"
     REPLY = "reply", "Reply"
     CUSTOM = "custom", "Custom"
+    WELCOME_TEMPLATE = "welcome_template", "Welcome template"
 
 
 class GuestMessageChannel(models.TextChoices):

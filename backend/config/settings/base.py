@@ -186,6 +186,20 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.reservations.tasks.run_auto_checkouts",
         "schedule": 900.0,
     },
+    "whatsapp-autocheckin-welcome": {
+        "task": "apps.communications.whatsapp_autocheckin_tasks.run_whatsapp_autocheckin_welcome",
+        "schedule": 900.0,
+    },
+    "channex-messages-upcoming-checkins": {
+        "task": "apps.integrations.channex.message_tasks.sync_channex_messages_for_upcoming_checkins",
+        "schedule": 900.0,
+        "kwargs": {"tenant_slug": "uzorita"},
+    },
+    "channex-reviews-periodic": {
+        "task": "apps.integrations.channex.review_tasks.sync_channex_reviews_periodic",
+        "schedule": 21600.0,
+        "kwargs": {"tenant_slug": "uzorita"},
+    },
     "detect-overbooking-daily": {
         "task": "apps.reservations.overbooking_tasks.detect_overbooking_daily",
         "schedule": crontab(hour=6, minute=0),

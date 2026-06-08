@@ -7,7 +7,13 @@ from apps.integrations.models import IntegrationConfig, WhatsAppMessage
 from apps.integrations.tests.test_whatsapp_webhook import TEST_FERNET_KEY
 from apps.integrations.whatsapp.document_intake_task import process_whatsapp_document_message
 from apps.properties.models import Property
-from apps.reservations.models import DocumentIntakeJob, DocumentIntakeJobStatus, Reservation
+from apps.reservations.models import (
+    DocumentIntakeJob,
+    DocumentIntakeJobStatus,
+    WhatsAppDocumentBatchSession,
+    WhatsAppDocumentBatchStatus,
+    Reservation,
+)
 from apps.tenants.models import Tenant
 
 
@@ -48,7 +54,7 @@ class WhatsAppDocumentIntakeTaskTests(TestCase):
             tenant=self.tenant,
             integration=self.integration,
             reservation=self.reservation,
-            wamid="wamid.inbound.image",
+            wamid="wamid.in.image",
             wa_id="385911111111",
             phone_number_id="1068791909660300",
             direction=WhatsAppMessage.Direction.INBOUND,
@@ -57,39 +63,27 @@ class WhatsAppDocumentIntakeTaskTests(TestCase):
             raw_payload={"type": "image", "image": {"id": "media-123", "mime_type": "image/jpeg"}},
         )
 
-    @patch("apps.integrations.whatsapp.document_intake_task.apply_document_intake_job")
-    @patch("apps.integrations.whatsapp.document_intake_task.process_document_intake_job")
-    @patch("apps.integrations.whatsapp.document_intake_task.fetch_whatsapp_media")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
     @patch("apps.core.tasks.notify_guest_message_inbound.delay")
-    def test_creates_job_and_runs_ocr(self, mock_notify, mock_fetch, mock_process, mock_apply):
+    def test_creates_batch_session_without_instant_ocr(self, mock_notify, mock_fetch, mock_schedule):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
-
-        def _finish_ocr(job_id):
-            job = DocumentIntakeJob.objects.get(pk=job_id)
-            job.status = DocumentIntakeJobStatus.DONE
-            job.matches = [{"auto_apply": True, "guest_id": 1, "person_index": 0, "reservation_id": self.reservation.pk}]
-            job.save(update_fields=["status", "matches", "updated_at"])
-
-        mock_process.side_effect = _finish_ocr
-        mock_apply.return_value = [{"guest_id": 1, "reservation_id": self.reservation.pk}]
 
         result = process_whatsapp_document_message(self.message.pk)
 
-        self.assertEqual(result["status"], "processed")
-        self.assertEqual(result["apply"]["status"], "applied")
+        self.assertEqual(result["status"], "collected")
+        session = WhatsAppDocumentBatchSession.objects.get(reservation=self.reservation)
+        self.assertEqual(session.status, WhatsAppDocumentBatchStatus.COLLECTING)
         job = DocumentIntakeJob.objects.get(pk=result["job_id"])
-        self.assertEqual(job.reservation_id, self.reservation.pk)
-        self.assertEqual(job.source, "whatsapp")
+        self.assertEqual(job.status, DocumentIntakeJobStatus.QUEUED)
         self.assertEqual(job.images.count(), 1)
-        mock_process.assert_called_once_with(job.pk)
-        mock_apply.assert_called_once_with(job.pk)
-        mock_notify.assert_called_once()
+        mock_notify.assert_not_called()
 
-    @patch("apps.integrations.whatsapp.document_intake_task.process_document_intake_job")
-    @patch("apps.integrations.whatsapp.document_intake_task.fetch_whatsapp_media")
-    def test_skips_duplicate_job(self, mock_fetch, mock_process):
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
+    def test_skips_duplicate_message(self, mock_fetch, mock_schedule):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
         process_whatsapp_document_message(self.message.pk)
         result = process_whatsapp_document_message(self.message.pk)
         self.assertEqual(result["status"], "duplicate")
-        self.assertEqual(DocumentIntakeJob.objects.filter(whatsapp_message=self.message).count(), 1)
+        self.assertEqual(DocumentIntakeJob.objects.filter(reservation=self.reservation).count(), 1)

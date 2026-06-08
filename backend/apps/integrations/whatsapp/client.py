@@ -27,24 +27,15 @@ def extract_outbound_wamid(response: dict[str, Any]) -> str:
     return ""
 
 
-def send_text_message(
+def _post_whatsapp_message(
     *,
+    payload: dict[str, Any],
     phone_number_id: str,
     access_token: str,
-    to_wa_id: str,
-    body: str,
-    api_version: str | None = None,
-    provider: str | None = None,
-    api_base_url: str | None = None,
+    api_version: str | None,
+    provider: str | None,
+    api_base_url: str | None,
 ) -> dict[str, Any]:
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to_wa_id,
-        "type": "text",
-        "text": {"body": body},
-    }
-
     if is_360dialog_provider(provider):
         base = (api_base_url or d360_api_base_url_from_env()).rstrip("/")
         url = f"{base}/messages"
@@ -83,6 +74,133 @@ def send_text_message(
     if not isinstance(data, dict):
         raise WhatsAppApiError("WhatsApp API returned non-object JSON")
     return data
+
+
+def send_text_message(
+    *,
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    body: str,
+    api_version: str | None = None,
+    provider: str | None = None,
+    api_base_url: str | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_wa_id,
+        "type": "text",
+        "text": {"body": body},
+    }
+
+    return _post_whatsapp_message(
+        payload=payload,
+        phone_number_id=phone_number_id,
+        access_token=access_token,
+        api_version=api_version,
+        provider=provider,
+        api_base_url=api_base_url,
+    )
+
+
+def send_template_message(
+    *,
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    template_name: str,
+    language_code: str,
+    body_parameters: list[str],
+    header_image_url: str | None = None,
+    api_version: str | None = None,
+    provider: str | None = None,
+    api_base_url: str | None = None,
+) -> dict[str, Any]:
+    components: list[dict[str, Any]] = []
+    if header_image_url:
+        components.append(
+            {
+                "type": "header",
+                "parameters": [
+                    {
+                        "type": "image",
+                        "image": {"link": header_image_url},
+                    }
+                ],
+            }
+        )
+    components.append(
+        {
+            "type": "body",
+            "parameters": [{"type": "text", "text": value} for value in body_parameters],
+        }
+    )
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_wa_id,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": language_code},
+            "components": components,
+        },
+    }
+
+    return _post_whatsapp_message(
+        payload=payload,
+        phone_number_id=phone_number_id,
+        access_token=access_token,
+        api_version=api_version,
+        provider=provider,
+        api_base_url=api_base_url,
+    )
+
+
+def send_interactive_button_message(
+    *,
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    body: str,
+    buttons: list[tuple[str, str]],
+    api_version: str | None = None,
+    provider: str | None = None,
+    api_base_url: str | None = None,
+) -> dict[str, Any]:
+    """Send WhatsApp interactive reply buttons (max 3). buttons: list of (id, title)."""
+    action_buttons = [
+        {
+            "type": "reply",
+            "reply": {"id": btn_id, "title": (title or btn_id)[:20]},
+        }
+        for btn_id, title in buttons[:3]
+    ]
+    if not action_buttons:
+        raise WhatsAppApiError("interactive message requires at least one button")
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_wa_id,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": (body or "")[:1024]},
+            "action": {"buttons": action_buttons},
+        },
+    }
+
+    return _post_whatsapp_message(
+        payload=payload,
+        phone_number_id=phone_number_id,
+        access_token=access_token,
+        api_version=api_version,
+        provider=provider,
+        api_base_url=api_base_url,
+    )
 
 
 def upload_media(

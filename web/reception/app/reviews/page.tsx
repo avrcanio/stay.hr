@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
 import { ReviewContentText } from "@/app/_components/ReviewContentText";
 import type { AppConfig, ChannexReview, ChannexReviewsListResponse } from "@/lib/types";
+import { reviewStatusBadges } from "@/lib/review-status-badges";
 
 const REVIEW_LANGS = ["hr", "en", "de", "es", "fr", "it"] as const;
 
@@ -146,11 +147,11 @@ export default function ReviewsPage() {
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="font-medium">{otaLabel(review.ota)}</span>
                   {review.overall_score != null ? <span>{review.overall_score}/10</span> : null}
-                  {!review.is_replied ? (
-                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">
-                      {t("needsReply")}
+                  {reviewStatusBadges(review).map((badge) => (
+                    <span key={badge.key} className={badge.className}>
+                      {t(badge.key)}
                     </span>
-                  ) : null}
+                  ))}
                 </div>
                 <div className="mt-1">
                   <ReviewContentText review={review} className="line-clamp-2 text-sm text-muted" />

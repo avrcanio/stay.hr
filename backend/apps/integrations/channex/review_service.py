@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import ast
 import logging
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.db.models import Q, QuerySet
+from django.core.cache import cache
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from apps.ai.provider import GuestComposeError, complete_chat, llm_configured
 from apps.ai.translate import translation_available, translate_text
 from apps.api.language import normalize_app_language
+from apps.communications.guest_compose_language import SUPPORTED_COMPOSE_LANGS
 from apps.integrations.channex.client import ChannexClient
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
@@ -24,7 +26,11 @@ from apps.tenants.models import Tenant
 logger = logging.getLogger(__name__)
 
 AIRBNB_OTA = "AirBNB"
+BOOKING_COM_OTA = "BookingCom"
 DEFAULT_PAGE_SIZE = 25
+REVIEWS_SYNC_CACHE_PREFIX = "channex-reviews-sync"
+REVIEWS_SYNC_INTERVAL_SECONDS = 6 * 3600
+RECENT_CHECKOUT_REVIEW_SYNC_DAYS = 7
 
 
 def channex_review_id_from_payload(payload: dict[str, Any]) -> str:
@@ -169,7 +175,7 @@ def repair_channex_review_replies(tenant: Tenant | None = None) -> int:
         if normalized and not row.is_replied:
             row.is_replied = True
             update_fields.append("is_replied")
-        if normalized and row.reply_sent_at is None:
+        if normalized and row.reply_sent_at is None and row.ota != BOOKING_COM_OTA:
             row.reply_sent_at = row.updated_at or timezone.now()
             update_fields.append("reply_sent_at")
         if update_fields:
@@ -396,7 +402,70 @@ def sync_reviews_from_channex(
         if owns_client and client is not None:
             client.close()
     relink_unlinked_channex_reviews(integration_row.tenant)
+    mark_reviews_synced(integration_row.tenant_id)
     return stored
+
+
+def _reviews_sync_cache_key(tenant_id: int) -> str:
+    return f"{REVIEWS_SYNC_CACHE_PREFIX}:{tenant_id}"
+
+
+def reviews_sync_is_stale(tenant_id: int) -> bool:
+    last_sync = cache.get(_reviews_sync_cache_key(tenant_id))
+    if last_sync is None:
+        return True
+    try:
+        parsed = datetime.fromisoformat(str(last_sync))
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, dt_timezone.utc)
+        elapsed = (timezone.now() - parsed).total_seconds()
+    except (TypeError, ValueError):
+        return True
+    return elapsed >= REVIEWS_SYNC_INTERVAL_SECONDS
+
+
+def mark_reviews_synced(tenant_id: int) -> None:
+    cache.set(
+        _reviews_sync_cache_key(tenant_id),
+        timezone.now().isoformat(),
+        timeout=REVIEWS_SYNC_INTERVAL_SECONDS * 4,
+    )
+
+
+def reservation_should_auto_sync_reviews(reservation: Reservation) -> bool:
+    """Recently checked-out Channex reservations may get reviews with a delay."""
+    if reservation.status != Reservation.Status.CHECKED_OUT:
+        return False
+    if not reservation.check_out:
+        return False
+    cutoff = timezone.localdate() - timedelta(days=RECENT_CHECKOUT_REVIEW_SYNC_DAYS)
+    return reservation.check_out >= cutoff
+
+
+def _should_pull_reviews_from_channex(
+    *,
+    tenant_id: int,
+    force_sync: bool,
+    sync_if_empty: bool,
+    sync_if_stale: bool,
+    queryset: QuerySet[ChannexReview],
+) -> bool:
+    if force_sync:
+        return True
+    if sync_if_empty and not queryset.exists():
+        return True
+    if sync_if_stale and reviews_sync_is_stale(tenant_id):
+        return True
+    return False
+
+
+def _pull_reviews_from_channex(
+    integration_row: IntegrationConfig,
+    *,
+    client: ChannexClient | None = None,
+    max_pages: int = 10,
+) -> None:
+    sync_reviews_from_channex(integration_row, client=client, max_pages=max_pages)
 
 
 def _reviews_queryset(tenant: Tenant) -> QuerySet[ChannexReview]:
@@ -411,6 +480,7 @@ def list_reviews_for_property(
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
     sync_if_empty: bool = True,
+    sync_if_stale: bool = False,
     force_sync: bool = False,
     client: ChannexClient | None = None,
 ) -> tuple[list[ChannexReview], int]:
@@ -423,8 +493,14 @@ def list_reviews_for_property(
     if ota_filter:
         qs = qs.filter(ota__iexact=ota_filter)
 
-    if force_sync or (sync_if_empty and not qs.exists()):
-        sync_reviews_from_channex(integration_row, client=client)
+    if _should_pull_reviews_from_channex(
+        tenant_id=tenant.pk,
+        force_sync=force_sync,
+        sync_if_empty=sync_if_empty,
+        sync_if_stale=sync_if_stale,
+        queryset=qs,
+    ):
+        _pull_reviews_from_channex(integration_row, client=client)
         qs = _reviews_queryset(tenant)
         if unreplied_only:
             qs = qs.filter(is_replied=False)
@@ -453,13 +529,14 @@ def list_reviews_for_reservation(
     reservation: Reservation,
     *,
     sync_if_empty: bool = False,
+    sync_if_stale: bool = False,
     force_sync: bool = False,
     client: ChannexClient | None = None,
 ) -> list[ChannexReview]:
     relink_unlinked_channex_reviews(reservation.tenant)
     qs = _reviews_queryset_for_reservation(reservation)
-    if force_sync or (sync_if_empty and not qs.exists()):
-        sync_reviews_from_channex(integration_row, client=client, max_pages=10)
+    if force_sync or sync_if_stale or (sync_if_empty and not qs.exists()):
+        _pull_reviews_from_channex(integration_row, client=client)
         relink_unlinked_channex_reviews(reservation.tenant)
         qs = _reviews_queryset_for_reservation(reservation)
     return list(qs.order_by("-received_at", "-created_at"))
@@ -485,14 +562,62 @@ def review_guest_review_allowed(row: ChannexReview) -> bool:
     return row.ota == AIRBNB_OTA and row.is_hidden
 
 
+def reply_published(row: ChannexReview) -> bool:
+    return row.reply_sent_at is not None
+
+
+def reply_pending_moderation(row: ChannexReview) -> bool:
+    """Submitted to OTA channel but publication not confirmed (Booking.com heuristic)."""
+    if row.ota != BOOKING_COM_OTA:
+        return False
+    if reply_published(row):
+        return False
+    return bool(_normalize_reply_text(row.reply))
+
+
 def review_reply_allowed(row: ChannexReview) -> bool:
-    if row.is_replied or _normalize_reply_text(row.reply):
+    if reply_published(row):
         return False
     if row.expired_at and row.expired_at <= timezone.now():
         return False
     if row.ota == AIRBNB_OTA and row.is_hidden:
         return False
     return True
+
+
+def detect_review_language(content: str) -> str:
+    """Best-effort language for OTA review reply (same as guest text when possible)."""
+    text = (content or "").lower()
+    if not text.strip():
+        return "en"
+
+    sk_markers = (
+        "ľ",
+        "ä",
+        "ô",
+        "ŕ",
+        "veľk",
+        "izba",
+        "záchod",
+        "ďakuj",
+        "špinav",
+        "kúpeľ",
+        "ste ",
+        "sme ",
+        "prie",
+    )
+    if any(marker in text for marker in sk_markers):
+        return "sk"
+
+    de_markers = ("ß", "schön", "danke", "zimmer", "übernacht", "gäste")
+    if any(marker in text for marker in de_markers):
+        return "de"
+
+    hr_markers = ("hvala", "soba", "boravak", "gost", "žao", "čist")
+    if any(marker in text for marker in hr_markers):
+        return "hr"
+
+    return "en"
 
 
 def reply_to_review(
@@ -531,9 +656,6 @@ def reply_to_review(
         if not row.is_replied:
             row.is_replied = True
             update_fields.append("is_replied")
-        if row.reply_sent_at is None:
-            row.reply_sent_at = timezone.now()
-            update_fields.append("reply_sent_at")
         if update_fields:
             update_fields.append("updated_at")
             row.save(update_fields=update_fields)
@@ -647,8 +769,13 @@ def compose_review_reply(
         raise ChannexBookingIngestError("This review cannot be replied to.")
 
     original = (row.content or "").strip()
-    reply_lang = normalize_app_language(language) if language else "en"
-    if not language and original:
+    if language:
+        reply_lang = normalize_app_language(language)
+        if reply_lang not in SUPPORTED_COMPOSE_LANGS and language.split("-")[0].lower() not in SUPPORTED_COMPOSE_LANGS:
+            reply_lang = language.split("-")[0].lower()
+    elif original:
+        reply_lang = detect_review_language(original)
+    else:
         reply_lang = "en"
 
     property_name = _property_display_name(row)
@@ -665,9 +792,12 @@ def compose_review_reply(
 
     system = (
         "You write professional, warm public replies to OTA guest reviews for a small hotel. "
-        "Reply in the same language as the guest review text. "
-        "Keep it concise (2–4 sentences), thank the guest, address specific points when mentioned, "
-        "no markdown, no placeholder brackets."
+        "For Booking.com: replies are moderated before publication (up to 72 hours). "
+        "Write in the guest review language or English. "
+        "Keep it concise (2–4 sentences), thank the guest, acknowledge feedback professionally. "
+        "Do NOT repeat explicit negative details from the review (e.g. dirty bathroom, insects, noise specifics). "
+        "Do not offer compensation, contact details, links, or off-platform communication. "
+        "No markdown, no placeholder brackets."
     )
     user_parts = [
         f"OTA: {row.ota or 'unknown'}",
@@ -683,8 +813,7 @@ def compose_review_reply(
         user_parts.append(f"Guest name: {row.guest_name}")
     if hint.strip():
         user_parts.append(f"Staff hint: {hint.strip()}")
-    if language:
-        user_parts.append(f"Write the reply in language code: {reply_lang}")
+    user_parts.append(f"Write the reply in language code: {reply_lang}")
 
     fallback = (
         "Thank you for your review and for staying with us. "
@@ -727,6 +856,8 @@ def serialize_channex_review(
 
     reply_text = _normalize_reply_text(row.reply) or None
     is_replied = row.is_replied or bool(reply_text)
+    published = reply_published(row)
+    pending = reply_pending_moderation(row)
 
     return {
         "id": row.pk,
@@ -746,8 +877,11 @@ def serialize_channex_review(
         "content_is_translated": content_is_translated,
         "display_language": display_language,
         "translation_available": translation_available(),
+        "suggested_reply_language": detect_review_language(row.content or ""),
         "reply": reply_text,
         "is_replied": is_replied,
+        "reply_published": published,
+        "reply_pending_moderation": pending,
         "is_hidden": row.is_hidden,
         "expired_at": row.expired_at.isoformat() if row.expired_at else None,
         "received_at": row.received_at.isoformat() if row.received_at else None,

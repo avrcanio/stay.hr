@@ -46,6 +46,20 @@ def extract_inbound_messages(body: dict[str, Any]) -> list[ParsedInboundMessage]
                 text_body = ""
                 if message_type == "text":
                     text_body = str((message.get("text") or {}).get("body") or "").strip()
+                elif message_type == "interactive":
+                    interactive = message.get("interactive") or {}
+                    interactive_type = str(interactive.get("type") or "").strip()
+                    if interactive_type == "button_reply":
+                        text_body = str(
+                            (interactive.get("button_reply") or {}).get("title") or ""
+                        ).strip()
+                    elif interactive_type == "list_reply":
+                        text_body = str(
+                            (interactive.get("list_reply") or {}).get("title") or ""
+                        ).strip()
+                elif message_type == "button":
+                    button = message.get("button") or {}
+                    text_body = str(button.get("text") or button.get("payload") or "").strip()
                 else:
                     _, _, caption = extract_media_from_message(message)
                     text_body = caption

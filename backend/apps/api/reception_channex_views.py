@@ -512,6 +512,12 @@ class ReceptionReservationCreateSerializer(serializers.Serializer):
     check_in = serializers.DateField()
     check_out = serializers.DateField()
     booker_name = serializers.CharField(max_length=255)
+    booker_phone = serializers.CharField(max_length=64, required=False, allow_blank=True, default="")
+
+    def validate_booker_phone(self, value: str) -> str:
+        from apps.reservations.phone_validation import validate_booker_phone
+
+        return validate_booker_phone(value)
 
     def validate(self, attrs):
         if attrs["check_out"] <= attrs["check_in"]:
@@ -571,6 +577,7 @@ class ReceptionReservationCreateView(ReceptionWriteView, APIView):
             check_in=data["check_in"],
             check_out=data["check_out"],
             booker_name=data["booker_name"],
+            booker_phone=data.get("booker_phone") or "",
             import_source="manual",
             source="reception",
             status=Reservation.Status.EXPECTED,

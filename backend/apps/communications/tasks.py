@@ -1,5 +1,8 @@
 from celery import shared_task
 
+# Register WhatsApp autocheck-in beat tasks (module is not named tasks.py).
+from apps.communications import whatsapp_autocheckin_tasks  # noqa: F401
+
 
 @shared_task
 def send_guest_booking_confirmed_email(reservation_id: int) -> dict:

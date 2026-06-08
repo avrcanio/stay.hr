@@ -25,11 +25,14 @@ from apps.communications.models import (
     GuestOutboundMessageStatus,
 )
 from apps.integrations.channex.ari_service import get_active_channex_integration
-from apps.integrations.channex.booking_service import parse_channex_booking_id
+from apps.integrations.channex.booking_service import (
+    _channex_booking_lookup_codes,
+    parse_channex_booking_id,
+)
 from apps.integrations.channex.exceptions import ChannexBookingIngestError
 from apps.integrations.channex.message_service import send_image_for_reservation, send_message_for_reservation
 from apps.integrations.channel_manager.resolver import get_channel_manager
-from apps.integrations.models import ChannexMessage, IntegrationConfig, WhatsAppMessage
+from apps.integrations.models import ChannexBookingRevision, ChannexMessage, IntegrationConfig, WhatsAppMessage
 from apps.integrations.whatsapp.client import (
     WhatsAppApiError,
     extract_outbound_wamid,
@@ -77,7 +80,12 @@ def _booking_channel_available(reservation: Reservation) -> bool:
         return False
     if reservation.import_source != "channex":
         return False
-    if not parse_channex_booking_id(reservation.external_id):
+    has_channex_link = bool(parse_channex_booking_id(reservation.external_id))
+    if not has_channex_link:
+        has_channex_link = bool(_channex_booking_lookup_codes(reservation)) or (
+            ChannexBookingRevision.objects.filter(reservation=reservation).exists()
+        )
+    if not has_channex_link:
         return False
     return IntegrationConfig.objects.filter(
         tenant=reservation.tenant,

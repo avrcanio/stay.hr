@@ -22,12 +22,15 @@ from apps.communications.guest_email import _email_context
 from apps.communications.guest_message_send import build_message_channels
 from apps.communications.models import GuestMessageDraft, GuestMessageIntent
 from apps.integrations.models import ChannexMessage, WhatsAppMessage
+from apps.reservations.document_intake_sides import MissingIdSide
 from apps.reservations.models import Reservation
 from apps.tenants.models import ApiApplication
 
 logger = logging.getLogger(__name__)
 
 HINT_CHECKIN_READY = "checkin ready"
+HINT_EVISITOR_REGISTERED = "evisitor registered"
+HINT_ID_MISSING_SIDES = "id missing sides"
 
 MAPS_LINK = "https://maps.app.goo.gl/BN15CcMmmAapmjUs7"
 DEFAULT_ADDRESS = "Ul. bana Josipa Jelačića 58, 22000 Šibenik"
@@ -161,6 +164,141 @@ DOCUMENTS_TEXTS = {
     ),
 }
 
+DOCUMENTS_BATCH_CONFIRM = {
+    "hr": (
+        "Primili smo fotografije. Jeste li poslali sve dokumente za sve odrasle goste?"
+    ),
+    "en": (
+        "We received your photos. Have you sent ID documents for all adult guests?"
+    ),
+    "de": (
+        "Wir haben Ihre Fotos erhalten. Haben Sie Ausweisdokumente für alle erwachsenen Gäste gesendet?"
+    ),
+    "es": (
+        "Hemos recibido sus fotos. ¿Ha enviado documentos de identidad de todos los huéspedes adultos?"
+    ),
+    "fr": (
+        "Nous avons reçu vos photos. Avez-vous envoyé les pièces d’identité de tous les adultes ?"
+    ),
+}
+
+DOCUMENTS_BATCH_CONFIRM_YES = {
+    "hr": "Da",
+    "en": "Yes",
+    "de": "Ja",
+    "es": "Sí",
+    "fr": "Oui",
+}
+
+DOCUMENTS_BATCH_CONFIRM_NO = {
+    "hr": "Ne",
+    "en": "No",
+    "de": "Nein",
+    "es": "No",
+    "fr": "Non",
+}
+
+CHECKIN_PARTIAL_DOCUMENTS = {
+    "hr": (
+        "Primili smo dokumente — hvala!\n\n"
+        "Molimo pošaljite još fotografije dokumenata za preostale odrasle goste na rezervaciji."
+    ),
+    "en": (
+        "We received your documents — thank you!\n\n"
+        "Please send ID photos for the remaining adult guests on your reservation."
+    ),
+    "de": (
+        "Wir haben Ihre Dokumente erhalten — vielen Dank!\n\n"
+        "Bitte senden Sie noch Ausweisfotos für die übrigen erwachsenen Gäste Ihrer Buchung."
+    ),
+    "es": (
+        "Hemos recibido sus documentos — ¡gracias!\n\n"
+        "Por favor, envíe fotos de identidad de los demás huéspedes adultos de la reserva."
+    ),
+    "fr": (
+        "Nous avons bien reçu vos documents — merci !\n\n"
+        "Veuillez envoyer les photos d’identité des autres adultes de la réservation."
+    ),
+}
+
+MISSING_ID_SIDES_INTRO = {
+    "hr": (
+        "Primili smo dokumente — hvala!\n\n"
+        "Molimo pošaljite još:"
+    ),
+    "en": (
+        "We received your documents — thank you!\n\n"
+        "Please send the following:"
+    ),
+    "de": (
+        "Wir haben Ihre Dokumente erhalten — vielen Dank!\n\n"
+        "Bitte senden Sie noch:"
+    ),
+    "es": (
+        "Hemos recibido sus documentos — ¡gracias!\n\n"
+        "Por favor, envíe lo siguiente:"
+    ),
+    "fr": (
+        "Nous avons bien reçu vos documents — merci !\n\n"
+        "Veuillez envoyer ce qui suit :"
+    ),
+}
+
+MISSING_ID_SIDE_LINE = {
+    "hr": "• {name} — nedostaje {side_label}",
+    "en": "• {name} — missing {side_label}",
+    "de": "• {name} — fehlend: {side_label}",
+    "es": "• {name} — falta {side_label}",
+    "fr": "• {name} — manquant : {side_label}",
+}
+
+MISSING_ID_SIDE_LABEL_NATIONAL_FRONT = {
+    "hr": "prednja strana osobne iskaznice",
+    "en": "front of the ID card",
+    "de": "Vorderseite des Personalausweises",
+    "es": "anverso del documento de identidad",
+    "fr": "recto de la carte d’identité",
+}
+
+MISSING_ID_SIDE_LABEL_NATIONAL_BACK = {
+    "hr": "stražnja strana osobne iskaznice",
+    "en": "back of the ID card",
+    "de": "Rückseite des Personalausweises",
+    "es": "reverso del documento de identidad",
+    "fr": "verso de la carte d’identité",
+}
+
+MISSING_ID_SIDE_LABEL_PASSPORT = {
+    "hr": "stranica s podacima putovnice",
+    "en": "passport biodata page",
+    "de": "Passdatenseite",
+    "es": "página de datos del pasaporte",
+    "fr": "page d’identité du passeport",
+}
+
+CHECKIN_AUTOMATION_FAILED = {
+    "hr": (
+        "Automatski check-in nije uspio — podatke ćemo upisati na recepciji kad stignete.\n\n"
+        "Javite nam, molimo, okvirno vrijeme dolaska."
+    ),
+    "en": (
+        "Automatic check-in did not succeed — we will register you at reception when you arrive.\n\n"
+        "Please let us know your approximate arrival time."
+    ),
+    "de": (
+        "Der automatische Check-in ist fehlgeschlagen — wir erfassen Ihre Daten bei der Ankunft an der Rezeption.\n\n"
+        "Bitte teilen Sie uns Ihre ungefähre Ankunftszeit mit."
+    ),
+    "es": (
+        "El check-in automático no ha funcionado — registraremos sus datos en recepción a su llegada.\n\n"
+        "Por favor, indíquenos su hora aproximada de llegada."
+    ),
+    "fr": (
+        "L’enregistrement automatique n’a pas abouti — nous saisirons vos données à l’accueil à votre arrivée.\n\n"
+        "Merci de nous indiquer votre heure d’arrivée approximative."
+    ),
+}
+
 CHECKIN_READY_BODY = {
     "hr": (
         "Hvala vam na poslanim dokumentima!\n\n"
@@ -186,6 +324,29 @@ CHECKIN_READY_BODY = {
         "Merci pour l’envoi de vos documents !\n\n"
         "Vos données sont enregistrées — à votre arrivée, l’enregistrement sera rapide.\n\n"
         "Merci de nous indiquer votre heure d’arrivée approximative."
+    ),
+}
+
+EVISITOR_REGISTERED = {
+    "hr": (
+        "Prijavljeni ste u eVisitor (zakonska prijava boravka).\n\n"
+        "Želimo vam ugodan boravak!"
+    ),
+    "en": (
+        "You are now registered in eVisitor (official guest registration).\n\n"
+        "We wish you a pleasant stay!"
+    ),
+    "de": (
+        "Sie sind jetzt in eVisitor registriert (gesetzliche Meldepflicht).\n\n"
+        "Wir wünschen Ihnen einen angenehmen Aufenthalt!"
+    ),
+    "es": (
+        "Ya está registrado en eVisitor (registro oficial de huéspedes).\n\n"
+        "¡Le deseamos una estancia agradable!"
+    ),
+    "fr": (
+        "Vous êtes maintenant enregistré dans eVisitor (enregistrement officiel).\n\n"
+        "Nous vous souhaitons un agréable séjour !"
     ),
 }
 
@@ -467,6 +628,135 @@ def render_checkin_ready_message(reservation: Reservation) -> str:
     return _render_checkin_ready_fallback(context)
 
 
+def _render_evisitor_registered_fallback(context: dict) -> str:
+    lang = context["language"]
+    body = _text_for_lang(EVISITOR_REGISTERED, lang)
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
+
+
+def render_evisitor_registered_message(reservation: Reservation) -> str:
+    """WhatsApp message after all required guests are registered in eVisitor."""
+    context = build_compose_context(reservation)
+    return _render_evisitor_registered_fallback(context)
+
+
+def _render_documents_fallback(context: dict) -> str:
+    lang = context["language"]
+    adults = context["adults_count"]
+    documents = _text_for_lang(DOCUMENTS_TEXTS, lang).format(adults=adults)
+    return "\n".join(
+        [
+            documents,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
+
+
+def render_documents_message(reservation: Reservation) -> str:
+    """Document upload instructions after Auto check-in quick reply."""
+    context = build_compose_context(reservation)
+    return _render_documents_fallback(context)
+
+
+def render_documents_batch_confirm_message(reservation: Reservation) -> str:
+    context = build_compose_context(reservation)
+    return _text_for_lang(DOCUMENTS_BATCH_CONFIRM, context["language"])
+
+
+def documents_batch_confirm_button_labels(reservation: Reservation) -> tuple[str, str]:
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    return (
+        _text_for_lang(DOCUMENTS_BATCH_CONFIRM_YES, lang),
+        _text_for_lang(DOCUMENTS_BATCH_CONFIRM_NO, lang),
+    )
+
+
+def _render_checkin_partial_fallback(context: dict) -> str:
+    lang = context["language"]
+    body = _text_for_lang(CHECKIN_PARTIAL_DOCUMENTS, lang)
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
+
+
+def render_checkin_partial_documents_message(reservation: Reservation) -> str:
+    context = build_compose_context(reservation)
+    return _render_checkin_partial_fallback(context)
+
+
+def _missing_id_side_label(*, lang: str, gap: MissingIdSide) -> str:
+    if gap.is_passport:
+        return _text_for_lang(MISSING_ID_SIDE_LABEL_PASSPORT, lang)
+    if gap.side == "back":
+        return _text_for_lang(MISSING_ID_SIDE_LABEL_NATIONAL_BACK, lang)
+    return _text_for_lang(MISSING_ID_SIDE_LABEL_NATIONAL_FRONT, lang)
+
+
+def _render_missing_id_sides_fallback(context: dict, gaps: list[MissingIdSide]) -> str:
+    lang = context["language"]
+    line_template = _text_for_lang(MISSING_ID_SIDE_LINE, lang)
+    lines = [
+        _text_for_lang(MISSING_ID_SIDES_INTRO, lang),
+        "",
+        *[
+            line_template.format(name=gap.guest_name, side_label=_missing_id_side_label(lang=lang, gap=gap))
+            for gap in gaps
+        ],
+        "",
+        _text_for_lang(SIGN_OFF, lang),
+        context["property_name"],
+        "",
+        FOOTER,
+    ]
+    return "\n".join(lines)
+
+
+def render_missing_id_sides_message(reservation: Reservation, gaps: list[MissingIdSide]) -> str:
+    context = build_compose_context(reservation)
+    return _render_missing_id_sides_fallback(context, gaps)
+
+
+def _render_checkin_automation_failed_fallback(context: dict) -> str:
+    lang = context["language"]
+    body = _text_for_lang(CHECKIN_AUTOMATION_FAILED, lang)
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
+
+
+def render_checkin_automation_failed_message(reservation: Reservation) -> str:
+    context = build_compose_context(reservation)
+    return _render_checkin_automation_failed_fallback(context)
+
+
 def _system_prompt() -> str:
     return (
         "You are a professional hotel reception assistant drafting short guest messages. "
@@ -508,6 +798,15 @@ def _generate_body(
 
     if intent == GuestMessageIntent.REPLY and _normalize_hint(hint) == HINT_CHECKIN_READY:
         return _render_checkin_ready_fallback(context), False, ""
+
+    if intent == GuestMessageIntent.REPLY and _normalize_hint(hint) == HINT_EVISITOR_REGISTERED:
+        return _render_evisitor_registered_fallback(context), False, ""
+
+    if intent == GuestMessageIntent.REPLY and _normalize_hint(hint) == HINT_ID_MISSING_SIDES:
+        from apps.reservations.document_intake_sides import find_missing_id_sides
+
+        gaps = find_missing_id_sides(reservation)
+        return _render_missing_id_sides_fallback(context, gaps), False, ""
 
     used_llm = False
     model_name = ""

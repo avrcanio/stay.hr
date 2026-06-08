@@ -27,11 +27,10 @@
     "title": "Checkout",
     "dateRange": "{from} → {to} ({nights, plural, one {# Nacht} other {# Nächte}})",
     "bookerSection": "Bucherdaten",
-    "bookerName": "Vollständiger Name",
     "email": "E-Mail",
     "phone": "Telefon",
-    "guestFirst": "Vorname des Gastes",
-    "guestLast": "Nachname des Gastes",
+    "guestFirst": "Vorname",
+    "guestLast": "Nachname",
     "submit": "Buchung bestätigen",
     "submitting": "Wird gesendet…",
     "failed": "Buchung fehlgeschlagen."

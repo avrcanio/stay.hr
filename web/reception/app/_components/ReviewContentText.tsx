@@ -18,6 +18,9 @@ export function ReviewContentText({ review, className = "text-sm" }: Props) {
   const displayText = !showOriginal && hasTranslation ? reviewDisplayContent(review) : review.content;
 
   if (!displayText?.trim()) {
+    if (review.overall_score != null) {
+      return <p className={`text-muted ${className}`}>{t("scoreOnlyEmpty")}</p>;
+    }
     return <p className={`text-muted ${className}`}>{t("noContentYet")}</p>;
   }
 

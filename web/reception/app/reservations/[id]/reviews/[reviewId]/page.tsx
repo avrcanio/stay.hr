@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
 import { ReviewContentText } from "@/app/_components/ReviewContentText";
 import type { ChannexReview } from "@/lib/types";
+import { reviewStatusBadges } from "@/lib/review-status-badges";
 
 const REVIEW_LANGS = ["hr", "en", "de", "es", "fr", "it"] as const;
 
@@ -77,7 +78,10 @@ export default function ReservationReviewDetailPage() {
       const res = await fetch(`/api/stay/reception/reviews/${review.id}/compose-reply/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hint }),
+        body: JSON.stringify({
+          hint,
+          language: review.suggested_reply_language || undefined,
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -109,8 +113,13 @@ export default function ReservationReviewDetailPage() {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { detail?: string }).detail || t("replyFailed"));
       }
-      setActionMessage(t("replySuccess"));
-      window.location.href = `/reservations/${reservationId}`;
+      const successKey =
+        review.ota === "BookingCom" ? "replySuccessBooking" : "replySuccess";
+      setActionMessage(t(successKey));
+      setReplyExpanded(false);
+      setReplyText("");
+      setHint("");
+      await loadReview();
     } catch (err) {
       setActionMessage(err instanceof Error ? err.message : t("replyFailed"));
     } finally {
@@ -144,6 +153,11 @@ export default function ReservationReviewDetailPage() {
                 {review.overall_score != null ? (
                   <span className="text-lg font-semibold">{review.overall_score}/10</span>
                 ) : null}
+                {reviewStatusBadges(review).map((badge) => (
+                  <span key={badge.key} className={badge.className}>
+                    {t(badge.key)}
+                  </span>
+                ))}
               </div>
               <label className="flex items-center gap-2 text-sm">
                 <span>{t("displayLanguage")}</span>
@@ -171,7 +185,16 @@ export default function ReservationReviewDetailPage() {
               <div className="rounded-md border-l-4 border-stay-blue bg-stay-surface/40 p-2 text-sm">
                 <p className="text-xs font-medium text-muted">{t("yourReply")}</p>
                 <p className="whitespace-pre-wrap">{review.reply}</p>
+                {review.reply_pending_moderation ? (
+                  <p className="mt-1 text-xs text-sky-800">{t("replyPendingModeration")}</p>
+                ) : null}
               </div>
+            ) : null}
+
+            {review.ota === "BookingCom" && (review.can_reply || review.reply_pending_moderation) ? (
+              <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+                {t("bookingModerationInfo")}
+              </p>
             ) : null}
 
             {review.can_submit_guest_review ? (

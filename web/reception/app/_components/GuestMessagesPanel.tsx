@@ -79,7 +79,7 @@ export function GuestMessagesPanel({ reservationId }: Props) {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${baseUrl}/`);
+      const res = await fetch(`${baseUrl}/?sync=1`);
       if (!res.ok) throw new Error(t("loadFailed"));
       setTimeline((await res.json()) as GuestMessageTimelineItem[]);
     } catch (err) {

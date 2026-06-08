@@ -882,13 +882,19 @@ class EvisitorSubmitView(ReceptionWriteView, APIView):
         ) else False
 
         if guest.evisitor_status == EvisitorGuestStatus.SENT and not force_retry:
-            return Response(
-                {
-                    "status": EvisitorGuestStatus.SENT,
-                    "registration_id": str(guest.evisitor_registration_id or ""),
-                    "message": "Gost je već prijavljen u eVisitor.",
-                }
+            from apps.integrations.whatsapp.evisitor_reply import (
+                maybe_send_evisitor_registered_whatsapp_reply,
             )
+
+            wa_result = maybe_send_evisitor_registered_whatsapp_reply(guest.reservation)
+            response_payload = {
+                "status": EvisitorGuestStatus.SENT,
+                "registration_id": str(guest.evisitor_registration_id or ""),
+                "message": "Gost je već prijavljen u eVisitor.",
+            }
+            if wa_result.get("status") not in ("skipped", "disabled"):
+                response_payload["whatsapp"] = wa_result
+            return Response(response_payload)
 
         if not guest_requires_evisitor(guest):
             return Response(
@@ -946,6 +952,16 @@ class EvisitorSubmitView(ReceptionWriteView, APIView):
             payload["message"] = submission.response_payload.get("message") or (
                 "Gost je već prijavljen u eVisitoru; status usklađen."
             )
+
+        from apps.integrations.whatsapp.evisitor_reply import (
+            maybe_send_evisitor_registered_whatsapp_reply,
+        )
+
+        guest.reservation.refresh_from_db()
+        wa_result = maybe_send_evisitor_registered_whatsapp_reply(guest.reservation)
+        if wa_result.get("status") not in ("skipped", "disabled"):
+            payload["whatsapp"] = wa_result
+
         return Response(payload)
 
 

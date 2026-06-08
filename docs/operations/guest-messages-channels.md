@@ -92,7 +92,8 @@ docker compose exec django python manage.py sync_channex_booking_messages \
 |---------|----------|
 | Send booking → 403 | Messages & Reviews app nije aktivan na Channex propertyju |
 | Inbound ne stiže | Webhook nema `message` event; provjeri Django log |
-| `booking.available=false` | Rezervacija nije `import_source=channex` ili nema Channex external_id |
+| Poruka u Pulseu/mailu, ne u messengeru | Mail/Pulse nisu ingest kanal — samo Channex webhook/API. Provjeri `external_id` (`channex:uuid` vs samo booking code), `sync_channex_booking_messages --reservation-id`, Channex Messages & Reviews app |
+| `booking.available=false` | Rezervacija nije `import_source=channex` ili nema Channex linka (UUID, booking code ili revision) |
 | Mail ne odlazi | Tenant SMTP u Reception settings (`guest_contact_email` + password) |
 
 ---

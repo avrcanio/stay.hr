@@ -180,7 +180,7 @@ class ReceptionReviewsTests(TestCase):
         row.refresh_from_db()
         self.assertEqual(row.reply, "Stari format odgovora")
         self.assertTrue(row.is_replied)
-        self.assertIsNotNone(row.reply_sent_at)
+        self.assertIsNone(row.reply_sent_at)
 
     def test_review_links_by_ota_reservation_id(self):
         from apps.integrations.channex.review_service import upsert_channex_review_from_payload
@@ -233,6 +233,25 @@ class ReceptionReviewsTests(TestCase):
         self.assertEqual(data["body_text"], "Thank you for staying with us!")
         self.assertTrue(data["llm_used"])
 
+    @patch("apps.integrations.channex.review_service.complete_chat")
+    @patch("apps.integrations.channex.review_service.llm_configured", return_value=True)
+    def test_compose_reply_uses_detected_slovak(self, _mock_llm, mock_chat):
+        mock_chat.return_value = "Ďakujeme za recenziu."
+        self.review.content = "izba veľká a priestranná, ale záchod bol špinavý"
+        self.review.save(update_fields=["content", "updated_at"])
+        self._login()
+        response = self.client.post(
+            f"/api/v1/reception/reviews/{self.review.pk}/compose-reply/",
+            {"hint": "be brief"},
+            format="json",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data["language"], "sk")
+        user_prompt = mock_chat.call_args[0][1]
+        self.assertIn("language code: sk", user_prompt)
+
     def test_reservation_reviews(self):
         self._login()
         response = self.client.get(
@@ -243,6 +262,27 @@ class ReceptionReviewsTests(TestCase):
         data = response.json()
         self.assertEqual(data["reservation_id"], self.reservation.pk)
         self.assertEqual(len(data["reviews"]), 1)
+
+    @patch("apps.integrations.channex.review_service.sync_reviews_from_channex")
+    def test_reservation_reviews_recent_checkout_defaults_to_auto_sync(self, mock_sync):
+        checked_out = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id=channex_external_id("channex-booking-checkout"),
+            import_source="channex",
+            booking_code="5856279283",
+            check_in=date(2026, 6, 7),
+            check_out=timezone.localdate(),
+            booker_name="Markus Zöhrer",
+            status=Reservation.Status.CHECKED_OUT,
+        )
+        self._login()
+        response = self.client.get(
+            f"/api/v1/reception/reservations/{checked_out.pk}/reviews/",
+            HTTP_HOST="app.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_sync.assert_called_once()
 
     @patch("apps.integrations.channex.review_service.sync_reviews_from_channex")
     def test_reservation_reviews_default_skips_channex_sync(self, mock_sync):
@@ -376,4 +416,7 @@ class ReceptionReviewsTests(TestCase):
         self.review.refresh_from_db()
         self.assertEqual(self.review.reply, "Hvala vam na ocjeni")
         self.assertTrue(self.review.is_replied)
-        self.assertIsNotNone(self.review.reply_sent_at)
+        self.assertIsNone(self.review.reply_sent_at)
+        self.assertTrue(data["reply_pending_moderation"])
+        self.assertFalse(data["reply_published"])
+        self.assertTrue(data["can_reply"])

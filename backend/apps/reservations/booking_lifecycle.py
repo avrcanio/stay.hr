@@ -41,6 +41,12 @@ def confirm_web_booking(reservation_id: int) -> bool:
 
     send_guest_booking_confirmed_email.delay(reservation_id)
     notify_new_reservation.delay(reservation_id)
+
+    from apps.communications.whatsapp_autocheckin_tasks import (
+        maybe_send_immediate_autocheckin_welcome,
+    )
+
+    maybe_send_immediate_autocheckin_welcome.delay(reservation_id)
     logger.info(
         "web booking confirmed",
         extra={"reservation_id": reservation_id},
