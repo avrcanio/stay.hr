@@ -107,3 +107,25 @@ def reservation_nationality_iso2(reservation: Reservation) -> str:
         if iso2:
             return iso2
     return normalize_country_iso2(reservation.booker_country)
+
+
+def apply_reservation_country_to_guest_if_empty(
+    guest: Guest,
+    *,
+    reservation: Reservation | None = None,
+) -> list[str]:
+    """Fill guest nationality fields from reservation when the guest has none."""
+    if guest_nationality_iso2(guest):
+        return []
+    reservation = reservation or guest.reservation
+    iso2 = reservation_nationality_iso2(reservation)
+    if not iso2:
+        return []
+    changed: list[str] = []
+    if not (guest.nationality or "").strip():
+        guest.nationality = iso2
+        changed.append("nationality")
+    if not (guest.document_country_iso2 or "").strip():
+        guest.document_country_iso2 = iso2
+        changed.append("document_country_iso2")
+    return changed

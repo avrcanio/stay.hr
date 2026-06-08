@@ -270,6 +270,33 @@ class TimelineDedupTests(TestCase):
         self.assertEqual(timeline[0]["channels"], ["email", "booking"])
         self.assertEqual(timeline[0]["body_text"], long_body)
 
+    def test_inbound_email_and_channex_merged_with_mail_relay_lag(self):
+        now = timezone.now()
+        body = "Parking nam je potreban. Hvala"
+        inbound = GuestInboundMessage.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            channel=GuestMessageChannel.EMAIL,
+            body_text=body,
+            received_at=now + timedelta(seconds=420),
+        )
+        channex = ChannexMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.channex_integration,
+            reservation=self.reservation,
+            channex_booking_id="booking-847",
+            channex_message_id="channex-in-847",
+            direction=ChannexMessage.Direction.INBOUND,
+            sender=ChannexMessage.Sender.GUEST,
+            body=body,
+        )
+        ChannexMessage.objects.filter(pk=channex.pk).update(created_at=now)
+
+        timeline = timeline_for_reservation(self.reservation)
+        matches = [row for row in timeline if body in row["body_text"]]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["channels"], ["booking", "email"])
+
     def test_merge_timeline_duplicates_adds_single_channel_list(self):
         item = {
             "id": 1,

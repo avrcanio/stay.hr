@@ -18,9 +18,12 @@ from apps.communications.guest_email import (
     _sender_for_reservation,
     _send_guest_email,
 )
+from apps.communications.guest_email_html import prepare_guest_email_bodies
+from apps.communications.guest_compose_language import compose_language_for_reservation
 from apps.communications.models import (
     GuestMessageChannel,
     GuestMessageDraft,
+    GuestMessageIntent,
     GuestOutboundMessage,
     GuestOutboundMessageStatus,
 )
@@ -157,7 +160,10 @@ def send_guest_text_email(
     body_html: str | None = None,
     attachment: tuple[str, bytes, str] | None = None,
 ) -> dict:
-    """Send guest email; plain text with optional HTML alternative.
+    """Send guest email via SMTP (no timeline record).
+
+    Prefer :func:`send_guest_email_with_timeline_record` so the message appears in
+    reception / Hospira guest threads.
 
     attachment: optional (filename, bytes, mime_type).
     """
@@ -199,6 +205,71 @@ def send_guest_text_email(
         extra={"reservation_id": reservation.pk, "to": recipient},
     )
     return {"sent": True, "to": recipient}
+
+
+def send_guest_email_with_timeline_record(
+    reservation: Reservation,
+    body_text: str,
+    *,
+    subject: str | None = None,
+    body_html: str | None = None,
+    draft: GuestMessageDraft | None = None,
+    api_application: ApiApplication | None = None,
+    intent: str = GuestMessageIntent.CUSTOM,
+    hint: str = "",
+) -> GuestOutboundMessage:
+    """Send guest SMTP email and record GuestOutboundMessage for unified timeline."""
+    text, html_part = prepare_guest_email_bodies(body_text, body_html=body_html)
+    recipient = _guest_recipient(reservation) or ""
+
+    if draft is None:
+        draft = GuestMessageDraft.objects.create(
+            tenant_id=reservation.tenant_id,
+            reservation=reservation,
+            intent=intent,
+            hint=hint,
+            language=compose_language_for_reservation(reservation),
+            llm_body_text=(body_text or "").strip(),
+            final_body_text="",
+            channel=GuestMessageChannel.EMAIL,
+            api_application=api_application,
+        )
+
+    outbound = GuestOutboundMessage.objects.create(
+        tenant_id=reservation.tenant_id,
+        reservation=reservation,
+        draft=draft,
+        channel=GuestMessageChannel.EMAIL,
+        body_text=text,
+        status=GuestOutboundMessageStatus.QUEUED,
+        to_email=recipient,
+        api_application=api_application,
+    )
+
+    result = send_guest_text_email(
+        reservation,
+        text,
+        subject=subject,
+        body_html=html_part,
+    )
+    if result.get("sent"):
+        outbound.status = GuestOutboundMessageStatus.SENT
+        outbound.error_message = ""
+    else:
+        outbound.status = GuestOutboundMessageStatus.FAILED
+        outbound.error_message = result.get("reason") or result.get("error") or "send_failed"
+
+    outbound.save(update_fields=["status", "error_message"])
+
+    draft.final_body_text = text
+    draft.channel = GuestMessageChannel.EMAIL
+    update_fields = ["final_body_text", "channel"]
+    if outbound.status == GuestOutboundMessageStatus.SENT:
+        draft.sent_at = timezone.now()
+        update_fields.append("sent_at")
+    draft.save(update_fields=update_fields)
+
+    return outbound
 
 
 def send_guest_message(
@@ -247,37 +318,13 @@ def _send_email_channel(
     api_application: ApiApplication | None,
     subject: str | None,
 ) -> GuestOutboundMessage:
-    recipient = _guest_recipient(reservation) or ""
-    outbound = GuestOutboundMessage.objects.create(
-        tenant_id=reservation.tenant_id,
-        reservation=reservation,
+    return send_guest_email_with_timeline_record(
+        reservation,
+        body_text,
+        subject=subject,
         draft=draft,
-        channel=GuestMessageChannel.EMAIL,
-        body_text=body_text,
-        status=GuestOutboundMessageStatus.QUEUED,
-        to_email=recipient,
         api_application=api_application,
     )
-
-    result = send_guest_text_email(reservation, body_text, subject=subject)
-    if result.get("sent"):
-        outbound.status = GuestOutboundMessageStatus.SENT
-        outbound.error_message = ""
-    else:
-        outbound.status = GuestOutboundMessageStatus.FAILED
-        outbound.error_message = result.get("reason") or result.get("error") or "send_failed"
-
-    outbound.save(update_fields=["status", "error_message"])
-
-    draft.final_body_text = body_text
-    draft.channel = GuestMessageChannel.EMAIL
-    update_fields = ["final_body_text", "channel"]
-    if outbound.status == GuestOutboundMessageStatus.SENT:
-        draft.sent_at = timezone.now()
-        update_fields.append("sent_at")
-    draft.save(update_fields=update_fields)
-
-    return outbound
 
 
 def _send_whatsapp_channel(
@@ -501,7 +548,8 @@ def send_guest_email_image(
         raise ValueError("unsupported_media_type")
 
     filename = getattr(uploaded_file, "name", None) or "image.jpg"
-    body_text = (caption or "").strip() or _OUTBOUND_IMAGE_BODY
+    raw_body = (caption or "").strip() or _OUTBOUND_IMAGE_BODY
+    body_text, html_part = prepare_guest_email_bodies(raw_body)
 
     outbound = GuestOutboundMessage.objects.create(
         tenant_id=reservation.tenant_id,
@@ -518,6 +566,7 @@ def send_guest_email_image(
         reservation,
         body_text,
         subject=subject,
+        body_html=html_part,
         attachment=(filename, file_bytes, mime_type),
     )
     if result.get("sent"):
