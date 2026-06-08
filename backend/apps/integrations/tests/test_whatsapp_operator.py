@@ -153,7 +153,7 @@ class WhatsAppOperatorTests(TestCase):
         self.assertIn("Pritisnite Check-in ako ste gotovi", kwargs["body"])
         self.assertIn("1 slika", kwargs["body"])
 
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service._send_guest_checkin_ready_email")
+    @patch("apps.integrations.whatsapp.whatsapp_operator_service._send_guest_operator_checkin_email")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.apply_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.process_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
@@ -242,7 +242,7 @@ class WhatsAppOperatorTests(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.reservation_id, self.target_reservation.pk)
 
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service._send_guest_checkin_ready_email")
+    @patch("apps.integrations.whatsapp.whatsapp_operator_service._send_guest_operator_checkin_email")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.apply_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.process_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")

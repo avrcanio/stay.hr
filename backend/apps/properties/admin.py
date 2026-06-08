@@ -87,9 +87,14 @@ class PropertyAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         (
             "WhatsApp autocheck-in",
             {
-                "fields": ("whatsapp_autocheckin_enabled", "whatsapp_autocheckin_time"),
+                "fields": (
+                    "whatsapp_autocheckin_enabled",
+                    "whatsapp_autocheckin_time",
+                    "whatsapp_autocheckin_email_lead_minutes",
+                ),
                 "description": (
-                    "Dnevna welcome poruka gostima s check-inom danas (property lokalno vrijeme)."
+                    "Dnevna welcome poruka gostima s check-inom danas (property lokalno vrijeme). "
+                    "Intro email s wa.me linkom šalje se lead_minutes prije welcome vremena."
                 ),
             },
         ),

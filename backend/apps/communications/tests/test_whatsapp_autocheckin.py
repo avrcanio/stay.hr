@@ -6,9 +6,11 @@ from django.test import TestCase, override_settings
 
 from apps.communications.whatsapp_autocheckin_tasks import (
     is_immediate_autocheckin_eligible,
+    iter_due_autocheckin_intro_emails,
     iter_due_autocheckin_reservations,
     maybe_send_immediate_autocheckin_welcome,
     run_whatsapp_autocheckin_welcome,
+    send_autocheckin_intro_email,
     send_welcome_template_for_reservation,
 )
 from apps.integrations.models import IntegrationConfig
@@ -46,6 +48,7 @@ class WhatsAppAutocheckinWelcomeTests(TestCase):
                 "phone_number_id": "1068791909660300",
                 "access_token": TEST_D360_KEY,
                 "api_base_url": "https://waba-v2.360dialog.io",
+                "display_phone_number": "+385911111111",
                 "auto_reply": False,
                 "whatsapp_templates": {
                     "header_image_url": "https://stay.hr/static/whatsapp-header.png",
@@ -60,6 +63,7 @@ class WhatsAppAutocheckinWelcomeTests(TestCase):
             property=self.property,
             booker_name="Ana Anić",
             booker_phone="+385911111111",
+            booker_email="ana@example.com",
             booking_code="BCOM-100",
             check_in=self.today,
             check_out=self.today + timedelta(days=2),
@@ -121,6 +125,77 @@ class WhatsAppAutocheckinWelcomeTests(TestCase):
         self.assertEqual(result["status"], "dry_run")
         self.reservation.refresh_from_db()
         self.assertIsNone(self.reservation.whatsapp_welcome_sent_at)
+
+    @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")
+    def test_intro_email_due_thirty_minutes_before_welcome(self, mock_now):
+        mock_now.return_value = datetime(2026, 6, 7, 7, 30, tzinfo=ZAGREB)
+        due = iter_due_autocheckin_intro_emails()
+        self.assertEqual(len(due), 1)
+        self.assertEqual(due[0].pk, self.reservation.pk)
+
+    @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")
+    def test_intro_email_not_due_before_window(self, mock_now):
+        mock_now.return_value = datetime(2026, 6, 7, 7, 15, tzinfo=ZAGREB)
+        due = iter_due_autocheckin_intro_emails()
+        self.assertEqual(due, [])
+
+    @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")
+    def test_intro_email_not_due_at_welcome_time(self, mock_now):
+        mock_now.return_value = datetime(2026, 6, 7, 8, 0, tzinfo=ZAGREB)
+        due = iter_due_autocheckin_intro_emails()
+        self.assertEqual(due, [])
+
+    @patch("apps.communications.whatsapp_autocheckin_tasks.send_guest_text_email")
+    @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")
+    def test_send_intro_email_marks_sent(self, mock_now, mock_email):
+        mock_now.return_value = datetime(2026, 6, 7, 7, 45, tzinfo=ZAGREB)
+        mock_email.return_value = {"sent": True, "to": "ana@example.com"}
+
+        result = send_autocheckin_intro_email(self.reservation)
+
+        self.assertEqual(result["status"], "sent")
+        self.reservation.refresh_from_db()
+        self.assertIsNotNone(self.reservation.whatsapp_autocheckin_intro_email_sent_at)
+        mock_email.assert_called_once()
+        body = mock_email.call_args.args[1]
+        self.assertIn("wa.me", body)
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.communications.whatsapp_autocheckin_tasks.send_template_message")
+    def test_skip_welcome_when_guest_engaged(self, mock_send):
+        self.reservation.whatsapp_autocheckin_engaged_at = datetime(2026, 6, 7, 7, 0, tzinfo=ZAGREB)
+        self.reservation.save(update_fields=["whatsapp_autocheckin_engaged_at", "updated_at"])
+
+        result = send_welcome_template_for_reservation(self.reservation)
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "guest_engaged")
+        mock_send.assert_not_called()
+
+    @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")
+    def test_engaged_excluded_from_due_welcome(self, mock_now):
+        mock_now.return_value = datetime(2026, 6, 7, 8, 15, tzinfo=ZAGREB)
+        self.reservation.whatsapp_autocheckin_engaged_at = datetime(2026, 6, 7, 7, 0, tzinfo=ZAGREB)
+        self.reservation.save(update_fields=["whatsapp_autocheckin_engaged_at", "updated_at"])
+
+        due = iter_due_autocheckin_reservations()
+        self.assertEqual(due, [])
+
+    @patch("apps.communications.whatsapp_autocheckin_tasks.send_guest_text_email")
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.communications.whatsapp_autocheckin_tasks.send_template_message")
+    @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")
+    def test_run_sends_intro_then_welcome(self, mock_now, mock_welcome, mock_email):
+        mock_now.return_value = datetime(2026, 6, 7, 8, 15, tzinfo=ZAGREB)
+        mock_email.return_value = {"sent": True, "to": "ana@example.com"}
+        mock_welcome.return_value = {"messages": [{"id": "wamid.welcome.1"}]}
+
+        result = run_whatsapp_autocheckin_welcome()
+
+        self.assertEqual(result["intro_sent"], 0)
+        self.assertEqual(result["sent"], 1)
+        mock_welcome.assert_called_once()
+        mock_email.assert_not_called()
 
 
 @override_settings(

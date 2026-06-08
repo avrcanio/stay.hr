@@ -4,7 +4,10 @@ from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
-from apps.communications.guest_compose import render_checkin_ready_message
+from apps.communications.guest_compose import (
+    render_checkin_ready_message,
+    render_operator_checkin_complete_message,
+)
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
 from apps.integrations.whatsapp.apply_reply import maybe_send_document_apply_whatsapp_reply
 from apps.integrations.tests.test_whatsapp_webhook import TEST_FERNET_KEY
@@ -192,6 +195,31 @@ class WhatsAppApplyReplyTests(TestCase):
     def test_render_checkin_ready_hr(self):
         text = render_checkin_ready_message(self.reservation)
         self.assertIn("Hvala vam na poslanim dokumentima", text)
+
+    def test_render_operator_checkin_complete_hr(self):
+        text = render_operator_checkin_complete_message(self.reservation)
+        self.assertIn("Check-in je obavljen", text)
+        self.assertIn("ugodan boravak", text)
+        self.assertNotIn("vrijeme dolaska", text)
+        self.assertNotIn("kad stignete", text)
+
+    def test_render_operator_checkin_complete_de(self):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            booker_name="Robert Siebinger",
+            booker_phone="+4369912014899",
+            booker_email="guest@example.com",
+            booker_country="DE",
+            check_in=date(2026, 7, 1),
+            check_out=date(2026, 7, 3),
+            status=Reservation.Status.EXPECTED,
+        )
+        text = render_operator_checkin_complete_message(reservation)
+        self.assertIn("Check-in ist abgeschlossen", text)
+        self.assertIn("angenehmen Aufenthalt", text)
+        self.assertNotIn("Ankunftszeit", text)
+        self.assertNotIn("beim Check-in vor Ort geht es schnell", text)
 
     @patch.dict("os.environ", {"WHATSAPP_DOCUMENT_APPLY_REPLY": "true", "D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.apply_reply.send_text_message")

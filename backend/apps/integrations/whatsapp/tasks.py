@@ -7,6 +7,7 @@ from celery import shared_task
 from django.utils import timezone
 
 from apps.communications.guest_compose import render_documents_message
+from apps.communications.whatsapp_autocheckin_tasks import mark_autocheckin_engaged
 from apps.communications.models import (
     GuestMessageChannel,
     GuestMessageDraft,
@@ -26,6 +27,11 @@ from apps.integrations.whatsapp.whatsapp_document_batch import (
 from apps.integrations.whatsapp.reply import build_greeting
 from apps.integrations.whatsapp.reservation_lookup import find_reservation_for_wa_id
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
+from apps.integrations.whatsapp.whatsapp_guest_autocheckin import (
+    handle_guest_autocheckin_inbound,
+    is_guest_auto_checkin_button,
+    resolve_guest_reservation,
+)
 from apps.integrations.whatsapp.whatsapp_operator import is_operator_wa_id
 from apps.integrations.whatsapp.whatsapp_operator_service import handle_operator_inbound
 
@@ -273,21 +279,36 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
             button_id=button_id, text=action_text
         ):
             reply_result = handle_whatsapp_document_batch_reply(row.pk)
-        elif is_auto_checkin_quick_reply(action_text):
-            reply_result = _maybe_send_autocheckin_documents_reply(
-                row=row,
-                integration_row=integration_row,
-                runtime=runtime,
-                reservation=reservation,
-            )
+        elif is_guest_auto_checkin_button(button_id=button_id, text=action_text):
+            if reservation is None:
+                reservation = resolve_guest_reservation(row=row, action_text=action_text)
+                row.refresh_from_db()
+            if reservation is not None:
+                mark_autocheckin_engaged(reservation)
+                reply_result = _maybe_send_autocheckin_documents_reply(
+                    row=row,
+                    integration_row=integration_row,
+                    runtime=runtime,
+                    reservation=reservation,
+                )
+            else:
+                reply_result = handle_guest_autocheckin_inbound(
+                    row=row,
+                    integration_row=integration_row,
+                    runtime=runtime,
+                    action_text=action_text,
+                    reservation=None,
+                )
         else:
-            reply_result = _maybe_send_auto_reply(
+            reply_result = handle_guest_autocheckin_inbound(
                 row=row,
                 integration_row=integration_row,
                 runtime=runtime,
+                action_text=action_text,
                 reservation=reservation,
-                profile_name=profile_name,
             )
+            if reservation is None and row.reservation_id is not None:
+                reservation = row.reservation
 
     _maybe_notify_guest_message_inbound(row)
 

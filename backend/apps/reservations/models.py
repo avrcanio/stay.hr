@@ -76,6 +76,8 @@ class Reservation(TenantScopedModel):
         null=True,
     )
     whatsapp_welcome_sent_at = models.DateTimeField(null=True, blank=True)
+    whatsapp_autocheckin_intro_email_sent_at = models.DateTimeField(null=True, blank=True)
+    whatsapp_autocheckin_engaged_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -539,6 +541,33 @@ class WhatsAppOperatorSession(TenantScopedModel):
             f"WhatsAppOperatorSession #{self.pk} "
             f"operator={self.operator_wa_id} status={self.status}"
         )
+
+
+class WhatsAppGuestAutocheckinSessionStatus(models.TextChoices):
+    AWAITING_BOOKING_CODE = "awaiting_booking_code", "Awaiting booking code"
+
+
+class WhatsAppGuestAutocheckinSession(TenantScopedModel):
+    """Guest WhatsApp thread awaiting booking code for autocheck-in."""
+
+    wa_id = models.CharField(max_length=32)
+    status = models.CharField(
+        max_length=24,
+        choices=WhatsAppGuestAutocheckinSessionStatus.choices,
+        default=WhatsAppGuestAutocheckinSessionStatus.AWAITING_BOOKING_CODE,
+    )
+    last_activity_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-last_activity_at", "id"]
+        indexes = [
+            models.Index(fields=["tenant", "wa_id", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"WhatsAppGuestAutocheckinSession #{self.pk} wa_id={self.wa_id}"
 
 
 class MonthlyStatisticsOverride(TenantScopedModel):

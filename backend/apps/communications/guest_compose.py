@@ -17,7 +17,10 @@ from apps.ai.translate import translate_text, translation_available
 from apps.api.language import normalize_app_language
 from apps.billing.models import Invoice
 from apps.billing.services.payment import resolve_payment_method
-from apps.communications.guest_compose_language import compose_language_for_reservation
+from apps.communications.guest_compose_language import (
+    SUPPORTED_COMPOSE_LANGS,
+    compose_language_for_reservation,
+)
 from apps.communications.guest_email import _email_context
 from apps.communications.guest_message_send import build_message_channels
 from apps.communications.models import GuestMessageDraft, GuestMessageIntent
@@ -29,6 +32,8 @@ from apps.tenants.models import ApiApplication
 logger = logging.getLogger(__name__)
 
 HINT_CHECKIN_READY = "checkin ready"
+HINT_OPERATOR_CHECKIN_COMPLETE = "operator checkin complete"
+HINT_AUTOCHECKIN_WHATSAPP_INTRO = "whatsapp autocheckin intro"
 HINT_EVISITOR_REGISTERED = "evisitor registered"
 HINT_ID_MISSING_SIDES = "id missing sides"
 
@@ -325,6 +330,80 @@ CHECKIN_READY_BODY = {
         "Vos données sont enregistrées — à votre arrivée, l’enregistrement sera rapide.\n\n"
         "Merci de nous indiquer votre heure d’arrivée approximative."
     ),
+}
+
+OPERATOR_CHECKIN_COMPLETE_BODY = {
+    "hr": (
+        "Check-in je obavljen. Vaši podaci su spremljeni.\n\n"
+        "Želimo vam ugodan boravak!"
+    ),
+    "en": (
+        "Your check-in is complete. Your details have been saved.\n\n"
+        "We wish you a pleasant stay!"
+    ),
+    "de": (
+        "Ihr Check-in ist abgeschlossen. Ihre Daten wurden erfasst.\n\n"
+        "Wir wünschen Ihnen einen angenehmen Aufenthalt!"
+    ),
+    "es": (
+        "Su check-in está completado. Sus datos han sido registrados.\n\n"
+        "¡Le deseamos una estancia agradable!"
+    ),
+    "fr": (
+        "Votre enregistrement est terminé. Vos données ont été enregistrées.\n\n"
+        "Nous vous souhaitons un agréable séjour !"
+    ),
+}
+
+AUTOCHECKIN_WHATSAPP_INTRO_BODY = {
+    "hr": (
+        "Danas možete obaviti brzi online check-in putem WhatsAppa.\n\n"
+        "Kontaktirat ćemo vas s broja {display_phone}. "
+        "Možete i sami započeti check-in:\n{wa_link}\n\n"
+        "Ako check-in obavite preko linka, nećete dobiti zasebnu WhatsApp pozivnicu "
+        "(utility poruku).\n\n"
+        "Rezervacija: {booking_code}"
+    ),
+    "en": (
+        "You can complete a quick online check-in via WhatsApp today.\n\n"
+        "We will contact you from {display_phone}. "
+        "You can also start check-in yourself:\n{wa_link}\n\n"
+        "If you check in via the link, you will not receive a separate WhatsApp invitation "
+        "(utility message).\n\n"
+        "Booking: {booking_code}"
+    ),
+    "de": (
+        "Heute können Sie den Online-Check-in per WhatsApp abschließen.\n\n"
+        "Wir kontaktieren Sie von {display_phone}. "
+        "Sie können den Check-in auch selbst starten:\n{wa_link}\n\n"
+        "Wenn Sie den Check-in über den Link abschließen, erhalten Sie keine separate "
+        "WhatsApp-Einladung (Utility-Nachricht).\n\n"
+        "Buchung: {booking_code}"
+    ),
+    "es": (
+        "Hoy puede completar el check-in online por WhatsApp.\n\n"
+        "Le contactaremos desde {display_phone}. "
+        "También puede iniciar el check-in:\n{wa_link}\n\n"
+        "Si completa el check-in mediante el enlace, no recibirá una invitación "
+        "WhatsApp aparte (mensaje utility).\n\n"
+        "Reserva: {booking_code}"
+    ),
+    "fr": (
+        "Aujourd’hui, vous pouvez effectuer l’enregistrement en ligne via WhatsApp.\n\n"
+        "Nous vous contacterons depuis {display_phone}. "
+        "Vous pouvez aussi démarrer l’enregistrement :\n{wa_link}\n\n"
+        "Si vous terminez via le lien, vous ne recevrez pas d’invitation WhatsApp "
+        "séparée (message utility).\n\n"
+        "Réservation : {booking_code}"
+    ),
+}
+
+AUTOCHECKIN_WA_ME_PREFILL = {
+    "hr": "Auto check-in",
+    "en": "Auto check-in",
+    "de": "Autocheck-in",
+    "es": "Auto check-in",
+    "fr": "Auto check-in",
 }
 
 EVISITOR_REGISTERED = {
@@ -626,6 +705,64 @@ def render_checkin_ready_message(reservation: Reservation) -> str:
     """Deterministic post-apply thank-you message (same as compose checkin ready)."""
     context = build_compose_context(reservation)
     return _render_checkin_ready_fallback(context)
+
+
+def _render_operator_checkin_complete_fallback(context: dict) -> str:
+    lang = context["language"]
+    body = _text_for_lang(OPERATOR_CHECKIN_COMPLETE_BODY, lang)
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
+
+
+def render_operator_checkin_complete_message(reservation: Reservation) -> str:
+    """Email after reception staff completes on-site check-in via WhatsApp operator flow."""
+    context = build_compose_context(reservation)
+    return _render_operator_checkin_complete_fallback(context)
+
+
+def autocheckin_wa_me_prefill(language: str) -> str:
+    lang = _lang_key_from_code(language)
+    return AUTOCHECKIN_WA_ME_PREFILL.get(lang, AUTOCHECKIN_WA_ME_PREFILL["en"])
+
+
+def render_autocheckin_whatsapp_intro_email(
+    reservation: Reservation,
+    *,
+    wa_link: str,
+    display_phone: str,
+) -> str:
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    body = _text_for_lang(AUTOCHECKIN_WHATSAPP_INTRO_BODY, lang).format(
+        display_phone=display_phone or "",
+        wa_link=wa_link or "",
+        booking_code=context["booking_code"] or str(reservation.pk),
+    )
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
+
+
+def _lang_key_from_code(language: str) -> str:
+    base = (language or "en").split("-")[0].lower()
+    if base in SUPPORTED_COMPOSE_LANGS:
+        return base
+    return "en"
 
 
 def _render_evisitor_registered_fallback(context: dict) -> str:

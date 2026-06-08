@@ -20,6 +20,10 @@ class Property(TenantScopedModel):
     check_out_time = models.TimeField(default=time(11, 0))
     whatsapp_autocheckin_enabled = models.BooleanField(default=False)
     whatsapp_autocheckin_time = models.TimeField(default=time(8, 0))
+    whatsapp_autocheckin_email_lead_minutes = models.PositiveSmallIntegerField(
+        default=30,
+        help_text="Intro email this many minutes before whatsapp_autocheckin_time (same day).",
+    )
     tourist_tax_zone = models.ForeignKey(
         "tourist_tax.TouristTaxZone",
         null=True,

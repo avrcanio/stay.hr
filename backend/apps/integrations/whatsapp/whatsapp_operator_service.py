@@ -9,7 +9,10 @@ from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
 
-from apps.communications.guest_compose import render_checkin_ready_message
+from apps.communications.guest_compose import (
+    HINT_OPERATOR_CHECKIN_COMPLETE,
+    render_operator_checkin_complete_message,
+)
 from apps.communications.guest_message_send import default_email_subject, send_guest_text_email
 from apps.communications.models import (
     GuestMessageChannel,
@@ -209,8 +212,8 @@ def _operator_help_text() -> str:
     )
 
 
-def _send_guest_checkin_ready_email(reservation: Reservation) -> dict:
-    body = render_checkin_ready_message(reservation)
+def _send_guest_operator_checkin_email(reservation: Reservation) -> dict:
+    body = render_operator_checkin_complete_message(reservation)
     subject = default_email_subject(reservation)
     result = send_guest_text_email(reservation, body, subject=subject)
     if not result.get("sent"):
@@ -221,7 +224,7 @@ def _send_guest_checkin_ready_email(reservation: Reservation) -> dict:
         tenant_id=reservation.tenant_id,
         reservation=reservation,
         intent=GuestMessageIntent.REPLY,
-        hint="checkin ready",
+        hint=HINT_OPERATOR_CHECKIN_COMPLETE,
         language="",
         llm_body_text=body,
         final_body_text=body,
@@ -442,7 +445,7 @@ def _finalize_operator_checkin(
         return {"status": "nothing_applied", "job_id": job.pk}
 
     reservation = Reservation.objects.select_related("property").get(pk=reservation_id)
-    email_result = _send_guest_checkin_ready_email(reservation)
+    email_result = _send_guest_operator_checkin_email(reservation)
 
     operator_name = operator_name_for_wa_id(tenant_id=row.tenant_id, wa_id=row.wa_id)
     guest_name = ", ".join(

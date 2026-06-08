@@ -80,6 +80,8 @@ class WhatsAppAutocheckinInboundTests(TestCase):
 
         self.assertEqual(result["status"], "documents_sent")
         mock_send.assert_called_once()
+        self.reservation.refresh_from_db()
+        self.assertIsNotNone(self.reservation.whatsapp_autocheckin_engaged_at)
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.tasks.send_text_message")
@@ -108,6 +110,8 @@ class WhatsAppAutocheckinInboundTests(TestCase):
 
         self.assertEqual(result["status"], "documents_sent")
         mock_send.assert_called_once()
+        self.reservation.refresh_from_db()
+        self.assertIsNotNone(self.reservation.whatsapp_autocheckin_engaged_at)
         body = mock_send.call_args.kwargs["body"]
         self.assertIn("Check-in — dokumenti", body)
         self.assertIn("2", body)

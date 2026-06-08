@@ -15,6 +15,7 @@ from apps.communications.guest_compose import (
     documents_batch_confirm_button_labels,
     render_documents_batch_confirm_message,
 )
+from apps.communications.whatsapp_autocheckin_tasks import mark_autocheckin_engaged
 from apps.integrations.models import WhatsAppMessage
 from apps.integrations.whatsapp.client import (
     WhatsAppApiError,
@@ -367,6 +368,7 @@ def on_whatsapp_document_received(message_id: int) -> dict:
                 wa_id=row.wa_id,
                 status=WhatsAppDocumentBatchStatus.COLLECTING,
             )
+            mark_autocheckin_engaged(reservation)
         elif session.job.whatsapp_message_id is None:
             session.job.whatsapp_message = row
             session.job.save(update_fields=["whatsapp_message", "updated_at"])
