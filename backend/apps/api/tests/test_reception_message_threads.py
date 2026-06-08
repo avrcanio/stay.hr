@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.test import TestCase
 from django.utils import timezone
@@ -254,3 +255,21 @@ class ReceptionMessageThreadsAPITests(TestCase):
         self.assertEqual(data["needs_reply_count"], 1)
         self.assertTrue(data["threads"][0]["needs_reply"])
         self.assertEqual(data["threads"][0]["last_message_preview"], "New after dismiss")
+
+    @patch("apps.communications.guest_message_sync.poll_tenant_guest_inbox")
+    def test_list_threads_sync_auto_skips_imap_poll(self, mock_poll):
+        response = self.client.get(
+            "/api/v1/reception/message-threads/?sync=auto",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_poll.assert_not_called()
+
+    @patch("apps.communications.guest_message_sync.poll_tenant_guest_inbox")
+    def test_list_threads_sync_one_polls_imap(self, mock_poll):
+        response = self.client.get(
+            "/api/v1/reception/message-threads/?sync=1",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_poll.assert_called_once_with(self.tenant)

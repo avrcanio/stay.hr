@@ -1,4 +1,5 @@
 from datetime import date
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
@@ -6,6 +7,7 @@ from apps.integrations.channex.booking_service import channex_external_id
 from apps.integrations.channex.message_service import (
     relink_unlinked_channex_messages,
     resolve_reservation_for_channex_message,
+    sync_booking_messages_from_channex,
 )
 from apps.integrations.channex.webhook_service import record_channex_webhook
 from apps.integrations.models import ChannexMessage, IntegrationConfig
@@ -170,3 +172,59 @@ class ChannexMessageWebhookTests(TestCase):
             ota_reservation_id="999888777",
         )
         self.assertEqual(resolved.pk, legacy.id)
+
+    @patch("apps.core.tasks.notify_guest_message_inbound.delay")
+    @patch("apps.integrations.channex.message_service.ChannexClient")
+    def test_sync_booking_messages_notifies_new_guest_message(
+        self, mock_client_cls, mock_notify
+    ):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.list_booking_messages.return_value = {
+            "data": [
+                {
+                    "id": "msg-sync-notify-1",
+                    "message": "Late guest reply via API pull",
+                    "sender": "guest",
+                    "booking_id": self.booking_id,
+                }
+            ]
+        }
+
+        rows = sync_booking_messages_from_channex(self.integration, self.reservation)
+        self.assertEqual(len(rows), 1)
+        mock_notify.assert_called_once_with(
+            self.reservation.pk,
+            channel="booking",
+            body_preview="Late guest reply via API pull",
+        )
+
+    @patch("apps.core.tasks.notify_guest_message_inbound.delay")
+    @patch("apps.integrations.channex.message_service.ChannexClient")
+    def test_sync_booking_messages_skips_notify_when_already_stored(
+        self, mock_client_cls, mock_notify
+    ):
+        record_channex_webhook(
+            integration_row=self.integration,
+            tenant=self.tenant,
+            event="message",
+            property_id="prop-uuid-123",
+            body={"payload": self.payload},
+        )
+        mock_notify.reset_mock()
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.list_booking_messages.return_value = {
+            "data": [
+                {
+                    "id": "msg-uuid-789",
+                    "message": "Hello from guest",
+                    "sender": "guest",
+                    "booking_id": self.booking_id,
+                }
+            ]
+        }
+
+        sync_booking_messages_from_channex(self.integration, self.reservation)
+        mock_notify.assert_not_called()

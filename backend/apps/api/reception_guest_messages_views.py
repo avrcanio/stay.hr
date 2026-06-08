@@ -112,6 +112,13 @@ def _reservation_or_404(tenant, reservation_id: int) -> Reservation:
     return reservation
 
 
+def _sync_sources_for_timeline(reservation: Reservation, *, sync_param: str) -> None:
+    from apps.communications.guest_message_sync import poll_guest_inbox_on_force_sync
+
+    poll_guest_inbox_on_force_sync(reservation.tenant, sync_param=sync_param)
+    _sync_channex_messages_for_timeline(reservation, sync_param=sync_param)
+
+
 def _sync_channex_messages_for_timeline(reservation: Reservation, *, sync_param: str) -> None:
     if sync_param == "0" or not _booking_channel_available(reservation):
         return
@@ -139,7 +146,7 @@ class ReceptionGuestMessagesView(ReceptionReadView, APIView):
     def get(self, request, reservation_id: int):
         reservation = _reservation_or_404(request.tenant, reservation_id)
         sync_param = request.query_params.get("sync", "auto")
-        _sync_channex_messages_for_timeline(reservation, sync_param=sync_param)
+        _sync_sources_for_timeline(reservation, sync_param=sync_param)
         return Response(timeline_for_reservation(reservation))
 
 

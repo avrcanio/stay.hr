@@ -78,6 +78,18 @@ class ReceptionGuestMessagesAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
 
+    @patch("apps.communications.guest_message_sync.poll_tenant_guest_inbox")
+    def test_list_messages_sync_auto_skips_imap_poll(self, mock_poll):
+        response = self.client.get(f"{self.base}/?sync=auto", **self.auth)
+        self.assertEqual(response.status_code, 200)
+        mock_poll.assert_not_called()
+
+    @patch("apps.communications.guest_message_sync.poll_tenant_guest_inbox")
+    def test_list_messages_sync_one_polls_imap(self, mock_poll):
+        response = self.client.get(f"{self.base}/?sync=1", **self.auth)
+        self.assertEqual(response.status_code, 200)
+        mock_poll.assert_called_once_with(self.tenant)
+
     def test_message_channels(self):
         response = self.client.get(f"{self.base}/channels/", **self.auth)
         self.assertEqual(response.status_code, 200)

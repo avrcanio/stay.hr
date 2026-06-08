@@ -106,7 +106,7 @@ GET /api/v1/reception/message-threads/?needs_reply=1&sync=auto
 | `page`, `page_size` | Paginacija (default 25) |
 | `needs_reply=1` | Samo threadovi gdje je zadnja poruka **inbound** |
 | `arriving_today=1` | Check-in danas (Europe/Zagreb) |
-| `sync=auto\|1\|0` | Opcionalno osvježi Channex poruke prije agregacije |
+| `sync=auto\|1\|0` | `auto` = Channex samo ako nema poruka u bazi; `1` = force Channex + **IMAP poll**; `0` = samo baza |
 
 **Response:**
 
@@ -576,13 +576,19 @@ Future<void> handleSend() async {
 
 ### Faza D — Refresh i sync
 
-| Akcija | API poziv |
-|--------|-----------|
-| Otvaranje ekrana | `GET …/messages/?sync=auto` |
-| Pull-to-refresh | `GET …/messages/?sync=1` |
-| Nakon uspješnog send | `GET …/messages/?sync=0` (dovoljno — send response već sadrži novu poruku) ili `sync=1` za Channex |
+| Akcija | API poziv | Channex | Mail IMAP | WhatsApp |
+|--------|-----------|---------|-----------|----------|
+| Inbox — prvi load | `GET …/message-threads/?sync=auto` | auto | ne | DB read |
+| Inbox — Refresh / swipe | `GET …/message-threads/?sync=1` | force | **poll** | DB read |
+| Thread — prvi load | `GET …/messages/?sync=auto` | auto | ne | DB read |
+| Thread — Refresh / swipe | `GET …/messages/?sync=1` | force | **poll** | DB read |
+| Nakon uspješnog send | `GET …/messages/?sync=0` | ne | ne | DB read |
 
-Za Channex rezervacije (`importSource == 'channex'`) pull-to-refresh **mora** koristiti `sync=1` da se povuku poruke koje možda nisu stigle webhookom.
+**WhatsApp:** nema pull API-ja — inbound stiže webhookom (+ FCM). Refresh samo ponovno učitava timeline iz baze.
+
+**Mail IMAP:** `sync=1` poziva `poll_tenant_guest_inbox()` (isto kao Celery / `poll_guest_email` CLI). Radi samo ako je `guest_imap_enabled` u tenant postavkama.
+
+Za Channex rezervacije ručni refresh **mora** koristiti `sync=1` da se povuku poruke koje možda nisu stigle webhookom.
 
 ---
 
@@ -607,8 +613,12 @@ Backend šalje push **`guest.message.received`** kad stigne nova inbound poruka 
 
 | Izvor | Trigger |
 |-------|---------|
-| Channex / Booking.com | `process_channex_message_webhook` — samo nova guest poruka |
+| Channex / Booking.com (webhook) | `process_channex_message_webhook` — samo nova guest poruka |
+| Channex / Booking.com (API pull) | `sync_booking_messages_from_channex` — nova guest poruka (`sync=1`, Celery upcoming check-ins) |
+| Mail / IMAP | `ingest_parsed_email` — Celery `guest-email-imap-poll` (~120 s), `sync=1` poll, `poll_guest_email` CLI |
 | WhatsApp | `process_inbound_message` — nakon linkanja na rezervaciju |
+
+FCM stiže **nakon** server-side ingest-a u bazu. Flutter na push radi GET s `sync=auto` (poruka je već u DB). Ručni Refresh (`sync=1`) i FCM su komplementarni: FCM = obavijest + refresh iz baze; Refresh = proaktivni Channex pull + IMAP poll.
 
 #### FCM data payload
 
@@ -736,15 +746,41 @@ Integriraj u postojeći reservation detail — ne gradi zaseban tab bar ako već
 
 ### 5. FCM
 
-- [ ] Inbound Channex poruka → push „Nova poruka"
-- [ ] Tap → otvara **MessageThreadScreen** (`/reservations/{id}/messages`)
+**Channex (2 tableta):**
+
+- [ ] Tablet A: app otvorena (foreground) na timelineu
+- [ ] Tablet B ili Booking.com extranet: gost pošalje novu poruku na Channex rezervaciju
+- [ ] Tablet A: push „Nova poruka" (SnackBar u foregroundu) + timeline/inbox se osvježava bez ručnog Refresh
+- [ ] Tap na notifikaciju → **MessageThreadScreen** (`/reservations/{id}/messages`)
 - [ ] Tab Poruke aktivan → inbox refresh + badge `needs_reply_count`
+- [ ] Postavke: isključen toggle „Poruka od gosta" → nema SnackBar-a, ali data refresh i dalje radi
+
+**Mail IMAP (~2 min Celery poll):**
+
+- [ ] Gost odgovori na Booking.com mail thread (poruka stigne u IMAP inbox)
+- [ ] Unutar ~2 min (ili nakon `poll_guest_email --tenant=uzorita`): push „Nova poruka" s `channel=email`
+- [ ] Inbox badge / unread na rezervaciji bez ručnog Refresh
+- [ ] Thread za tu rezervaciju prikazuje inbound `email` poruku
+
+**Channex API pull (webhook miss):**
+
+- [ ] Simuliraj: nova poruka vidljiva u B.com, ali webhook nije stigao
+- [ ] Drugi tablet ili Refresh `sync=1` na threadu → poruka u timelineu
+- [ ] Nakon deploya Faze 2: API pull koji prvi put spremi guest poruku šalje FCM i ostalim tabletima
 
 ### 6. Greške
 
 - [ ] Send bez compose → jasna poruka korisniku
 - [ ] Send whatsapp bez telefona → 400, ne crash
 - [ ] Compose bez `reception:write` → 403
+
+### 7. Refresh sync (inbox + thread)
+
+- [ ] Inbox gumb Refresh → `sync=1`, nove Channex/mail poruke ako postoje
+- [ ] Inbox swipe down → isto kao Refresh
+- [ ] Thread Refresh / swipe → `sync=1` + IMAP poll
+- [ ] Prvi ulazak u inbox → brz (`sync=auto`), bez IMAP poll
+- [ ] WhatsApp inbound (webhook) → vidljiv nakon refresha bez posebnog WA synca
 
 ---
 

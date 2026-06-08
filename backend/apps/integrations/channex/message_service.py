@@ -317,6 +317,22 @@ def upsert_channex_message_from_payload(
     return row, True
 
 
+def _maybe_notify_channex_guest_message(row: ChannexMessage, *, created: bool) -> None:
+    if (
+        created
+        and row.reservation_id
+        and row.sender == ChannexMessage.Sender.GUEST
+        and (row.body or "").strip()
+    ):
+        from apps.core.tasks import notify_guest_message_inbound
+
+        notify_guest_message_inbound.delay(
+            row.reservation_id,
+            channel="booking",
+            body_preview=row.body or "",
+        )
+
+
 def process_channex_message_webhook(
     integration_row: IntegrationConfig,
     *,
@@ -358,19 +374,7 @@ def process_channex_message_webhook(
             "reservation_id": row.reservation_id,
         },
     )
-    if (
-        created
-        and row.reservation_id
-        and row.sender == ChannexMessage.Sender.GUEST
-        and (row.body or "").strip()
-    ):
-        from apps.core.tasks import notify_guest_message_inbound
-
-        notify_guest_message_inbound.delay(
-            row.reservation_id,
-            channel="booking",
-            body_preview=row.body or "",
-        )
+    _maybe_notify_channex_guest_message(row, created=created)
     return {
         "message_id": row.channex_message_id,
         "created": created,
@@ -404,12 +408,13 @@ def sync_booking_messages_from_channex(
         for row_payload in _extract_message_rows(response):
             if not row_payload.get("booking_id"):
                 row_payload = {**row_payload, "booking_id": booking_id}
-            message, _created = upsert_channex_message_from_payload(
+            message, created = upsert_channex_message_from_payload(
                 tenant=reservation.tenant,
                 integration=integration_row,
                 payload=row_payload,
                 reservation=reservation,
             )
+            _maybe_notify_channex_guest_message(message, created=created)
             stored.append(message)
     finally:
         if owns_client and client is not None:

@@ -8,6 +8,7 @@ from typing import Any
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from apps.communications.guest_message_sync import poll_guest_inbox_on_force_sync
 from apps.communications.guest_message_timeline import last_timeline_entry
 from apps.communications.models import (
     GuestInboundMessage,
@@ -149,6 +150,8 @@ def list_message_threads_for_tenant(
     sync_param: str = "auto",
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Return (threads, total, needs_reply_count)."""
+    poll_guest_inbox_on_force_sync(tenant, sync_param=sync_param)
+
     reservation_ids = _reservation_ids_with_messages(tenant)
     if not reservation_ids:
         return [], 0, 0
