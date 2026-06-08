@@ -44,6 +44,7 @@ class TenantReceptionSettingsInlineForm(forms.ModelForm):
             "guest_contact_email",
             "guest_contact_name",
             "guest_smtp_password",
+            "whatsapp_operator_phones",
         )
 
     def save(self, commit=True):
@@ -68,6 +69,7 @@ class TenantReceptionSettingsInline(admin.StackedInline):
         "guest_contact_email",
         "guest_contact_name",
         "guest_smtp_password",
+        "whatsapp_operator_phones",
         "has_guest_smtp_password_display",
         "updated_at",
     )

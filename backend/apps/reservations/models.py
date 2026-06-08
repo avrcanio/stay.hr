@@ -387,6 +387,7 @@ class DocumentIntakeJobStatus(models.TextChoices):
 class DocumentIntakeJobSource(models.TextChoices):
     HOSPIRA_BATCH = "hospira_batch", "Hospira batch"
     WHATSAPP = "whatsapp", "WhatsApp"
+    WHATSAPP_OPERATOR = "whatsapp_operator", "WhatsApp operator"
 
 
 def document_intake_image_upload_to(instance, filename: str) -> str:
@@ -500,6 +501,44 @@ class WhatsAppDocumentBatchSession(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"WhatsAppDocumentBatchSession #{self.pk} reservation={self.reservation_id} status={self.status}"
+
+
+class WhatsAppOperatorSessionStatus(models.TextChoices):
+    COLLECTING = "collecting", "Collecting"
+    PROCESSING = "processing", "Processing"
+    DONE = "done", "Done"
+    FAILED = "failed", "Failed"
+
+
+class WhatsAppOperatorSession(TenantScopedModel):
+    """Operator WhatsApp document batch before check-in command."""
+
+    operator_wa_id = models.CharField(max_length=32)
+    job = models.ForeignKey(
+        DocumentIntakeJob,
+        on_delete=models.CASCADE,
+        related_name="whatsapp_operator_sessions",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=WhatsAppOperatorSessionStatus.choices,
+        default=WhatsAppOperatorSessionStatus.COLLECTING,
+    )
+    last_activity_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-last_activity_at", "id"]
+        indexes = [
+            models.Index(fields=["tenant", "operator_wa_id", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"WhatsAppOperatorSession #{self.pk} "
+            f"operator={self.operator_wa_id} status={self.status}"
+        )
 
 
 class MonthlyStatisticsOverride(TenantScopedModel):

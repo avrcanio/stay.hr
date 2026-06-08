@@ -89,6 +89,11 @@ class TenantReceptionSettings(models.Model):
         default="",
         help_text="Encrypted SMTP password for guest_contact_email (mail.{domain}:587).",
     )
+    whatsapp_operator_phones = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='WhatsApp operator whitelist, e.g. [{"name": "Toni", "phone": "+385..."}].',
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

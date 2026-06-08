@@ -26,6 +26,8 @@ from apps.integrations.whatsapp.whatsapp_document_batch import (
 from apps.integrations.whatsapp.reply import build_greeting
 from apps.integrations.whatsapp.reservation_lookup import find_reservation_for_wa_id
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
+from apps.integrations.whatsapp.whatsapp_operator import is_operator_wa_id
+from apps.integrations.whatsapp.whatsapp_operator_service import handle_operator_inbound
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,7 @@ _AUTO_CHECKIN_REPLY_TEXTS = frozenset(
         "check-in automatique",
         "check in automatico",
         "check-in automático",
+        "check in",
     }
 )
 
@@ -245,6 +248,18 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
     if integration_row is None or not integration_row.is_active:
         return {"status": "no_integration"}
 
+    runtime = WhatsAppRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+
+    if is_operator_wa_id(tenant_id=row.tenant_id, wa_id=row.wa_id):
+        result = handle_operator_inbound(
+            row=row,
+            integration_row=integration_row,
+            runtime=runtime,
+            action_text=_inbound_action_text(row),
+            button_id=inbound_interactive_button_id(row),
+        )
+        return {**result, "reservation_id": None, "operator_flow": True}
+
     _link_inbound_to_reservation(row)
     reservation = row.reservation
 
@@ -252,7 +267,6 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
         on_whatsapp_document_received.delay(row.pk)
         reply_result = {"status": "auto_reply_skipped", "reason": "media"}
     else:
-        runtime = WhatsAppRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
         button_id = inbound_interactive_button_id(row)
         action_text = _inbound_action_text(row)
         if is_documents_all_yes_reply(button_id=button_id, text=action_text) or is_documents_all_no_reply(
