@@ -16,7 +16,7 @@
 |------|--------|
 | Backend API (timeline, compose, send, tri kanala) | **Gotovo** |
 | Reception web UI | **Gotovo** |
-| Flutter chat UI + tri kanala | **Pending** |
+| Flutter chat UI + tri kanala | **Implementirano** (QA na uređaju) |
 
 **Cilj u Flutteru:** zamijeniti email-centric flow chat prikazom (bubble thread) s tri kanala slanja — Mail, Channex (Booking.com), WhatsApp — prikazujući samo kanale koje backend označi kao dostupne.
 
