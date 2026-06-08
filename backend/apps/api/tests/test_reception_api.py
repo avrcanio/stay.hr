@@ -961,6 +961,66 @@ class ReceptionAPITests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_guest_countries_statistics(self):
+        self.reservation.status = Reservation.Status.CHECKED_IN
+        self.reservation.save(update_fields=["status", "updated_at"])
+        self.guest.nationality = "DE"
+        self.guest.save(update_fields=["nationality"])
+
+        reservation_two = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            external_id="ext-gc-2",
+            booking_code="BK-GC-2",
+            check_in=date(2026, 6, 1),
+            check_out=date(2026, 6, 5),
+            status=Reservation.Status.CHECKED_OUT,
+            booker_name="Other Booker",
+            amount=Decimal("100.00"),
+        )
+        Guest.objects.create(
+            tenant=self.tenant,
+            reservation=reservation_two,
+            first_name="Hans",
+            last_name="Müller",
+            is_primary=True,
+            nationality="AT",
+        )
+        Guest.objects.create(
+            tenant=self.tenant,
+            reservation=reservation_two,
+            first_name="Unknown",
+            last_name="Guest",
+            is_primary=False,
+        )
+
+        response = self.client.get(
+            "/api/v1/reception/statistics/guest-countries/?year=2026",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["year"], 2026)
+        self.assertEqual(data["total_guests"], 3)
+
+        by_iso = {row["iso2"]: row for row in data["countries"]}
+        self.assertEqual(by_iso["DE"]["guest_count"], 1)
+        self.assertAlmostEqual(by_iso["DE"]["share"], 1 / 3, places=3)
+        self.assertEqual(by_iso["AT"]["guest_count"], 1)
+        self.assertAlmostEqual(by_iso["AT"]["share"], 1 / 3, places=3)
+        self.assertEqual(by_iso[""]["guest_count"], 1)
+        self.assertAlmostEqual(by_iso[""]["share"], 1 / 3, places=3)
+
+        guest_counts = [row["guest_count"] for row in data["countries"]]
+        self.assertEqual(guest_counts, sorted(guest_counts, reverse=True))
+
+    def test_guest_countries_statistics_invalid_year(self):
+        response = self.client.get(
+            "/api/v1/reception/statistics/guest-countries/?year=abc",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_read_scope_blocks_write(self):
         read_only_app, read_token = ApiApplication.create_with_token(
             tenant=self.tenant,

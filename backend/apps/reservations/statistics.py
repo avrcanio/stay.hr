@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import date
 from decimal import Decimal
 
-from apps.reservations.models import MonthlyStatisticsOverride, Reservation
+from apps.reservations.models import Guest, MonthlyStatisticsOverride, Reservation
+from apps.reservations.nationality_display import guest_nationality_iso2
 from apps.reservations.occupancy_statistics import (
     aggregate_monthly_occupancy,
     occupancy_payload_for_month,
@@ -272,4 +274,42 @@ def aggregate_monthly_statistics(tenant, year: int) -> dict:
         "currency": currency,
         "active_units": occupancy["active_units"],
         "months": months_payload,
+    }
+
+
+def _realized_reservations_for_year(tenant, year: int):
+    return Reservation.objects.for_tenant(tenant).filter(
+        status__in=_REALIZED_STATUSES,
+        check_in__gte=date(year, 1, 1),
+        check_in__lte=date(year, 12, 31),
+    )
+
+
+def aggregate_guest_countries_statistics(tenant, year: int) -> dict:
+    reservation_ids = _realized_reservations_for_year(tenant, year).values_list(
+        "id",
+        flat=True,
+    )
+    counter: Counter[str] = Counter()
+    guests = Guest.objects.for_tenant(tenant).filter(reservation_id__in=reservation_ids)
+    for guest in guests.iterator():
+        iso2 = guest_nationality_iso2(guest)
+        counter[iso2] += 1
+
+    total_guests = sum(counter.values())
+    countries = []
+    for iso2, guest_count in counter.most_common():
+        share = round(guest_count / total_guests, 3) if total_guests else 0.0
+        countries.append(
+            {
+                "iso2": iso2,
+                "guest_count": guest_count,
+                "share": share,
+            }
+        )
+
+    return {
+        "year": year,
+        "total_guests": total_guests,
+        "countries": countries,
     }

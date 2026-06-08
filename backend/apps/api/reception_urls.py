@@ -58,6 +58,7 @@ from apps.api.reception_views import (
     EvisitorSubmitView,
     GuestFacePhotoView,
     IdScanSampleUploadView,
+    ReceptionGuestCountriesStatisticsView,
     ReceptionHealthView,
     ReceptionMonthlyStatisticsView,
     ReceptionSyncVersionsView,
@@ -104,6 +105,11 @@ urlpatterns = [
         "statistics/monthly/",
         ReceptionMonthlyStatisticsView.as_view(),
         name="reception-statistics-monthly",
+    ),
+    path(
+        "statistics/guest-countries/",
+        ReceptionGuestCountriesStatisticsView.as_view(),
+        name="reception-statistics-guest-countries",
     ),
     path(
         "reservations/",
