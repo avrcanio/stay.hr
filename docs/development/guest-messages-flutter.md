@@ -128,6 +128,7 @@ GET /api/v1/reception/message-threads/?needs_reply=1&sync=auto
       "last_message_at": "2026-06-05T17:20:00+00:00",
       "last_message_preview": "Dear Daniela…",
       "last_channel": "booking",
+      "last_channels": ["booking"],
       "last_direction": "inbound",
       "needs_reply": true
     }
@@ -167,20 +168,22 @@ GET /api/v1/reception/reservations/798/messages/?sync=1
   {
     "id": 3000000042,
     "source": "booking",
-    "direction": "inbound",
+    "direction": "outbound",
     "channel": "booking",
-    "body_text": "Ok merci du mail",
-    "created_at": "2026-06-04T15:01:08+00:00",
-    "status": null,
+    "channels": ["booking", "whatsapp"],
+    "body_text": "Poštovana Anka Dorić…",
+    "created_at": "2026-06-06T15:41:00+02:00",
+    "status": "sent",
     "sent_by_name": null,
     "from_email": null,
     "wa_me_url": null
   },
   {
-    "id": 12,
-    "source": "outbound",
-    "direction": "outbound",
+    "id": 4000000010,
+    "source": "inbound",
+    "direction": "inbound",
     "channel": "email",
+    "channels": ["email"],
     "body_text": "Poštovani Wolfgang…",
     "created_at": "2026-06-04T16:00:00+00:00",
     "status": "sent",
@@ -196,8 +199,9 @@ GET /api/v1/reception/reservations/798/messages/?sync=1
 |-------|-----|----------|
 | `id` | int | Stabilni ID za UI key. Channex: `3_000_000_000 + pk`, WhatsApp: `2_000_000_000 + pk`, email outbound: raw PK |
 | `direction` | string | `inbound` (gost, lijevo) / `outbound` (recepcija, desno) |
-| `channel` | string | `booking` \| `email` \| `whatsapp` — badge na bubbleu |
-| `source` | string | `booking` (Channex), `whatsapp`, `outbound` (email audit) |
+| `channel` | string | Primarni kanal (`booking` \| `email` \| `whatsapp`) — backward compat |
+| `channels` | string[] | Svi kanali kroz koje je ista poruka prošla (deduplikacija na backendu) |
+| `source` | string | `booking` (Channex), `whatsapp`, `outbound` (email audit), `inbound` |
 | `body_text` | string | Sadržaj poruke (`whitespace-pre-wrap` u UI) |
 | `created_at` | ISO8601 | Vrijeme poruke |
 | `status` | string \| null | Outbound: `sent`, `failed`, `handoff_whatsapp`, `queued`; inbound: `null` |
@@ -351,9 +355,10 @@ Isti oblik kao timeline item + dodatna polja:
 ```dart
 class GuestMessageTimelineItem {
   final int id;
-  final String source;       // booking | whatsapp | outbound
+  final String source;       // booking | whatsapp | outbound | inbound
   final String direction;    // inbound | outbound
-  final String channel;      // booking | email | whatsapp
+  final String channel;      // primary: booking | email | whatsapp
+  final List<String> channels; // all delivery channels when deduplicated
   final String bodyText;
   final DateTime createdAt;
   final String? status;
@@ -466,7 +471,7 @@ abstract class GuestMessagesRepository {
 | Element | Pravilo |
 |---------|---------|
 | Poravnanje | `inbound` → lijevo; `outbound` → desno |
-| Badge | Prikaži lokalizirani naziv kanala: **Channex** (ne „Booking.com”), **Mail**, **WhatsApp** |
+| Badge | Prikaži kanale iz `channels` (ili `[channel]` ako je samo jedan): **Channex** · **Mail** · **WhatsApp**, odvojeno s ` · ` |
 | Vrijeme | `created_at` → lokalni format `dd.MM. HH:mm` |
 | Autor | `sent_by_name` samo kod outbound (npr. „Tablet R1”) |
 | Tekst | `body_text` s `Text(..., style: pre-wrap)` |

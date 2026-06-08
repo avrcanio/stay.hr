@@ -4,17 +4,19 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.communications.guest_message_timeline import (
+    merge_timeline_duplicates,
     timeline_for_reservation,
     whatsapp_display_body,
 )
 from apps.communications.models import (
+    GuestInboundMessage,
     GuestMessageChannel,
     GuestMessageDraft,
     GuestMessageIntent,
     GuestOutboundMessage,
     GuestOutboundMessageStatus,
 )
-from apps.integrations.models import IntegrationConfig, WhatsAppMessage
+from apps.integrations.models import ChannexMessage, IntegrationConfig, WhatsAppMessage
 from apps.properties.models import Property
 from apps.reservations.models import Reservation
 from apps.tenants.models import Tenant
@@ -88,6 +90,11 @@ class TimelineDedupTests(TestCase):
             routing_key="1068791909660300",
             is_active=True,
         )
+        self.channex_integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
         self.reservation = Reservation.objects.create(
             tenant=self.tenant,
             property=self.property,
@@ -141,6 +148,139 @@ class TimelineDedupTests(TestCase):
         self.assertEqual(thank_you[0]["source"], "whatsapp")
         self.assertEqual(thank_you[0]["direction"], "outbound")
         self.assertEqual(thank_you[0]["status"], "sent")
+        self.assertEqual(thank_you[0]["channels"], ["whatsapp"])
+
+    def test_channex_and_whatsapp_outbound_merged(self):
+        now = timezone.now()
+        body = "Poštovana Anka Dorić, hvala na poruci."
+        channex = ChannexMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.channex_integration,
+            reservation=self.reservation,
+            channex_booking_id="booking-843",
+            channex_message_id="channex-out-843",
+            direction=ChannexMessage.Direction.OUTBOUND,
+            sender=ChannexMessage.Sender.PROPERTY,
+            body=body,
+        )
+        ChannexMessage.objects.filter(pk=channex.pk).update(created_at=now)
+        wa = WhatsAppMessage.objects.create(
+            tenant_id=self.tenant.pk,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.outbound.843",
+            wa_id="385976713511",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.OUTBOUND,
+            message_type="text",
+            body=body,
+        )
+        WhatsAppMessage.objects.filter(pk=wa.pk).update(created_at=now + timedelta(seconds=60))
+
+        timeline = timeline_for_reservation(self.reservation)
+        matches = [row for row in timeline if body in row["body_text"]]
+
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["channels"], ["booking", "whatsapp"])
+        self.assertEqual(matches[0]["source"], "booking")
+
+    def test_different_outbound_bodies_not_merged(self):
+        now = timezone.now()
+        channex = ChannexMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.channex_integration,
+            reservation=self.reservation,
+            channex_booking_id="booking-844",
+            channex_message_id="channex-out-844",
+            direction=ChannexMessage.Direction.OUTBOUND,
+            sender=ChannexMessage.Sender.PROPERTY,
+            body="First message",
+        )
+        ChannexMessage.objects.filter(pk=channex.pk).update(created_at=now)
+        wa = WhatsAppMessage.objects.create(
+            tenant_id=self.tenant.pk,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.outbound.844",
+            wa_id="385976713511",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.OUTBOUND,
+            message_type="text",
+            body="Second message",
+        )
+        WhatsAppMessage.objects.filter(pk=wa.pk).update(created_at=now + timedelta(seconds=30))
+
+        timeline = timeline_for_reservation(self.reservation)
+        self.assertEqual(len(timeline), 2)
+
+    def test_inbound_email_and_channex_merged(self):
+        now = timezone.now()
+        body = "Hvala na odgovoru. Parking nam je potreban."
+        inbound = GuestInboundMessage.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            channel=GuestMessageChannel.EMAIL,
+            body_text=body,
+            received_at=now,
+        )
+        channex = ChannexMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.channex_integration,
+            reservation=self.reservation,
+            channex_booking_id="booking-845",
+            channex_message_id="channex-in-845",
+            direction=ChannexMessage.Direction.INBOUND,
+            sender=ChannexMessage.Sender.GUEST,
+            body=body,
+        )
+        ChannexMessage.objects.filter(pk=channex.pk).update(created_at=now + timedelta(seconds=30))
+
+        timeline = timeline_for_reservation(self.reservation)
+        matches = [row for row in timeline if body in row["body_text"]]
+
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["channels"], ["email", "booking"])
+        self.assertEqual(matches[0]["direction"], "inbound")
+
+    def test_inbound_subset_body_merged(self):
+        now = timezone.now()
+        short_body = "Parking nam je potreban."
+        long_body = f"Hvala na odgovoru. {short_body}"
+        GuestInboundMessage.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            channel=GuestMessageChannel.EMAIL,
+            body_text=short_body,
+            received_at=now,
+        )
+        channex = ChannexMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.channex_integration,
+            reservation=self.reservation,
+            channex_booking_id="booking-846",
+            channex_message_id="channex-in-846",
+            direction=ChannexMessage.Direction.INBOUND,
+            sender=ChannexMessage.Sender.GUEST,
+            body=long_body,
+        )
+        ChannexMessage.objects.filter(pk=channex.pk).update(created_at=now + timedelta(seconds=20))
+
+        timeline = timeline_for_reservation(self.reservation)
+        self.assertEqual(len(timeline), 1)
+        self.assertEqual(timeline[0]["channels"], ["email", "booking"])
+        self.assertEqual(timeline[0]["body_text"], long_body)
+
+    def test_merge_timeline_duplicates_adds_single_channel_list(self):
+        item = {
+            "id": 1,
+            "source": "outbound",
+            "direction": "outbound",
+            "channel": "email",
+            "body_text": "Hello",
+            "created_at": timezone.now().isoformat(),
+        }
+        merged = merge_timeline_duplicates([item])
+        self.assertEqual(merged[0]["channels"], ["email"])
 
     def test_whatsapp_handoff_kept_when_no_whatsapp_message_row(self):
         body = "Bok — check-in info"
@@ -169,3 +309,4 @@ class TimelineDedupTests(TestCase):
         self.assertEqual(len(handoff), 1)
         self.assertEqual(handoff[0]["source"], "outbound")
         self.assertEqual(handoff[0]["status"], "handoff_whatsapp")
+        self.assertEqual(handoff[0]["channels"], ["whatsapp"])

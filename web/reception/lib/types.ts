@@ -89,9 +89,10 @@ export type InvoiceSummary = {
 
 export type GuestMessageTimelineItem = {
   id: number;
-  source: "outbound" | "whatsapp" | "booking";
+  source: "outbound" | "whatsapp" | "booking" | "inbound";
   direction: "inbound" | "outbound";
   channel: "email" | "whatsapp" | "booking";
+  channels?: string[];
   body_text: string;
   created_at: string;
   status: string | null;

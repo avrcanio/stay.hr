@@ -115,6 +115,11 @@ def _serialize_thread(
     preview = (last.get("body_text") or "").strip()
     if len(preview) > 200:
         preview = preview[:197] + "..."
+    last_channels = last.get("channels") or []
+    if not last_channels:
+        channel = (last.get("channel") or "").strip()
+        if channel:
+            last_channels = [channel]
     today = tenant_local_now(reservation.tenant).date()
     return {
         "reservation_id": reservation.pk,
@@ -126,7 +131,8 @@ def _serialize_thread(
         "arrives_today": reservation.check_in == today if reservation.check_in else False,
         "last_message_at": last.get("created_at"),
         "last_message_preview": preview,
-        "last_channel": last.get("channel") or "",
+        "last_channel": last_channels[0] if last_channels else (last.get("channel") or ""),
+        "last_channels": last_channels,
         "last_direction": last.get("direction") or "",
         "needs_reply": _needs_reply(last, reply_dismissed_at),
     }

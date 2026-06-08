@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import re
+from datetime import datetime
+
+from django.utils.dateparse import parse_datetime
+
 from apps.communications.models import (
     GuestInboundMessage,
     GuestMessageChannel,
@@ -22,6 +27,22 @@ _MEDIA_PREVIEW = {
 }
 
 _OUTBOUND_IMAGE_PREVIEW = "📷 Slika poslana"
+
+MERGE_WINDOW_SECONDS = 180
+
+_SOURCE_PRIORITY = {
+    "booking": 0,
+    "whatsapp": 1,
+    "outbound": 2,
+    "inbound": 3,
+}
+
+_STATUS_PRIORITY = {
+    "sent": 0,
+    "handoff_whatsapp": 1,
+    "queued": 2,
+    "failed": 3,
+}
 
 
 def document_intake_image_url(job_id: int, index: int = 0) -> str:
@@ -197,6 +218,159 @@ def serialize_channex(msg: ChannexMessage) -> dict:
     }
 
 
+def _normalize_body_text(text: str) -> str:
+    normalized = (text or "").replace("\r\n", "\n").strip()
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized
+
+
+def _parse_item_datetime(item: dict) -> datetime | None:
+    parsed = parse_datetime(item.get("created_at") or "")
+    return parsed
+
+
+def _bodies_match(body_a: str, body_b: str) -> bool:
+    a = _normalize_body_text(body_a)
+    b = _normalize_body_text(body_b)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if len(a) >= 10 and len(b) >= 10 and (a in b or b in a):
+        return True
+    return False
+
+
+def _media_merge_compatible(a: dict, b: dict) -> bool:
+    type_a = (a.get("message_type") or "text").lower()
+    type_b = (b.get("message_type") or "text").lower()
+    media_types = {"image", "document"}
+    if type_a not in media_types and type_b not in media_types:
+        return True
+    if type_a in media_types and type_b in media_types:
+        return (a.get("media_url") or "") == (b.get("media_url") or "")
+    return False
+
+
+def _should_merge_items(a: dict, b: dict) -> bool:
+    if a.get("direction") != b.get("direction"):
+        return False
+    if not _bodies_match(a.get("body_text") or "", b.get("body_text") or ""):
+        return False
+    if not _media_merge_compatible(a, b):
+        return False
+    dt_a = _parse_item_datetime(a)
+    dt_b = _parse_item_datetime(b)
+    if dt_a is None or dt_b is None:
+        return False
+    return abs((dt_a - dt_b).total_seconds()) <= MERGE_WINDOW_SECONDS
+
+
+def _source_priority(item: dict) -> int:
+    return _SOURCE_PRIORITY.get(item.get("source") or "", 99)
+
+
+def _status_priority(status: str | None) -> int:
+    if status is None:
+        return 99
+    return _STATUS_PRIORITY.get(status, 50)
+
+
+def _pick_richer_field(items: list[dict], key: str):
+    best = None
+    best_score = -1
+    for item in items:
+        value = item.get(key)
+        if value in (None, ""):
+            continue
+        score = 1
+        if key == "status":
+            score = 100 - _status_priority(value)
+        if score > best_score:
+            best_score = score
+            best = value
+    return best
+
+
+def _merge_item_group(group: list[dict]) -> dict:
+    if len(group) == 1:
+        merged = dict(group[0])
+        merged["channels"] = [merged["channel"]]
+        return merged
+
+    ordered = sorted(group, key=lambda item: item["created_at"])
+    channels: list[str] = []
+    seen_channels: set[str] = set()
+    for item in ordered:
+        channel = item.get("channel") or ""
+        if channel and channel not in seen_channels:
+            channels.append(channel)
+            seen_channels.add(channel)
+
+    primary = min(
+        ordered,
+        key=lambda item: (_source_priority(item), item["created_at"]),
+    )
+    merged = dict(primary)
+    merged["body_text"] = max(
+        ordered,
+        key=lambda item: len(item.get("body_text") or ""),
+    )["body_text"]
+    merged["created_at"] = ordered[0]["created_at"]
+    merged["channels"] = channels
+    merged["channel"] = channels[0] if channels else primary.get("channel")
+
+    for key in (
+        "sent_by_name",
+        "status",
+        "media_url",
+        "media_kind",
+        "document_intake_job_id",
+        "from_email",
+        "wa_me_url",
+    ):
+        value = _pick_richer_field(ordered, key)
+        if value not in (None, ""):
+            merged[key] = value
+
+    return merged
+
+
+def merge_timeline_duplicates(items: list[dict]) -> list[dict]:
+    """Collapse cross-channel duplicates into one entry with channels[]."""
+    if not items:
+        return []
+
+    n = len(items)
+    parent = list(range(n))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        root_left = find(left)
+        root_right = find(right)
+        if root_left != root_right:
+            parent[root_right] = root_left
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _should_merge_items(items[i], items[j]):
+                union(i, j)
+
+    groups: dict[int, list[dict]] = {}
+    for index, item in enumerate(items):
+        root = find(index)
+        groups.setdefault(root, []).append(item)
+
+    merged = [_merge_item_group(group) for group in groups.values()]
+    merged.sort(key=lambda item: item["created_at"])
+    return merged
+
+
 def timeline_for_reservation(reservation: Reservation) -> list[dict]:
     rows: list[tuple[str, dict]] = []
 
@@ -230,7 +404,7 @@ def timeline_for_reservation(reservation: Reservation) -> list[dict]:
             rows.append((ts.isoformat(), serialize_inbound(msg)))
 
     rows.sort(key=lambda r: r[0])
-    return [item for _, item in rows]
+    return merge_timeline_duplicates([item for _, item in rows])
 
 
 def last_timeline_entry(reservation: Reservation) -> dict | None:

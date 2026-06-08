@@ -34,6 +34,14 @@ function channelLabelKey(channel: string): string {
   return "channelEmail";
 }
 
+function timelineChannelLabels(
+  item: GuestMessageTimelineItem,
+  t: (key: string) => string,
+): string {
+  const channels = item.channels?.length ? item.channels : [item.channel];
+  return channels.map((channel) => t(channelLabelKey(channel))).join(" · ");
+}
+
 function channelHint(
   channel: string,
   channels: GuestMessageChannels,
@@ -239,7 +247,7 @@ export function GuestMessagesPanel({ reservationId }: Props) {
                   }`}
                 >
                   <div className="mb-1 flex flex-wrap items-center gap-2 text-xs opacity-80">
-                    <span>{t(channelLabelKey(item.channel))}</span>
+                    <span>{timelineChannelLabels(item, t)}</span>
                     <span>{formatMessageTime(item.created_at)}</span>
                     {item.sent_by_name ? <span>{item.sent_by_name}</span> : null}
                   </div>

@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from django.test import TestCase
@@ -5,7 +6,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.communications.models import GuestMessageChannel, GuestOutboundMessage, GuestOutboundMessageStatus
-from apps.integrations.models import ChannexMessage
+from apps.integrations.models import ChannexMessage, IntegrationConfig, WhatsAppMessage
 from apps.properties.models import Property, Unit
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.tenants.models import RECEPTION_DEVICE_SCOPES, ApiApplication, Tenant
@@ -113,9 +114,52 @@ class ReceptionMessageThreadsAPITests(TestCase):
         self.assertEqual(thread["booker_name"], "Daniela Heczko")
         self.assertEqual(thread["last_message_preview"], "Latest guest message")
         self.assertEqual(thread["last_channel"], "booking")
+        self.assertEqual(thread["last_channels"], ["booking"])
         self.assertEqual(thread["last_direction"], "inbound")
         self.assertTrue(thread["needs_reply"])
         self.assertTrue(thread["arrives_today"])
+
+    def test_list_threads_last_channels_when_merged(self):
+        now = timezone.now()
+        body = "Merged outbound reply"
+        channex = ChannexMessage.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            channex_booking_id="booking-1",
+            channex_message_id="msg-out-merged",
+            direction=ChannexMessage.Direction.OUTBOUND,
+            sender=ChannexMessage.Sender.PROPERTY,
+            body=body,
+        )
+        ChannexMessage.objects.filter(pk=channex.pk).update(created_at=now)
+        integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.WHATSAPP,
+            routing_key="1068791909660300",
+            is_active=True,
+        )
+        wa = WhatsAppMessage.objects.create(
+            tenant_id=self.tenant.pk,
+            integration=integration,
+            reservation=self.reservation,
+            wamid="wamid.merged.out",
+            wa_id="385911122233",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.OUTBOUND,
+            message_type="text",
+            body=body,
+        )
+        WhatsAppMessage.objects.filter(pk=wa.pk).update(created_at=now + timedelta(seconds=45))
+
+        response = self.client.get(
+            "/api/v1/reception/message-threads/?sync=0",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        thread = response.json()["threads"][0]
+        self.assertEqual(thread["last_message_preview"], body)
+        self.assertEqual(thread["last_channels"], ["booking", "whatsapp"])
+        self.assertEqual(thread["last_channel"], "booking")
 
     def test_filter_needs_reply(self):
         other = Reservation.objects.create(
