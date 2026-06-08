@@ -7,6 +7,10 @@ from datetime import datetime
 
 from django.utils.dateparse import parse_datetime
 
+from apps.communications.guest_message_body_format import (
+    format_timeline_body_text,
+    timeline_body_quality_score,
+)
 from apps.communications.models import (
     GuestInboundMessage,
     GuestMessageChannel,
@@ -28,7 +32,9 @@ _MEDIA_PREVIEW = {
 
 _OUTBOUND_IMAGE_PREVIEW = "📷 Slika poslana"
 
-MERGE_WINDOW_SECONDS = 180
+MERGE_WINDOW_OUTBOUND_SECONDS = 180
+MERGE_WINDOW_INBOUND_SECONDS = 900  # Booking.com mail relay often lags Channex by several minutes
+MERGE_WINDOW_SECONDS = MERGE_WINDOW_OUTBOUND_SECONDS
 
 _SOURCE_PRIORITY = {
     "booking": 0,
@@ -89,7 +95,7 @@ def serialize_outbound(outbound: GuestOutboundMessage) -> dict:
         "source": "outbound",
         "direction": "outbound",
         "channel": outbound.channel,
-        "body_text": outbound.body_text,
+        "body_text": format_timeline_body_text(outbound.body_text),
         "created_at": outbound.created_at.isoformat(),
         "status": outbound.status,
         "sent_by_name": app.name if app else None,
@@ -130,7 +136,7 @@ def serialize_whatsapp(msg: WhatsAppMessage) -> dict:
         "source": "whatsapp",
         "direction": msg.direction,
         "channel": "whatsapp",
-        "body_text": body,
+        "body_text": format_timeline_body_text(body),
         "created_at": msg.created_at.isoformat(),
         "status": "sent" if is_outbound else None,
         "sent_by_name": None,
@@ -169,7 +175,7 @@ def serialize_inbound(inbound: GuestInboundMessage) -> dict:
         "source": "inbound",
         "direction": "inbound",
         "channel": inbound.channel,
-        "body_text": inbound.body_text or "",
+        "body_text": format_timeline_body_text(inbound.body_text or ""),
         "created_at": ts.isoformat(),
         "status": None,
         "sent_by_name": None,
@@ -205,7 +211,7 @@ def serialize_channex(msg: ChannexMessage) -> dict:
         "source": "booking",
         "direction": direction,
         "channel": "booking",
-        "body_text": body,
+        "body_text": format_timeline_body_text(body),
         "created_at": msg.created_at.isoformat(),
         "status": "sent" if direction == "outbound" else None,
         "sent_by_name": None,
@@ -220,8 +226,8 @@ def serialize_channex(msg: ChannexMessage) -> dict:
 
 def _normalize_body_text(text: str) -> str:
     normalized = (text or "").replace("\r\n", "\n").strip()
-    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
-    return normalized
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
 
 
 def _parse_item_datetime(item: dict) -> datetime | None:
@@ -263,7 +269,12 @@ def _should_merge_items(a: dict, b: dict) -> bool:
     dt_b = _parse_item_datetime(b)
     if dt_a is None or dt_b is None:
         return False
-    return abs((dt_a - dt_b).total_seconds()) <= MERGE_WINDOW_SECONDS
+    window = (
+        MERGE_WINDOW_INBOUND_SECONDS
+        if a.get("direction") == "inbound"
+        else MERGE_WINDOW_OUTBOUND_SECONDS
+    )
+    return abs((dt_a - dt_b).total_seconds()) <= window
 
 
 def _source_priority(item: dict) -> int:
@@ -314,8 +325,9 @@ def _merge_item_group(group: list[dict]) -> dict:
     merged = dict(primary)
     merged["body_text"] = max(
         ordered,
-        key=lambda item: len(item.get("body_text") or ""),
+        key=lambda item: timeline_body_quality_score(item.get("body_text") or ""),
     )["body_text"]
+    merged["body_text"] = format_timeline_body_text(merged["body_text"])
     merged["created_at"] = ordered[0]["created_at"]
     merged["channels"] = channels
     merged["channel"] = channels[0] if channels else primary.get("channel")

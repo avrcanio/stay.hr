@@ -15,6 +15,7 @@ from apps.communications.whatsapp_autocheckin_tasks import (
     send_autocheckin_intro_email,
     send_welcome_template_for_reservation,
 )
+from apps.communications.models import GuestOutboundMessage, GuestOutboundMessageStatus
 from apps.integrations.models import IntegrationConfig
 from apps.integrations.tests.test_whatsapp_webhook import TEST_FERNET_KEY
 from apps.integrations.whatsapp.welcome_template import build_welcome_template_parameters
@@ -147,7 +148,7 @@ class WhatsAppAutocheckinWelcomeTests(TestCase):
         due = iter_due_autocheckin_intro_emails()
         self.assertEqual(due, [])
 
-    @patch("apps.communications.whatsapp_autocheckin_tasks.send_guest_text_email")
+    @patch("apps.communications.guest_message_send.send_guest_text_email")
     @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")
     def test_send_intro_email_marks_sent(self, mock_now, mock_email):
         mock_now.return_value = datetime(2026, 6, 7, 7, 45, tzinfo=ZAGREB)
@@ -165,6 +166,12 @@ class WhatsAppAutocheckinWelcomeTests(TestCase):
         body = mock_email.call_args.args[1]
         self.assertIn("wa.me", body)
         self.assertIn("Auto check-in:", body)
+        outbound = GuestOutboundMessage.objects.filter(
+            reservation=self.reservation,
+            status=GuestOutboundMessageStatus.SENT,
+        ).first()
+        self.assertIsNotNone(outbound)
+        self.assertIn("wa.me", outbound.body_text)
 
     def test_intro_email_html_renders_whatsapp_button(self):
         wa_link = "https://wa.me/385976789626?text=Auto%20check-in"
@@ -200,7 +207,7 @@ class WhatsAppAutocheckinWelcomeTests(TestCase):
         due = iter_due_autocheckin_reservations()
         self.assertEqual(due, [])
 
-    @patch("apps.communications.whatsapp_autocheckin_tasks.send_guest_text_email")
+    @patch("apps.communications.guest_message_send.send_guest_text_email")
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.communications.whatsapp_autocheckin_tasks.send_template_message")
     @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")

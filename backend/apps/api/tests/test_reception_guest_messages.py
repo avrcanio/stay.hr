@@ -325,6 +325,9 @@ class ReceptionGuestMessagesAPITests(TestCase):
         self.assertEqual(data["status"], "sent")
         self.assertEqual(data["body_text"], body)
         mock_send.assert_called_once()
+        call_kwargs = mock_send.call_args.kwargs
+        self.assertIn("body_html", call_kwargs)
+        self.assertIn("<p>", call_kwargs["body_html"])
 
         timeline = self.client.get(f"{self.base}/", **self.auth)
         self.assertEqual(len(timeline.json()), 1)

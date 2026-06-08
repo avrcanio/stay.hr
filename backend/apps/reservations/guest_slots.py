@@ -2,11 +2,26 @@ from __future__ import annotations
 
 from apps.integrations.evisitor.summary import evisitor_status_for_guest
 from apps.reservations.models import EvisitorGuestStatus, Guest, Reservation
+from apps.reservations.nationality_display import reservation_nationality_iso2
 from apps.tenants.models import Tenant
 
 PLACEHOLDER_FIRST = "Novi"
 PLACEHOLDER_LAST = "gost"
 PLACEHOLDER_NAME = "Novi gost"
+
+
+def _placeholder_guest_kwargs(*, reservation: Reservation) -> dict[str, str | bool]:
+    kwargs: dict[str, str | bool] = {
+        "first_name": PLACEHOLDER_FIRST,
+        "last_name": PLACEHOLDER_LAST,
+        "name": PLACEHOLDER_NAME,
+        "is_primary": False,
+    }
+    iso2 = reservation_nationality_iso2(reservation)
+    if iso2:
+        kwargs["nationality"] = iso2
+        kwargs["document_country_iso2"] = iso2
+    return kwargs
 
 
 def target_adult_guest_count(*, adults_count: int | None, existing_count: int) -> int:
@@ -45,10 +60,7 @@ def ensure_guest_slots_for_intake(
         Guest.objects.create(
             tenant=tenant,
             reservation=reservation,
-            first_name=PLACEHOLDER_FIRST,
-            last_name=PLACEHOLDER_LAST,
-            name=PLACEHOLDER_NAME,
-            is_primary=False,
+            **_placeholder_guest_kwargs(reservation=reservation),
         )
         created += 1
     if created and hasattr(reservation, "_prefetched_objects_cache"):
@@ -76,10 +88,7 @@ def ensure_adult_guest_slots(
         Guest.objects.create(
             tenant=tenant,
             reservation=reservation,
-            first_name=PLACEHOLDER_FIRST,
-            last_name=PLACEHOLDER_LAST,
-            name=PLACEHOLDER_NAME,
-            is_primary=False,
+            **_placeholder_guest_kwargs(reservation=reservation),
         )
         created += 1
     return created

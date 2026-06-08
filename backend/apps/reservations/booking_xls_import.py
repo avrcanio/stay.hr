@@ -453,7 +453,7 @@ def _guest_updates_from_row(
         updates["name"] = full_name
     if is_primary and booker_email:
         updates["email"] = booker_email
-    if is_primary and booker_country:
+    if booker_country:
         updates["nationality"] = booker_country
         updates["document_country_iso2"] = booker_country
     return updates
@@ -586,7 +586,7 @@ def _sync_guests(
             and not (preserve_primary_contact and (guest.email or "").strip())
         ):
             guest.email = booker_email
-        if is_primary and booker_country:
+        if booker_country:
             if authoritative_pdf:
                 guest.nationality = booker_country
                 guest.document_country_iso2 = booker_country

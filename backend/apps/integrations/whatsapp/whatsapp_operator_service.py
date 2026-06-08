@@ -13,12 +13,12 @@ from apps.communications.guest_compose import (
     HINT_OPERATOR_CHECKIN_COMPLETE,
     render_operator_checkin_complete_message,
 )
-from apps.communications.guest_message_send import default_email_subject, send_guest_text_email
+from apps.communications.guest_message_send import (
+    default_email_subject,
+    send_guest_email_with_timeline_record,
+)
 from apps.communications.models import (
-    GuestMessageChannel,
-    GuestMessageDraft,
     GuestMessageIntent,
-    GuestOutboundMessage,
     GuestOutboundMessageStatus,
 )
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
@@ -215,32 +215,16 @@ def _operator_help_text() -> str:
 def _send_guest_operator_checkin_email(reservation: Reservation) -> dict:
     body = render_operator_checkin_complete_message(reservation)
     subject = default_email_subject(reservation)
-    result = send_guest_text_email(reservation, body, subject=subject)
-    if not result.get("sent"):
-        return result
-
-    sent_at = timezone.now()
-    draft = GuestMessageDraft.objects.create(
-        tenant_id=reservation.tenant_id,
-        reservation=reservation,
+    outbound = send_guest_email_with_timeline_record(
+        reservation,
+        body,
+        subject=subject,
         intent=GuestMessageIntent.REPLY,
         hint=HINT_OPERATOR_CHECKIN_COMPLETE,
-        language="",
-        llm_body_text=body,
-        final_body_text=body,
-        channel=GuestMessageChannel.EMAIL,
-        sent_at=sent_at,
     )
-    GuestOutboundMessage.objects.create(
-        tenant_id=reservation.tenant_id,
-        reservation=reservation,
-        draft=draft,
-        channel=GuestMessageChannel.EMAIL,
-        body_text=body,
-        status=GuestOutboundMessageStatus.SENT,
-        to_email=result.get("to") or "",
-    )
-    return result
+    if outbound.status != GuestOutboundMessageStatus.SENT:
+        return {"sent": False, "reason": outbound.error_message or "send_failed"}
+    return {"sent": True, "to": outbound.to_email}
 
 
 def _collect_operator_image(

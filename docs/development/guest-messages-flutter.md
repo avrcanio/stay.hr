@@ -202,7 +202,7 @@ GET /api/v1/reception/reservations/798/messages/?sync=1
 | `channel` | string | Primarni kanal (`booking` \| `email` \| `whatsapp`) — backward compat |
 | `channels` | string[] | Svi kanali kroz koje je ista poruka prošla (deduplikacija na backendu) |
 | `source` | string | `booking` (Channex), `whatsapp`, `outbound` (email audit), `inbound` |
-| `body_text` | string | Sadržaj poruke (`whitespace-pre-wrap` u UI) |
+| `body_text` | string | Sadržaj poruke — backend vraća formatiran tekst s `\n` prijelomima (Flutter: `Text(..., style: TextStyle(height: 1.35))` + **mora** `softWrap: true`; koristi `SelectableText` ili `Text` s eksplicitnim `\n`, ne `TextOverflow.ellipsis` na cijelom body-ju) |
 | `created_at` | ISO8601 | Vrijeme poruke |
 | `status` | string \| null | Outbound: `sent`, `failed`, `handoff_whatsapp`, `queued`; inbound: `null` |
 | `sent_by_name` | string \| null | Ime API aplikacije (tablet) kod outbound |
@@ -474,7 +474,7 @@ abstract class GuestMessagesRepository {
 | Badge | Prikaži kanale iz `channels` (ili `[channel]` ako je samo jedan): **Channex** · **Mail** · **WhatsApp**, odvojeno s ` · ` |
 | Vrijeme | `created_at` → lokalni format `dd.MM. HH:mm` |
 | Autor | `sent_by_name` samo kod outbound (npr. „Tablet R1”) |
-| Tekst | `body_text` s `Text(..., style: pre-wrap)` |
+| Tekst | `body_text` — prikaži s `Text(body, style: TextStyle(height: 1.35))`; **ne** stavljaj cijeli body u jedan `Row`/`Flexible` s `maxLines: 1`. Za prijelome redova koristi običan `Text` (Flutter po defaultu poštuje `\n`) ili `SelectableText`. |
 
 #### B4. Prazno stanje
 

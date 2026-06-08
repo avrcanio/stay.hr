@@ -18,7 +18,7 @@ from apps.communications.guest_email import _guest_recipient
 from apps.communications.guest_message_send import (
     build_wa_me_url,
     default_email_subject,
-    send_guest_text_email,
+    send_guest_email_with_timeline_record,
 )
 from apps.communications.models import (
     GuestMessageChannel,
@@ -135,40 +135,22 @@ def send_autocheckin_intro_email(
             return {"status": "already_sent", "reservation_id": reservation.pk}
 
         subject = default_email_subject(locked)
-        result = send_guest_text_email(
+        outbound = send_guest_email_with_timeline_record(
             locked,
             body,
             subject=subject,
             body_html=body_html,
+            intent=GuestMessageIntent.CHECKIN,
+            hint=HINT_AUTOCHECKIN_WHATSAPP_INTRO,
         )
-        if not result.get("sent"):
+        if outbound.status != GuestOutboundMessageStatus.SENT:
             return {
                 "status": "send_failed",
-                "reason": result.get("reason"),
+                "reason": outbound.error_message or "send_failed",
                 "reservation_id": reservation.pk,
             }
 
-        sent_at = timezone.now()
-        draft = GuestMessageDraft.objects.create(
-            tenant_id=locked.tenant_id,
-            reservation=locked,
-            intent=GuestMessageIntent.CHECKIN,
-            hint=HINT_AUTOCHECKIN_WHATSAPP_INTRO,
-            language=compose_language_for_reservation(locked),
-            llm_body_text=body,
-            final_body_text=body,
-            channel=GuestMessageChannel.EMAIL,
-            sent_at=sent_at,
-        )
-        GuestOutboundMessage.objects.create(
-            tenant_id=locked.tenant_id,
-            reservation=locked,
-            draft=draft,
-            channel=GuestMessageChannel.EMAIL,
-            body_text=body,
-            status=GuestOutboundMessageStatus.SENT,
-            to_email=result.get("to") or recipient,
-        )
+        sent_at = outbound.draft.sent_at or timezone.now()
         locked.whatsapp_autocheckin_intro_email_sent_at = sent_at
         locked.save(update_fields=["whatsapp_autocheckin_intro_email_sent_at", "updated_at"])
 
