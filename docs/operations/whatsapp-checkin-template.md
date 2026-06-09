@@ -2,11 +2,19 @@
 
 Operativni predložak za traženje dokumenata i slanje detalja dolaska **prije** check-ina. U Hospiri oba koraka koriste **postojeći Generiraj** (deterministički template, bez LLM). Zatim u zasebnoj poruci priložiti sliku ulaza.
 
-**Slika ulaza:** `.imports/20260527_140049.jpg` (znak „Restaurant Uzorita”, broj 58, kapija s lozom)
+**Slika ulaza:** `backend/assets/whatsapp/uzorita_entrance.jpg` (znak „Restaurant Uzorita”, ROOMS, kapija s lozom) — automatski se šalje nakon post-check-in auto-odgovora na parking/dolazak
 
 **Povezano:** [ai-runbook-ocr-checkin-evisitor-2026-06.md](./ai-runbook-ocr-checkin-evisitor-2026-06.md), [id-document-import.md](../development/id-document-import.md)
 
 **Backend:** `backend/apps/communications/guest_compose.py`, `guest_compose_language.py`
+
+**Izvor teksta:** `Property.guest_info` (JSON) — parking, ulaz, dokumenti, post-check-in odgovori. Uzorita seed:
+
+```bash
+python manage.py seed_uzorita_guest_info --tenant-slug uzorita --property-slug uzorita
+```
+
+Schema i helperi: `backend/apps/properties/guest_info.py`, podaci: `backend/apps/properties/uzorita_guest_info.py`.
 
 **Flutter chat (timeline + tri kanala):** [guest-messages-flutter.md](../development/guest-messages-flutter.md)
 
@@ -58,7 +66,7 @@ KANAL: WhatsApp Business
 Booking: {BOOKING_KOD}
 Tel.: {TELEFON}
 Jezik: {JEZIK}
-Prilog: slika ulaza → .imports/20260527_140049.jpg
+Prilog: slika ulaza → backend/assets/whatsapp/uzorita_entrance.jpg
 ```
 
 ---

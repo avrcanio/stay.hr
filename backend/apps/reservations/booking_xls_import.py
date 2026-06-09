@@ -297,7 +297,26 @@ def _parse_guest_name(full_name: str) -> tuple[str, str]:
 
 
 def _normalize_guest_name_key(name: str) -> str:
-    return re.sub(r"\s+", " ", html.unescape(name or "").strip()).casefold()
+    import unicodedata
+
+    _latin_folds = str.maketrans(
+        {
+            "ł": "l",
+            "Ł": "L",
+            "đ": "d",
+            "Đ": "D",
+            "ø": "o",
+            "Ø": "O",
+            "æ": "ae",
+            "Æ": "AE",
+            "ß": "ss",
+        }
+    )
+    text = re.sub(r"\s+", " ", html.unescape(name or "").strip())
+    text = text.translate(_latin_folds)
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return text.casefold()
 
 
 def _guest_display_name(guest: Guest) -> str:

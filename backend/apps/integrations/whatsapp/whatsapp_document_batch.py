@@ -343,6 +343,11 @@ def on_whatsapp_document_received(message_id: int) -> dict:
     if reservation is None:
         return {"status": "skipped", "reason": "no_reservation"}
 
+    from apps.integrations.whatsapp.apply_reply import is_whatsapp_autocheckin_waived
+
+    if is_whatsapp_autocheckin_waived(reservation):
+        return {"status": "skipped", "reason": "autocheckin_waived"}
+
     integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None:
         return {"status": "skipped", "reason": "no_integration"}
@@ -510,6 +515,11 @@ def handle_whatsapp_document_batch_reply(message_id: int) -> dict:
     )
     if row is None or row.reservation_id is None:
         return {"status": "skipped", "reason": "no_reservation"}
+
+    from apps.integrations.whatsapp.apply_reply import is_whatsapp_autocheckin_waived
+
+    if is_whatsapp_autocheckin_waived(row.reservation):
+        return {"status": "skipped", "reason": "autocheckin_waived"}
 
     button_id = inbound_interactive_button_id(row)
     action_text = (row.body or "").strip()

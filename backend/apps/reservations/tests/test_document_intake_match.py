@@ -82,3 +82,32 @@ class DocumentIntakeMatchTests(TestCase):
         self.assertTrue(companion["auto_apply"])
         self.assertEqual(companion["reservation_id"], target.pk)
         self.assertNotEqual(companion["guest_id"], daniela["guest_id"])
+
+    def test_comma_given_names_match_booker_with_accent(self):
+        """OCR comma-separated given names + surname (François Hartweg scenario)."""
+        today = timezone.now().date()
+        target = self._reservation(pk_suffix=8, booker="François Hartweg", check_in=today)
+        self._reservation(pk_suffix=70, booker="Other Guest", check_in=today)
+
+        persons = [
+            {
+                "given_names": "Francois, Jacques, Alfred",
+                "surnames": "HARTWEG",
+            },
+            {
+                "given_names": "Anne, Elisabeth OECHEL ep. HARTWEG",
+                "surnames": "",
+            },
+        ]
+        matches = match_persons_to_guests(tenant_id=self.tenant.pk, persons=persons)
+
+        self.assertEqual(len(matches), 2)
+        francois = matches[0]
+        self.assertTrue(francois["auto_apply"])
+        self.assertEqual(francois["reservation_id"], target.pk)
+        self.assertEqual(francois["confidence"], "high")
+
+        spouse = matches[1]
+        self.assertTrue(spouse["auto_apply"])
+        self.assertEqual(spouse["reservation_id"], target.pk)
+        self.assertNotEqual(spouse["guest_id"], francois["guest_id"])

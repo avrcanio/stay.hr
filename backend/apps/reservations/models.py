@@ -78,6 +78,7 @@ class Reservation(TenantScopedModel):
     whatsapp_welcome_sent_at = models.DateTimeField(null=True, blank=True)
     whatsapp_autocheckin_intro_email_sent_at = models.DateTimeField(null=True, blank=True)
     whatsapp_autocheckin_engaged_at = models.DateTimeField(null=True, blank=True)
+    whatsapp_autocheckin_waived_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -1,11 +1,15 @@
 from datetime import date, datetime, time, timedelta
+from io import BytesIO
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from PIL import Image
 
-from apps.integrations.models import IntegrationConfig
+from apps.integrations.models import IntegrationConfig, WhatsAppMessage
 from apps.integrations.tests.test_whatsapp_webhook import TEST_FERNET_KEY
+from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 from apps.integrations.whatsapp.whatsapp_guest_autocheckin import (
     GUEST_AUTO_CHECKIN_BUTTON_ID,
     extract_booking_code_from_text,
@@ -13,11 +17,12 @@ from apps.integrations.whatsapp.whatsapp_guest_autocheckin import (
     handle_guest_autocheckin_inbound,
     is_guest_auto_checkin_button,
 )
-from apps.integrations.models import WhatsAppMessage
-from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
+from apps.communications.guest_compose import HINT_CHECKIN_READY
+from apps.communications.models import GuestMessageDraft, GuestMessageIntent
 from apps.properties.models import Property
-from apps.reservations.models import Reservation, WhatsAppGuestAutocheckinSession
+from apps.reservations.models import Guest, IdDocument, Reservation, WhatsAppGuestAutocheckinSession
 from apps.tenants.models import Tenant
+from django.utils import timezone
 
 TEST_D360_KEY = "test-d360-key"
 ZAGREB = ZoneInfo("Europe/Zagreb")
@@ -146,3 +151,280 @@ class WhatsAppGuestAutocheckinTests(TestCase):
         mock_send.assert_called_once()
         buttons = mock_send.call_args.kwargs["buttons"]
         self.assertEqual(buttons[0][0], GUEST_AUTO_CHECKIN_BUTTON_ID)
+
+    def _tiny_jpeg(self) -> bytes:
+        buf = BytesIO()
+        Image.new("RGB", (20, 20), color=(200, 180, 160)).save(buf, format="JPEG")
+        return buf.getvalue()
+
+    def _guest_with_complete_documents(self) -> Guest:
+        guest = Guest.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            first_name="Ana",
+            last_name="Anić",
+            name="Ana Anić",
+            date_of_birth=date(1990, 1, 1),
+            document_number="ABC123456",
+            nationality="HR",
+            sex="F",
+            is_primary=True,
+        )
+        doc = IdDocument.objects.create(guest=guest)
+        doc.front_photo.save(
+            f"guest_{guest.pk}_front.jpg",
+            SimpleUploadedFile("front.jpg", self._tiny_jpeg()),
+            save=True,
+        )
+        doc.back_photo.save(
+            f"guest_{guest.pk}_back.jpg",
+            SimpleUploadedFile("back.jpg", self._tiny_jpeg()),
+            save=True,
+        )
+        return guest
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch(
+        "apps.integrations.whatsapp.whatsapp_post_checkin_reply.send_whatsapp_entrance_image_from_asset"
+    )
+    @patch("apps.communications.guest_message_send.send_text_message")
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
+    @patch("apps.core.timezone.property_local_now")
+    def test_complete_documents_parking_skips_autocheckin_prompt(
+        self,
+        mock_now,
+        mock_interactive,
+        mock_text,
+        mock_entrance,
+    ):
+        mock_now.return_value = datetime(2026, 6, 7, 15, 0, tzinfo=ZAGREB)
+        mock_text.return_value = {"messages": [{"id": "wamid.out.post"}]}
+        mock_entrance.return_value = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.out.img",
+            wa_id="385922222222",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.OUTBOUND,
+            message_type="image",
+            body="Entrance",
+            raw_payload={},
+        )
+        self._guest_with_complete_documents()
+        inbound = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.in.parking",
+            wa_id="385922222222",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="We need parking and arrive at 8 PM",
+            raw_payload={"type": "text", "text": {"body": "We need parking and arrive at 8 PM"}},
+        )
+
+        result = handle_guest_autocheckin_inbound(
+            row=inbound,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text=inbound.body,
+            reservation=self.reservation,
+        )
+
+        self.assertEqual(result["status"], "post_checkin_reply_sent")
+        mock_interactive.assert_not_called()
+        mock_text.assert_called_once()
+        mock_entrance.assert_called_once()
+        body = mock_text.call_args.kwargs["body"]
+        self.assertIn("parkir", body.lower())
+        self.assertIn("dolasku", body.lower())
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.property_local_now")
+    def test_complete_documents_no_keywords_skips_prompt(self, mock_now, mock_interactive):
+        mock_now.return_value = datetime(2026, 6, 7, 9, 0, tzinfo=ZAGREB)
+        self._guest_with_complete_documents()
+        inbound = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.in.hello",
+            wa_id="385922222222",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="Hello",
+            raw_payload={"type": "text", "text": {"body": "Hello"}},
+        )
+
+        result = handle_guest_autocheckin_inbound(
+            row=inbound,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text=inbound.body,
+            reservation=self.reservation,
+        )
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "documents_complete")
+        mock_interactive.assert_not_called()
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch(
+        "apps.integrations.whatsapp.whatsapp_post_checkin_reply.send_whatsapp_entrance_image_from_asset"
+    )
+    @patch("apps.communications.guest_message_send.send_text_message")
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
+    @patch("apps.core.timezone.property_local_now")
+    def test_complete_documents_second_parking_same_day_not_duplicated(
+        self,
+        mock_now,
+        mock_interactive,
+        mock_text,
+        mock_entrance,
+    ):
+        mock_now.return_value = datetime(2026, 6, 7, 18, 0, tzinfo=ZAGREB)
+        mock_text.return_value = {"messages": [{"id": "wamid.out.post"}]}
+        mock_entrance.return_value = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.out.img2",
+            wa_id="385922222222",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.OUTBOUND,
+            message_type="image",
+            body="Entrance",
+            raw_payload={},
+        )
+        self._guest_with_complete_documents()
+        for idx in range(2):
+            inbound = WhatsAppMessage.objects.create(
+                tenant=self.tenant,
+                integration=self.integration,
+                reservation=self.reservation,
+                wamid=f"wamid.in.parking{idx}",
+                wa_id="385922222222",
+                phone_number_id="1068791909660300",
+                direction=WhatsAppMessage.Direction.INBOUND,
+                message_type="text",
+                body="Where can I park?",
+                raw_payload={"type": "text", "text": {"body": "Where can I park?"}},
+            )
+            result = handle_guest_autocheckin_inbound(
+                row=inbound,
+                integration_row=self.integration,
+                runtime=self.runtime,
+                action_text=inbound.body,
+                reservation=self.reservation,
+            )
+            if idx == 0:
+                self.assertEqual(result["status"], "post_checkin_reply_sent")
+            else:
+                self.assertEqual(result["status"], "skipped")
+                self.assertEqual(result["reason"], "documents_complete")
+
+        mock_text.assert_called_once()
+        mock_entrance.assert_called_once()
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch(
+        "apps.integrations.whatsapp.whatsapp_post_checkin_reply.send_whatsapp_entrance_image_from_asset"
+    )
+    @patch("apps.communications.guest_message_send.send_text_message")
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
+    @patch("apps.core.timezone.property_local_now")
+    def test_checkin_ready_draft_acknowledges_parking_without_complete_docs(
+        self,
+        mock_now,
+        mock_interactive,
+        mock_text,
+        mock_entrance,
+    ):
+        mock_now.return_value = datetime(2026, 6, 7, 15, 0, tzinfo=ZAGREB)
+        mock_text.return_value = {"messages": [{"id": "wamid.out.post"}]}
+        mock_entrance.return_value = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.out.img3",
+            wa_id="385922222222",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.OUTBOUND,
+            message_type="image",
+            body="Entrance",
+            raw_payload={},
+        )
+        GuestMessageDraft.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            intent=GuestMessageIntent.REPLY,
+            hint=HINT_CHECKIN_READY,
+            llm_body_text="Check-in ready",
+            final_body_text="Check-in ready",
+            language="en",
+            sent_at=timezone.now(),
+        )
+        inbound = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.in.arrival.parking",
+            wa_id="385922222222",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="I think we will arrive at 7 PM. Where can I park?",
+            raw_payload={
+                "type": "text",
+                "text": {"body": "I think we will arrive at 7 PM. Where can I park?"},
+            },
+        )
+
+        result = handle_guest_autocheckin_inbound(
+            row=inbound,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text=inbound.body,
+            reservation=self.reservation,
+        )
+
+        self.assertEqual(result["status"], "post_checkin_reply_sent")
+        mock_interactive.assert_not_called()
+        mock_text.assert_called_once()
+        mock_entrance.assert_called_once()
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.property_local_now")
+    def test_incomplete_documents_without_ack_draft_sends_autocheckin(
+        self, mock_now, mock_interactive
+    ):
+        mock_now.return_value = datetime(2026, 6, 7, 9, 0, tzinfo=ZAGREB)
+        mock_interactive.return_value = {"messages": [{"id": "wamid.out.prompt"}]}
+        inbound = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.in.free",
+            wa_id="385922222222",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="Hello reception",
+            raw_payload={"type": "text", "text": {"body": "Hello reception"}},
+        )
+
+        result = handle_guest_autocheckin_inbound(
+            row=inbound,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text=inbound.body,
+            reservation=self.reservation,
+        )
+
+        self.assertEqual(result["status"], "autocheckin_prompt_sent")
+        mock_interactive.assert_called_once()

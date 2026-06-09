@@ -6,12 +6,15 @@ import os
 from django.utils import timezone
 
 from apps.communications.guest_compose import (
+    HINT_CHECKIN_READY,
     HINT_ID_MISSING_SIDES,
+    HINT_OPERATOR_CHECKIN_COMPLETE,
     render_checkin_automation_failed_message,
     render_checkin_partial_documents_message,
     render_checkin_ready_message,
     render_missing_id_sides_message,
 )
+from apps.core.timezone import property_local_now
 from apps.communications.models import (
     GuestMessageChannel,
     GuestMessageDraft,
@@ -61,6 +64,53 @@ def all_adult_guests_registered(reservation: Reservation) -> bool:
     if not adults:
         return False
     return all(guest_is_registered(guest) for guest in adults)
+
+
+def is_document_checkin_complete(reservation: Reservation) -> bool:
+    """Adult ID photos complete (front/back as required) and guest rows filled."""
+    if find_missing_id_sides(reservation):
+        return False
+    return all_adult_guests_registered(reservation)
+
+
+def _normalize_draft_hint(hint: str) -> str:
+    return " ".join((hint or "").strip().lower().split())
+
+
+_CHECKIN_ACKNOWLEDGED_HINTS = frozenset(
+    {
+        HINT_CHECKIN_READY,
+        HINT_OPERATOR_CHECKIN_COMPLETE,
+    }
+)
+
+
+def checkin_ready_draft_sent_today(reservation: Reservation) -> bool:
+    """Reception already sent check-in ready / operator complete today (property local day)."""
+    now = property_local_now(reservation.property)
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    hints = GuestMessageDraft.objects.filter(
+        reservation=reservation,
+        sent_at__gte=start_of_day,
+    ).values_list("hint", flat=True)
+    return any(_normalize_draft_hint(h) in _CHECKIN_ACKNOWLEDGED_HINTS for h in hints)
+
+
+def is_whatsapp_autocheckin_waived(reservation: Reservation) -> bool:
+    return reservation.whatsapp_autocheckin_waived_at is not None
+
+
+def waive_whatsapp_autocheckin(reservation: Reservation) -> None:
+    if reservation.whatsapp_autocheckin_waived_at is None:
+        reservation.whatsapp_autocheckin_waived_at = timezone.now()
+        reservation.save(update_fields=["whatsapp_autocheckin_waived_at", "updated_at"])
+
+
+def is_guest_checkin_acknowledged(reservation: Reservation) -> bool:
+    """Docs complete in DB, or reception already acknowledged check-in today."""
+    if is_document_checkin_complete(reservation):
+        return True
+    return checkin_ready_draft_sent_today(reservation)
 
 
 def _send_whatsapp_text_reply(
@@ -152,6 +202,8 @@ def maybe_send_document_apply_whatsapp_reply(
         return {"status": "skipped", "reason": "no_reservation"}
 
     reservation = job.reservation
+    if is_whatsapp_autocheckin_waived(reservation):
+        return {"status": "skipped", "reason": "autocheckin_waived"}
 
     missing_sides = find_missing_id_sides(reservation)
     if missing_sides:
@@ -203,6 +255,9 @@ def maybe_send_checkin_automation_failed_whatsapp_reply(job: DocumentIntakeJob) 
         return {"status": "already_sent"}
 
     reservation = job.reservation
+    if is_whatsapp_autocheckin_waived(reservation):
+        return {"status": "skipped", "reason": "autocheckin_waived"}
+
     body = render_checkin_automation_failed_message(reservation)
     return _send_whatsapp_text_reply(
         job=job,

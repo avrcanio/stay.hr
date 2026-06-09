@@ -242,7 +242,9 @@ class WhatsAppWebhookTests(TestCase):
             body="Bok",
         )
         request = _signed_post(self.factory, self._url(), payload)
-        with patch("apps.integrations.whatsapp.tasks.send_text_message") as mock_send:
+        with patch(
+            "apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message"
+        ) as mock_send:
             mock_send.return_value = {"messages": [{"id": "wamid.outbound.route-a"}]}
             response = WhatsAppWebhookView.as_view()(request)
 
@@ -260,7 +262,9 @@ class WhatsAppWebhookTests(TestCase):
             body="Hello",
         )
         request = _signed_post(self.factory, self._url(), payload)
-        with patch("apps.integrations.whatsapp.tasks.send_text_message") as mock_send:
+        with patch(
+            "apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message"
+        ) as mock_send:
             mock_send.return_value = {"messages": [{"id": "wamid.outbound.tenant-b"}]}
             response = WhatsAppWebhookView.as_view()(request)
 
@@ -327,7 +331,7 @@ class WhatsAppWebhookTests(TestCase):
         )
         self.assertEqual(verify_webhook_subscription(request), "challenge-text")
 
-    @patch("apps.integrations.whatsapp.tasks.send_text_message")
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
     def test_end_to_end_reply_links_reservation(self, mock_send):
         mock_send.return_value = {"messages": [{"id": "wamid.outbound.e2e"}]}
         payload = _sample_webhook_payload(

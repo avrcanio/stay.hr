@@ -1,0 +1,59 @@
+from django.core.management.base import BaseCommand
+from django.db import transaction
+
+from apps.properties.models import Property
+from apps.properties.guest_info import normalize_guest_info
+from apps.properties.uzorita_guest_info import UZORITA_GUEST_INFO
+from apps.tenants.models import Tenant
+
+
+class Command(BaseCommand):
+    help = "Seed Property.guest_info for Uzorita (localized WhatsApp/check-in texts and LLM facts)."
+
+    def add_arguments(self, parser):
+        parser.add_argument("--tenant-slug", default="uzorita")
+        parser.add_argument("--property-slug", default="uzorita")
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Print normalized guest_info without saving.",
+        )
+
+    @transaction.atomic
+    def handle(self, *args, **options):
+        tenant = Tenant.objects.filter(slug=options["tenant_slug"]).first()
+        if tenant is None:
+            self.stderr.write(self.style.ERROR(f"Tenant not found: {options['tenant_slug']}"))
+            return
+
+        prop = Property.objects.filter(tenant=tenant, slug=options["property_slug"]).first()
+        if prop is None:
+            self.stderr.write(
+                self.style.ERROR(
+                    f"Property not found: {options['property_slug']} "
+                    f"(tenant {options['tenant_slug']})"
+                )
+            )
+            return
+
+        normalized = normalize_guest_info(UZORITA_GUEST_INFO)
+        text_keys = sorted((normalized.get("texts") or {}).keys())
+
+        if options["dry_run"]:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Dry run — would set guest_info on {prop.name} "
+                    f"({len(text_keys)} text keys, maps={normalized['links']['maps_url']})"
+                )
+            )
+            return
+
+        prop.guest_info = normalized
+        prop.save(update_fields=["guest_info", "updated_at"])
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Updated guest_info for property {prop.slug} "
+                f"(tenant {tenant.slug}, {len(text_keys)} text keys)."
+            )
+        )

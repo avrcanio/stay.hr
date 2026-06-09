@@ -325,10 +325,43 @@ def handle_guest_autocheckin_inbound(
     reservation: Reservation | None,
 ) -> dict:
     from apps.communications.whatsapp_autocheckin_tasks import mark_autocheckin_engaged
+    from apps.integrations.whatsapp.apply_reply import (
+        is_guest_checkin_acknowledged,
+        is_whatsapp_autocheckin_waived,
+    )
     from apps.integrations.whatsapp.reply import build_greeting
+    from apps.integrations.whatsapp.whatsapp_post_checkin_reply import (
+        arrival_thanks_sent_today,
+        guest_message_mentions_arrival,
+        guest_message_needs_post_checkin_reply,
+        parse_post_checkin_message_hints,
+        post_checkin_auto_reply_already_sent_today,
+        send_arrival_thanks_only,
+        send_post_checkin_whatsapp_auto_reply,
+    )
 
     resolved = reservation or resolve_guest_reservation(row=row, action_text=action_text)
     if resolved is not None:
+        if is_whatsapp_autocheckin_waived(resolved):
+            if guest_message_mentions_arrival(action_text) and not arrival_thanks_sent_today(resolved):
+                return send_arrival_thanks_only(row=row, reservation=resolved)
+            return {"status": "skipped", "reason": "autocheckin_waived"}
+
+        if is_guest_checkin_acknowledged(resolved):
+            if (
+                guest_message_needs_post_checkin_reply(action_text)
+                and not post_checkin_auto_reply_already_sent_today(resolved)
+            ):
+                hints = parse_post_checkin_message_hints(action_text, reservation=resolved)
+                return send_post_checkin_whatsapp_auto_reply(
+                    integration_row=integration_row,
+                    runtime=runtime,
+                    row=row,
+                    reservation=resolved,
+                    **hints,
+                )
+            return {"status": "skipped", "reason": "documents_complete"}
+
         mark_autocheckin_engaged(resolved)
         if _is_autocheckin_day(resolved):
             return _send_autocheckin_prompt(
@@ -337,6 +370,8 @@ def handle_guest_autocheckin_inbound(
                 row=row,
                 reservation=resolved,
             )
+        if not runtime.auto_reply:
+            return {"status": "auto_reply_disabled"}
         body = build_greeting(
             integration_row=integration_row,
             reservation=resolved,

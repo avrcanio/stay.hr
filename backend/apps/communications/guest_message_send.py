@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+from pathlib import Path
 from urllib.parse import quote
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 
 from django.core.mail import EmailMultiAlternatives
@@ -457,6 +459,104 @@ def send_guest_whatsapp_image(
         raise ValueError("unsupported_media_type")
 
     filename = getattr(uploaded_file, "name", None) or "image.jpg"
+
+    outbound = GuestOutboundMessage.objects.create(
+        tenant_id=reservation.tenant_id,
+        reservation=reservation,
+        draft=draft,
+        channel=GuestMessageChannel.WHATSAPP,
+        body_text=(caption or "").strip() or _OUTBOUND_IMAGE_BODY,
+        status=GuestOutboundMessageStatus.QUEUED,
+        to_phone=phone_raw,
+        api_application=api_application,
+    )
+
+    try:
+        media_id = upload_media(
+            file_bytes=file_bytes,
+            mime_type=mime_type,
+            filename=filename,
+            phone_number_id=runtime.phone_number_id,
+            access_token=runtime.access_token,
+            provider=runtime.provider,
+            api_base_url=runtime.api_base_url,
+        )
+        response = send_image_message(
+            phone_number_id=runtime.phone_number_id,
+            access_token=runtime.access_token,
+            to_wa_id=phone_wa,
+            media_id=media_id,
+            caption=caption,
+            provider=runtime.provider,
+            api_base_url=runtime.api_base_url,
+        )
+    except WhatsAppApiError as exc:
+        outbound.status = GuestOutboundMessageStatus.FAILED
+        outbound.error_message = str(exc)
+        outbound.save(update_fields=["status", "error_message"])
+        raise ValueError(str(exc)) from exc
+
+    wamid = extract_outbound_wamid(response) or f"local.outbound.image.{outbound.pk}"
+    wa_message = WhatsAppMessage.objects.create(
+        tenant_id=reservation.tenant_id,
+        integration=integration,
+        reservation=reservation,
+        wamid=wamid,
+        wa_id=phone_wa,
+        phone_number_id=runtime.phone_number_id,
+        direction=WhatsAppMessage.Direction.OUTBOUND,
+        message_type="image",
+        body=(caption or "").strip(),
+        raw_payload=response,
+    )
+    wa_message.media_file.save(filename, ContentFile(file_bytes), save=True)
+
+    now = timezone.now()
+    outbound.status = GuestOutboundMessageStatus.SENT
+    outbound.error_message = ""
+    outbound.save(update_fields=["status", "error_message"])
+
+    draft.final_body_text = (caption or "").strip() or _OUTBOUND_IMAGE_BODY
+    draft.channel = GuestMessageChannel.WHATSAPP
+    draft.sent_at = now
+    draft.save(update_fields=["final_body_text", "channel", "sent_at"])
+
+    return wa_message
+
+
+def uzorita_entrance_image_path() -> Path:
+    """Legacy fallback when Property.guest_info has no entrance_image."""
+    return Path(settings.BASE_DIR) / "assets" / "whatsapp" / "uzorita_entrance.jpg"
+
+
+def send_whatsapp_entrance_image_from_asset(
+    *,
+    reservation: Reservation,
+    draft: GuestMessageDraft,
+    caption: str = "",
+    api_application: ApiApplication | None,
+) -> WhatsAppMessage:
+    """Send property entrance photo from guest_info asset (WhatsApp auto-reply after check-in)."""
+    from apps.properties.guest_info import property_entrance_image_path
+
+    path = property_entrance_image_path(reservation.property)
+    if not path.is_file():
+        raise ValueError("entrance_image_missing")
+
+    integration, runtime = get_active_whatsapp_integration(reservation.tenant)
+    if integration is None or runtime is None:
+        raise ValueError("whatsapp_not_configured")
+    if not is_360dialog_provider(runtime.provider) or not runtime.send_credentials_ok():
+        raise ValueError("whatsapp_api_send_unavailable")
+
+    phone_raw = guest_phone_number(reservation)
+    phone_wa = normalize_phone(phone_raw)
+    if not phone_wa:
+        raise ValueError("no_phone")
+
+    file_bytes = path.read_bytes()
+    mime_type = mimetypes.guess_type(path.name)[0] or "image/jpeg"
+    filename = path.name
 
     outbound = GuestOutboundMessage.objects.create(
         tenant_id=reservation.tenant_id,

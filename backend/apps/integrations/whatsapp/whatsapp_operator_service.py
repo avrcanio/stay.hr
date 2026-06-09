@@ -18,6 +18,7 @@ from apps.communications.guest_message_send import (
     send_guest_email_with_timeline_record,
 )
 from apps.communications.models import (
+    GuestMessageDraft,
     GuestMessageIntent,
     GuestOutboundMessageStatus,
 )
@@ -208,8 +209,51 @@ def _operator_help_text() -> str:
         "Operatorski check-in:\n"
         "1) Pošaljite slike dokumenata (osobna/putovnica).\n"
         f"2) Pritisnite gumb {OPERATOR_CHECKIN_BUTTON_TITLE} kad ste gotovi.\n\n"
-        "Sustav pronađe rezervaciju, popuni gosta i pošalje potvrdu gostu na email."
+        "Sustav pronađe rezervaciju, popuni gosta i pošalje potvrdu gostu "
+        "na WhatsApp (ili email ako gost nema WA)."
     )
+
+
+def _operator_checkin_complete_already_sent(reservation_id: int) -> bool:
+    return GuestMessageDraft.objects.filter(
+        reservation_id=reservation_id,
+        hint=HINT_OPERATOR_CHECKIN_COMPLETE,
+    ).exists()
+
+
+def notify_guest_operator_checkin_complete(reservation: Reservation) -> dict:
+    """Send operator check-in complete to guest on WhatsApp, email fallback."""
+    if _operator_checkin_complete_already_sent(reservation.pk):
+        return {"channel": "none", "status": "already_sent"}
+
+    body = render_operator_checkin_complete_message(reservation)
+    from apps.integrations.whatsapp.evisitor_reply import _send_reservation_whatsapp_text
+
+    wa_result = _send_reservation_whatsapp_text(
+        reservation=reservation,
+        body=body,
+        hint=HINT_OPERATOR_CHECKIN_COMPLETE,
+    )
+    if wa_result.get("status") == "sent":
+        return {"channel": "whatsapp", **wa_result}
+
+    email_result = _send_guest_operator_checkin_email(reservation)
+    if email_result.get("sent"):
+        return {"channel": "email", "sent": True, "to": email_result.get("to"), "whatsapp": wa_result}
+
+    reason = (
+        wa_result.get("reason")
+        or wa_result.get("detail")
+        or email_result.get("reason")
+        or "send_failed"
+    )
+    return {
+        "channel": "none",
+        "status": "failed",
+        "reason": reason,
+        "whatsapp": wa_result,
+        "email": email_result,
+    }
 
 
 def _send_guest_operator_checkin_email(reservation: Reservation) -> dict:
@@ -305,20 +349,54 @@ def _collect_operator_image(
 
 def _format_match_candidates(matches: list[dict]) -> str:
     lines: list[str] = []
-    seen: set[tuple[int, str]] = set()
+    seen: set[tuple[int, int, str]] = set()
+
+    def _append_candidate(candidate: dict, *, person_name: str) -> None:
+        reservation_id = candidate.get("reservation_id")
+        if reservation_id is None:
+            return
+        guest_id = int(candidate.get("guest_id") or 0)
+        label = str(candidate.get("reservation_label") or "").strip()
+        key = (int(reservation_id), guest_id, label)
+        if key in seen:
+            return
+        seen.add(key)
+        guest_name = str(candidate.get("guest_name") or "").strip()
+        match_type = str(candidate.get("match_type") or "").strip()
+        person_prefix = ""
+        if person_name:
+            short = person_name if len(person_name) <= 36 else person_name[:33] + "…"
+            person_prefix = f"{short}: "
+        guest_suffix = f" ({guest_name})" if guest_name else ""
+        type_suffix = f" [{match_type}]" if match_type else ""
+        lines.append(f"• {person_prefix}#{reservation_id} {label}{guest_suffix}{type_suffix}".strip())
+
     for match in matches:
         if not isinstance(match, dict):
             continue
-        reservation_id = match.get("reservation_id")
-        label = str(match.get("reservation_label") or "").strip()
-        if reservation_id is None:
-            continue
-        key = (int(reservation_id), label)
-        if key in seen:
-            continue
-        seen.add(key)
-        lines.append(f"• #{reservation_id} {label}".strip())
-    return "\n".join(lines[:8])
+        person_name = str(match.get("person_name") or "").strip()
+
+        if match.get("reservation_id") is not None:
+            _append_candidate(
+                {
+                    "reservation_id": match.get("reservation_id"),
+                    "guest_id": match.get("guest_id"),
+                    "reservation_label": match.get("reservation_label"),
+                    "guest_name": match.get("guest_name"),
+                    "match_type": "resolved",
+                },
+                person_name=person_name,
+            )
+
+        nested = [c for c in (match.get("candidates") or []) if isinstance(c, dict)]
+        name_candidates = [
+            c for c in nested if c.get("match_type") in {"name", "document_number"}
+        ]
+        other_candidates = [c for c in nested if c not in name_candidates]
+        for candidate in name_candidates + other_candidates:
+            _append_candidate(candidate, person_name=person_name)
+
+    return "\n".join(lines[:12])
 
 
 def _finalize_operator_checkin(
@@ -428,45 +506,18 @@ def _finalize_operator_checkin(
         )
         return {"status": "nothing_applied", "job_id": job.pk}
 
-    reservation = Reservation.objects.select_related("property").get(pk=reservation_id)
-    email_result = _send_guest_operator_checkin_email(reservation)
+    reservation = Reservation.objects.select_related("property", "tenant").get(pk=reservation_id)
+    from apps.integrations.whatsapp.operator_job_complete import complete_operator_checkin_after_apply
 
-    operator_name = operator_name_for_wa_id(tenant_id=row.tenant_id, wa_id=row.wa_id)
-    guest_name = ", ".join(
-        str(item.get("guest_name") or "").strip()
-        for item in applied
-        if isinstance(item, dict) and item.get("guest_name")
-    )
-    success_lines = [
-        f"Check-in obavljen, {operator_name}.",
-        f"Rezervacija #{reservation.pk} ({reservation.booking_code or reservation.external_id})",
-        f"Gost: {guest_name or reservation.booker_name}",
-        f"Objekt: {reservation.property.name}",
-        f"Datumi: {reservation.check_in:%d.%m.%Y} – {reservation.check_out:%d.%m.%Y}",
-    ]
-    if email_result.get("sent"):
-        success_lines.append(f"Email gostu poslan na {email_result.get('to')}.")
-    else:
-        success_lines.append(
-            "Email gostu nije poslan "
-            f"({email_result.get('reason') or 'nema adrese'})."
-        )
-
-    session.status = WhatsAppOperatorSessionStatus.DONE
-    session.save(update_fields=["status", "updated_at"])
-    _send_operator_text(
+    return complete_operator_checkin_after_apply(
+        job=job,
+        reservation=reservation,
+        operator_wa_id=row.wa_id,
+        applied=applied,
         integration_row=integration_row,
         runtime=runtime,
-        operator_wa_id=row.wa_id,
-        body="\n".join(success_lines),
-        reservation=reservation,
+        session=session,
     )
-    return {
-        "status": "completed",
-        "job_id": job.pk,
-        "reservation_id": reservation_id,
-        "email": email_result,
-    }
 
 
 def handle_operator_inbound(

@@ -211,6 +211,9 @@ def send_welcome_template_for_reservation(
     if reservation.whatsapp_welcome_sent_at is not None:
         return {"status": "already_sent", "reservation_id": reservation.pk}
 
+    if reservation.whatsapp_autocheckin_waived_at is not None:
+        return {"status": "skipped", "reason": "autocheckin_waived", "reservation_id": reservation.pk}
+
     if reservation.whatsapp_autocheckin_engaged_at is not None:
         return {"status": "skipped", "reason": "guest_engaged", "reservation_id": reservation.pk}
 

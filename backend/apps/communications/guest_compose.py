@@ -37,9 +37,9 @@ HINT_OPERATOR_CHECKIN_COMPLETE = "operator checkin complete"
 HINT_AUTOCHECKIN_WHATSAPP_INTRO = "whatsapp autocheckin intro"
 HINT_EVISITOR_REGISTERED = "evisitor registered"
 HINT_ID_MISSING_SIDES = "id missing sides"
-
-MAPS_LINK = "https://maps.app.goo.gl/BN15CcMmmAapmjUs7"
-DEFAULT_ADDRESS = "Ul. bana Josipa Jelačića 58, 22000 Šibenik"
+HINT_POST_CHECKIN_AUTO_REPLY = "post_checkin_auto_reply"
+HINT_AUTOCHECKIN_WAIVED = "autocheckin waived"
+HINT_AUTOCHECKIN_ARRIVAL_THANKS = "autocheckin arrival thanks"
 
 FOOTER = "Managed by stay.hr — https://stay.hr/"
 
@@ -81,431 +81,90 @@ PAYMENT_TEXTS: dict[str, dict[str, str]] = {
     },
 }
 
-ENTRANCE_TEXTS = {
-    "hr": (
-        'Ulaz: potražite natpis „Restaurant Uzorita” i broj **58** na bijelom zidu — '
-        "kapija s vinovom lozom odmah desno od znaka. "
-        "(Fotografiju ulaza šaljemo u sljedećoj poruci.)"
-    ),
-    "en": (
-        'Entrance: look for the "Restaurant Uzorita" sign and house number **58** on the white wall — '
-        "the gate with vines is just to the right of the sign. "
-        "(We'll send a photo of the entrance in the next message.)"
-    ),
-    "de": (
-        "Eingang: Schild „Restaurant Uzorita” und Hausnummer **58** an der weißen Mauer — "
-        "das Tor mit Weinreben rechts neben dem Schild. "
-        "(Ein Foto des Eingangs folgt in der nächsten Nachricht.)"
-    ),
-    "es": (
-        'Entrada: busque el cartel «Restaurant Uzorita» y el número **58** en la pared blanca — '
-        "la puerta con hiedra está justo a la derecha del cartel. "
-        "(Enviaremos una foto de la entrada en el siguiente mensaje.)"
-    ),
-    "fr": (
-        "Entrée : repérez l’enseigne « Restaurant Uzorita » et le numéro **58** sur le mur blanc — "
-        "le portail avec la vigne est juste à droite de l’enseigne. "
-        "(Nous enverrons une photo de l’entrée dans le message suivant.)"
-    ),
-}
-
-PARKING_TEXTS = {
-    "hr": (
-        "Parkiranje: u cijeloj zoni parkiranje je besplatno. "
-        "Možete parkirati odmah ispred objekta; ako nema mjesta, slobodno bilo gdje u neposrednoj blizini."
-    ),
-    "en": (
-        "Parking: parking is free throughout the zone. "
-        "You can park right in front of the property; if there is no space, anywhere nearby is fine."
-    ),
-    "de": (
-        "Parken: In der gesamten Zone ist das Parken kostenlos. "
-        "Sie können direkt vor dem Haus parken; wenn kein Platz frei ist, finden Sie problemlos einen Parkplatz in unmittelbarer Nähe."
-    ),
-    "es": (
-        "Aparcamiento: el aparcamiento es gratuito en toda la zona. "
-        "Puede aparcar justo delante del alojamiento; si no hay sitio, en cualquier lugar cercano."
-    ),
-    "fr": (
-        "Stationnement : le stationnement est gratuit dans toute la zone. "
-        "Vous pouvez vous garer juste devant l’établissement ; s’il n’y a pas de place, n’importe où à proximité."
-    ),
-}
-
-DOCUMENTS_TEXTS = {
-    "hr": (
-        "Check-in — dokumenti\n"
-        "Molimo prije dolaska pošaljite nam ovdje na WhatsApp fotografije dokumenata "
-        "za svakog odraslog gosta ({adults}): putovnica (stranica s podacima) ili "
-        "osobna iskaznica (prednja + stražnja strana). Bez bljeskalice, cijeli dokument u kadru. "
-        "Podatke koristimo isključivo za zakonsku prijavu boravka (eVisitor)."
-    ),
-    "en": (
-        "Check-in — documents\n"
-        "Please send us photos of ID documents here on WhatsApp before arrival — "
-        "one set per adult guest ({adults}): passport (biodata page) or national ID card "
-        "(front + back). No flash, full document in frame. "
-        "We use this data only for mandatory guest registration (eVisitor)."
-    ),
-    "de": (
-        "Check-in vorbereiten\n"
-        "Bitte senden Sie uns vor der Anreise Fotos der Ausweisdokumente hier per WhatsApp — "
-        "pro erwachsenem Gast ({adults}): Reisepass (Datenseite) oder Personalausweis "
-        "(Vorder- und Rückseite). Ohne Blitz, ganzes Dokument im Bild. "
-        "Die Daten verwenden wir ausschließlich für die gesetzliche Meldepflicht (eVisitor)."
-    ),
-    "es": (
-        "Check-in — documentos\n"
-        "Por favor, envíenos fotos de los documentos de identidad por WhatsApp antes de la llegada — "
-        "un juego por cada huésped adulto ({adults}): pasaporte (página de datos) o DNI "
-        "(anverso y reverso). Sin flash, documento completo en la imagen. "
-        "Usamos estos datos únicamente para el registro legal de la estancia (eVisitor)."
-    ),
-    "fr": (
-        "Check-in — documents\n"
-        "Veuillez nous envoyer par WhatsApp, avant votre arrivée, des photos des pièces d’identité — "
-        "un jeu par adulte ({adults}) : passeport (page d’identité) ou carte d’identité "
-        "(recto et verso). Sans flash, document entier visible. "
-        "Nous utilisons ces données uniquement pour l’enregistrement légal du séjour (eVisitor)."
-    ),
-}
-
-DOCUMENTS_BATCH_CONFIRM = {
-    "hr": (
-        "Primili smo fotografije. Jeste li poslali sve dokumente za sve odrasle goste?"
-    ),
-    "en": (
-        "We received your photos. Have you sent ID documents for all adult guests?"
-    ),
-    "de": (
-        "Wir haben Ihre Fotos erhalten. Haben Sie Ausweisdokumente für alle erwachsenen Gäste gesendet?"
-    ),
-    "es": (
-        "Hemos recibido sus fotos. ¿Ha enviado documentos de identidad de todos los huéspedes adultos?"
-    ),
-    "fr": (
-        "Nous avons reçu vos photos. Avez-vous envoyé les pièces d’identité de tous les adultes ?"
-    ),
-}
-
-DOCUMENTS_BATCH_CONFIRM_YES = {
-    "hr": "Da",
-    "en": "Yes",
-    "de": "Ja",
-    "es": "Sí",
-    "fr": "Oui",
-}
-
-DOCUMENTS_BATCH_CONFIRM_NO = {
-    "hr": "Ne",
-    "en": "No",
-    "de": "Nein",
-    "es": "No",
-    "fr": "Non",
-}
-
-CHECKIN_PARTIAL_DOCUMENTS = {
-    "hr": (
-        "Primili smo dokumente — hvala!\n\n"
-        "Molimo pošaljite još fotografije dokumenata za preostale odrasle goste na rezervaciji."
-    ),
-    "en": (
-        "We received your documents — thank you!\n\n"
-        "Please send ID photos for the remaining adult guests on your reservation."
-    ),
-    "de": (
-        "Wir haben Ihre Dokumente erhalten — vielen Dank!\n\n"
-        "Bitte senden Sie noch Ausweisfotos für die übrigen erwachsenen Gäste Ihrer Buchung."
-    ),
-    "es": (
-        "Hemos recibido sus documentos — ¡gracias!\n\n"
-        "Por favor, envíe fotos de identidad de los demás huéspedes adultos de la reserva."
-    ),
-    "fr": (
-        "Nous avons bien reçu vos documents — merci !\n\n"
-        "Veuillez envoyer les photos d’identité des autres adultes de la réservation."
-    ),
-}
-
-MISSING_ID_SIDES_INTRO = {
-    "hr": (
-        "Primili smo dokumente — hvala!\n\n"
-        "Molimo pošaljite još:"
-    ),
-    "en": (
-        "We received your documents — thank you!\n\n"
-        "Please send the following:"
-    ),
-    "de": (
-        "Wir haben Ihre Dokumente erhalten — vielen Dank!\n\n"
-        "Bitte senden Sie noch:"
-    ),
-    "es": (
-        "Hemos recibido sus documentos — ¡gracias!\n\n"
-        "Por favor, envíe lo siguiente:"
-    ),
-    "fr": (
-        "Nous avons bien reçu vos documents — merci !\n\n"
-        "Veuillez envoyer ce qui suit :"
-    ),
-}
-
-MISSING_ID_SIDE_LINE = {
-    "hr": "• {name} — nedostaje {side_label}",
-    "en": "• {name} — missing {side_label}",
-    "de": "• {name} — fehlend: {side_label}",
-    "es": "• {name} — falta {side_label}",
-    "fr": "• {name} — manquant : {side_label}",
-}
-
-MISSING_ID_SIDE_LABEL_NATIONAL_FRONT = {
-    "hr": "prednja strana osobne iskaznice",
-    "en": "front of the ID card",
-    "de": "Vorderseite des Personalausweises",
-    "es": "anverso del documento de identidad",
-    "fr": "recto de la carte d’identité",
-}
-
-MISSING_ID_SIDE_LABEL_NATIONAL_BACK = {
-    "hr": "stražnja strana osobne iskaznice",
-    "en": "back of the ID card",
-    "de": "Rückseite des Personalausweises",
-    "es": "reverso del documento de identidad",
-    "fr": "verso de la carte d’identité",
-}
-
-MISSING_ID_SIDE_LABEL_PASSPORT = {
-    "hr": "stranica s podacima putovnice",
-    "en": "passport biodata page",
-    "de": "Passdatenseite",
-    "es": "página de datos del pasaporte",
-    "fr": "page d’identité du passeport",
-}
-
-CHECKIN_AUTOMATION_FAILED = {
-    "hr": (
-        "Automatski check-in nije uspio — podatke ćemo upisati na recepciji kad stignete.\n\n"
-        "Javite nam, molimo, okvirno vrijeme dolaska."
-    ),
-    "en": (
-        "Automatic check-in did not succeed — we will register you at reception when you arrive.\n\n"
-        "Please let us know your approximate arrival time."
-    ),
-    "de": (
-        "Der automatische Check-in ist fehlgeschlagen — wir erfassen Ihre Daten bei der Ankunft an der Rezeption.\n\n"
-        "Bitte teilen Sie uns Ihre ungefähre Ankunftszeit mit."
-    ),
-    "es": (
-        "El check-in automático no ha funcionado — registraremos sus datos en recepción a su llegada.\n\n"
-        "Por favor, indíquenos su hora aproximada de llegada."
-    ),
-    "fr": (
-        "L’enregistrement automatique n’a pas abouti — nous saisirons vos données à l’accueil à votre arrivée.\n\n"
-        "Merci de nous indiquer votre heure d’arrivée approximative."
-    ),
-}
-
-CHECKIN_READY_BODY = {
-    "hr": (
-        "Hvala vam na poslanim dokumentima!\n\n"
-        "Vaši podaci su spremljeni — kad stignete, check-in će proći brzo i nećete gubiti vrijeme.\n\n"
-        "Javite nam, molimo, okvirno vrijeme dolaska."
-    ),
-    "en": (
-        "Thank you for sending your documents!\n\n"
-        "Your details are saved — when you arrive, check-in will be quick and you won’t lose time.\n\n"
-        "Please let us know your approximate arrival time."
-    ),
-    "de": (
-        "Vielen Dank für die Dokumente!\n\n"
-        "Ihre Daten sind registriert — beim Check-in vor Ort geht es schnell, Sie verlieren keine Zeit.\n\n"
-        "Bitte teilen Sie uns Ihre ungefähre Ankunftszeit mit."
-    ),
-    "es": (
-        "¡Gracias por enviar los documentos!\n\n"
-        "Sus datos están registrados — a su llegada, el check-in será rápido y no perderá tiempo.\n\n"
-        "Por favor, indíquenos su hora aproximada de llegada."
-    ),
-    "fr": (
-        "Merci pour l’envoi de vos documents !\n\n"
-        "Vos données sont enregistrées — à votre arrivée, l’enregistrement sera rapide.\n\n"
-        "Merci de nous indiquer votre heure d’arrivée approximative."
-    ),
-}
-
-OPERATOR_CHECKIN_COMPLETE_BODY = {
-    "hr": (
-        "Check-in je obavljen. Vaši podaci su spremljeni.\n\n"
-        "Želimo vam ugodan boravak!"
-    ),
-    "en": (
-        "Your check-in is complete. Your details have been saved.\n\n"
-        "We wish you a pleasant stay!"
-    ),
-    "de": (
-        "Ihr Check-in ist abgeschlossen. Ihre Daten wurden erfasst.\n\n"
-        "Wir wünschen Ihnen einen angenehmen Aufenthalt!"
-    ),
-    "es": (
-        "Su check-in está completado. Sus datos han sido registrados.\n\n"
-        "¡Le deseamos una estancia agradable!"
-    ),
-    "fr": (
-        "Votre enregistrement est terminé. Vos données ont été enregistrées.\n\n"
-        "Nous vous souhaitons un agréable séjour !"
-    ),
-}
-
-AUTOCHECKIN_WHATSAPP_INTRO_HEAD = {
-    "hr": (
-        "Danas možete obaviti brzi online check-in putem WhatsAppa.\n\n"
-        "Kontaktirat ćemo vas s broja {display_phone}. Možete i sami započeti check-in."
-    ),
-    "en": (
-        "You can complete a quick online check-in via WhatsApp today.\n\n"
-        "We will contact you from {display_phone}. You can also start check-in yourself."
-    ),
-    "de": (
-        "Heute können Sie den Online-Check-in per WhatsApp abschließen.\n\n"
-        "Wir kontaktieren Sie von {display_phone}. Sie können den Check-in auch selbst starten."
-    ),
-    "es": (
-        "Hoy puede completar el check-in online por WhatsApp.\n\n"
-        "Le contactaremos desde {display_phone}. También puede iniciar el check-in."
-    ),
-    "fr": (
-        "Aujourd’hui, vous pouvez effectuer l’enregistrement en ligne via WhatsApp.\n\n"
-        "Nous vous contacterons depuis {display_phone}. "
-        "Vous pouvez aussi démarrer l’enregistrement."
-    ),
-}
-
-AUTOCHECKIN_WHATSAPP_INTRO_TAIL = {
-    "hr": (
-        "Ako check-in obavite preko linka, nećete dobiti zasebnu WhatsApp pozivnicu "
-        "(utility poruku).\n\n"
-        "Rezervacija: {booking_code}"
-    ),
-    "en": (
-        "If you check in via the link, you will not receive a separate WhatsApp invitation "
-        "(utility message).\n\n"
-        "Booking: {booking_code}"
-    ),
-    "de": (
-        "Wenn Sie den Check-in über den Link abschließen, erhalten Sie keine separate "
-        "WhatsApp-Einladung (Utility-Nachricht).\n\n"
-        "Buchung: {booking_code}"
-    ),
-    "es": (
-        "Si completa el check-in mediante el enlace, no recibirá una invitación "
-        "WhatsApp aparte (mensaje utility).\n\n"
-        "Reserva: {booking_code}"
-    ),
-    "fr": (
-        "Si vous terminez via le lien, vous ne recevrez pas d’invitation WhatsApp "
-        "séparée (message utility).\n\n"
-        "Réservation : {booking_code}"
-    ),
-}
-
-AUTOCHECKIN_WA_ME_PREFILL = {
-    "hr": "Auto check-in",
-    "en": "Auto check-in",
-    "de": "Autocheck-in",
-    "es": "Auto check-in",
-    "fr": "Auto check-in",
-}
-
-EVISITOR_REGISTERED = {
-    "hr": (
-        "Prijavljeni ste u eVisitor (zakonska prijava boravka).\n\n"
-        "Želimo vam ugodan boravak!"
-    ),
-    "en": (
-        "You are now registered in eVisitor (official guest registration).\n\n"
-        "We wish you a pleasant stay!"
-    ),
-    "de": (
-        "Sie sind jetzt in eVisitor registriert (gesetzliche Meldepflicht).\n\n"
-        "Wir wünschen Ihnen einen angenehmen Aufenthalt!"
-    ),
-    "es": (
-        "Ya está registrado en eVisitor (registro oficial de huéspedes).\n\n"
-        "¡Le deseamos una estancia agradable!"
-    ),
-    "fr": (
-        "Vous êtes maintenant enregistré dans eVisitor (enregistrement officiel).\n\n"
-        "Nous vous souhaitons un agréable séjour !"
-    ),
-}
-
-CHECKIN_LINE = {
-    "hr": "Check-in: {check_in} od {check_in_time}",
-    "en": "Check-in: {check_in} from {check_in_time}",
-    "de": "Check-in: {check_in} ab {check_in_time} Uhr",
-    "es": "Check-in: {check_in} a partir de las {check_in_time}",
-    "fr": "Check-in : {check_in} à partir de {check_in_time}",
-}
-
-GREETING = {
-    "hr": "Bok {name}!",
-    "en": "Hi {name}!",
-    "de": "Hallo {name}!",
-    "es": "¡Hola {name}!",
-    "fr": "Bonjour {name} !",
-}
-
-THANKS = {
-    "hr": "Hvala na rezervaciji u {property_name}.",
-    "en": "Thank you for your booking at {property_name}.",
-    "de": "Vielen Dank für Ihre Buchung bei {property_name}.",
-    "es": "Gracias por su reserva en {property_name}.",
-    "fr": "Merci pour votre réservation chez {property_name}.",
-}
-
-RESERVATION_HEADER = {
-    "hr": "Vaša rezervacija",
-    "en": "Your reservation",
-    "de": "Ihre Buchung",
-    "es": "Su reserva",
-    "fr": "Votre réservation",
-}
-
-ROOM_LABEL = {
-    "hr": "Soba",
-    "en": "Room",
-    "de": "Zimmer",
-    "es": "Habitación",
-    "fr": "Chambre",
-}
-
-ADDRESS_LABEL = {
-    "hr": "Adresa",
-    "en": "Address",
-    "de": "Adresse",
-    "es": "Dirección",
-    "fr": "Adresse",
-}
-
-SIGN_OFF = {
-    "hr": "Lijep pozdrav,",
-    "en": "Best regards,",
-    "de": "Mit freundlichen Grüßen,",
-    "es": "Un saludo cordial,",
-    "fr": "Cordialement,",
-}
-
-DEFAULT_GUEST_NAME = {
-    "hr": "Gost",
-    "en": "Guest",
-    "de": "Gast",
-    "es": "Huésped",
-    "fr": "Client",
-}
-
+from apps.communications.guest_compose_defaults import (
+    ADDRESS_LABEL,
+    AUTOCHECKIN_WA_ME_PREFILL,
+    AUTOCHECKIN_WHATSAPP_INTRO_HEAD,
+    AUTOCHECKIN_WHATSAPP_INTRO_TAIL,
+    CHECKIN_AUTOMATION_FAILED,
+    CHECKIN_LINE,
+    CHECKIN_PARTIAL_DOCUMENTS,
+    CHECKIN_READY_BODY,
+    DEFAULT_ADDRESS,
+    DEFAULT_GUEST_NAME,
+    DOCUMENTS_BATCH_CONFIRM,
+    DOCUMENTS_BATCH_CONFIRM_NO,
+    DOCUMENTS_BATCH_CONFIRM_YES,
+    DOCUMENTS_TEXTS,
+    ENTRANCE_IMAGE_CAPTION,
+    ENTRANCE_TEXTS,
+    EVISITOR_REGISTERED,
+    GREETING,
+    MAPS_LINK,
+    MISSING_ID_SIDE_LABEL_NATIONAL_BACK,
+    MISSING_ID_SIDE_LABEL_NATIONAL_FRONT,
+    MISSING_ID_SIDE_LABEL_PASSPORT,
+    MISSING_ID_SIDE_LINE,
+    MISSING_ID_SIDES_INTRO,
+    OPERATOR_CHECKIN_COMPLETE_BODY,
+    PARKING_TEXTS,
+    POST_CHECKIN_ARRIVAL_THANKS,
+    POST_CHECKIN_PARKING,
+    POST_CHECKIN_WELCOME_EVENING,
+    POST_CHECKIN_WELCOME_TODAY,
+    RESERVATION_HEADER,
+    ROOM_LABEL,
+    SIGN_OFF,
+    THANKS,
+)
+from apps.properties.guest_info import (
+    build_guest_facts_for_llm,
+    format_wifi_block,
+    guest_maps_url,
+    guest_text,
+)
 
 def _text_for_lang(texts: dict[str, str], lang: str) -> str:
     return texts.get(lang) or texts["en"]
+
+
+def _property_guest_text(
+    reservation: Reservation,
+    key: str,
+    lang: str,
+    **fmt: object,
+) -> str:
+    return guest_text(reservation.property, key, lang, **fmt)
+
+
+def _wifi_section(reservation: Reservation, lang: str) -> str:
+    return format_wifi_block(reservation.property, lang)
+
+
+def _message_lines_before_signoff(
+    reservation: Reservation,
+    context: dict,
+    *,
+    body_lines: list[str],
+) -> str:
+    """Body lines, optional WiFi block, sign-off, property name, footer."""
+    lang = context["language"]
+    lines = list(body_lines)
+    wifi = _wifi_section(reservation, lang)
+    if wifi:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.append(wifi)
+    lines.extend(
+        [
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
+    return "\n".join(line for line in lines if line is not None)
 
 
 def _normalize_hint(hint: str) -> str:
@@ -640,21 +299,25 @@ def build_compose_context(
         "currency": reservation.currency or "EUR",
         "payment_text": _payment_text(reservation, lang),
         "address": _property_address(reservation),
-        "maps_link": MAPS_LINK,
+        "maps_link": guest_maps_url(prop),
+        "guest_facts": build_guest_facts_for_llm(prop, lang),
         "notes": (reservation.notes or "").strip(),
         "contact_phone": (contact.get("phone") or "").strip(),
         "message_history": _message_history(reservation),
     }
 
 
-def _render_checkin_fallback(context: dict) -> str:
+def _render_checkin_fallback(reservation: Reservation, context: dict) -> str:
     lang = context["language"]
     name = context["guest_name"] or _text_for_lang(DEFAULT_GUEST_NAME, lang)
     adults = context["adults_count"]
-    entrance = _text_for_lang(ENTRANCE_TEXTS, lang)
-    parking = _text_for_lang(PARKING_TEXTS, lang)
-    documents = _text_for_lang(DOCUMENTS_TEXTS, lang).format(adults=adults)
-    checkin_line = _text_for_lang(CHECKIN_LINE, lang).format(
+    entrance = _property_guest_text(reservation, "entrance", lang)
+    parking = _property_guest_text(reservation, "parking", lang)
+    documents = _property_guest_text(reservation, "documents", lang, adults=adults)
+    checkin_line = _property_guest_text(
+        reservation,
+        "checkin_line",
+        lang,
         check_in=context["check_in_date"],
         check_in_time=context["check_in_time"],
     )
@@ -696,9 +359,9 @@ def _render_checkin_fallback(context: dict) -> str:
     return "\n".join(line for line in lines if line is not None)
 
 
-def _render_checkin_ready_fallback(context: dict) -> str:
+def _render_checkin_ready_fallback(reservation: Reservation, context: dict) -> str:
     lang = context["language"]
-    body = _text_for_lang(CHECKIN_READY_BODY, lang)
+    body = _property_guest_text(reservation, "checkin_ready", lang)
     return "\n".join(
         [
             body,
@@ -714,32 +377,68 @@ def _render_checkin_ready_fallback(context: dict) -> str:
 def render_checkin_ready_message(reservation: Reservation) -> str:
     """Deterministic post-apply thank-you message (same as compose checkin ready)."""
     context = build_compose_context(reservation)
-    return _render_checkin_ready_fallback(context)
+    return _render_checkin_ready_fallback(reservation, context)
 
 
-def _render_operator_checkin_complete_fallback(context: dict) -> str:
+def render_post_checkin_guest_reply(
+    reservation: Reservation,
+    *,
+    mentions_arrival: bool,
+    mentions_parking: bool,
+    evening_welcome: bool,
+) -> str:
+    """Auto-reply after documents are complete (parking / arrival questions)."""
+    context = build_compose_context(reservation)
     lang = context["language"]
-    body = _text_for_lang(OPERATOR_CHECKIN_COMPLETE_BODY, lang)
-    return "\n".join(
+    raw_name = (context["guest_name"] or "").strip()
+    first_name = raw_name.split()[0] if raw_name else _text_for_lang(DEFAULT_GUEST_NAME, lang)
+    property_name = context["property_name"]
+
+    lines = [_text_for_lang(GREETING, lang).format(name=first_name), ""]
+    if mentions_arrival:
+        lines.append(_property_guest_text(reservation, "post_checkin_arrival_thanks", lang))
+        lines.append("")
+    if mentions_parking:
+        lines.append(_property_guest_text(reservation, "parking_post_checkin", lang))
+        lines.append("")
+    welcome_key = "post_checkin_welcome_evening" if evening_welcome else "post_checkin_welcome_today"
+    lines.append(_property_guest_text(reservation, welcome_key, lang, property_name=property_name))
+    wifi = _wifi_section(reservation, lang)
+    if wifi:
+        lines.extend(["", wifi])
+    lines.extend(
         [
-            body,
             "",
             _text_for_lang(SIGN_OFF, lang),
-            context["property_name"],
+            property_name,
             "",
             FOOTER,
         ]
     )
+    return "\n".join(lines)
+
+
+def render_entrance_image_caption(reservation: Reservation) -> str:
+    lang = _lang_key(reservation)
+    return _property_guest_text(reservation, "entrance_image_caption", lang)
+
+
+def _render_operator_checkin_complete_fallback(reservation: Reservation, context: dict) -> str:
+    lang = context["language"]
+    body = _property_guest_text(reservation, "operator_checkin_complete", lang)
+    return _message_lines_before_signoff(reservation, context, body_lines=[body])
 
 
 def render_operator_checkin_complete_message(reservation: Reservation) -> str:
     """Email after reception staff completes on-site check-in via WhatsApp operator flow."""
     context = build_compose_context(reservation)
-    return _render_operator_checkin_complete_fallback(context)
+    return _render_operator_checkin_complete_fallback(reservation, context)
 
 
-def autocheckin_wa_me_prefill(language: str) -> str:
+def autocheckin_wa_me_prefill(language: str, reservation: Reservation | None = None) -> str:
     lang = _lang_key_from_code(language)
+    if reservation is not None:
+        return _property_guest_text(reservation, "autocheckin_wa_me_prefill", lang)
     return AUTOCHECKIN_WA_ME_PREFILL.get(lang, AUTOCHECKIN_WA_ME_PREFILL["en"])
 
 
@@ -747,12 +446,12 @@ def _autocheckin_intro_booking_code(reservation: Reservation, context: dict) -> 
     return context["booking_code"] or str(reservation.pk)
 
 
-def _autocheckin_intro_cta_label(lang: str) -> str:
-    return autocheckin_wa_me_prefill(lang)
+def _autocheckin_intro_cta_label(reservation: Reservation, lang: str) -> str:
+    return autocheckin_wa_me_prefill(lang, reservation=reservation)
 
 
-def _autocheckin_intro_plain_cta_line(*, lang: str, wa_link: str) -> str:
-    label = _autocheckin_intro_cta_label(lang)
+def _autocheckin_intro_plain_cta_line(*, reservation: Reservation, lang: str, wa_link: str) -> str:
+    label = _autocheckin_intro_cta_label(reservation, lang)
     link = (wa_link or "").strip()
     return f"{label}: {link}" if link else label
 
@@ -773,15 +472,22 @@ def _whatsapp_cta_button_html(*, href: str, label: str) -> str:
 
 def _render_autocheckin_intro_core(
     *,
+    reservation: Reservation,
     lang: str,
     display_phone: str,
     booking_code: str,
     cta_line: str,
 ) -> str:
-    head = _text_for_lang(AUTOCHECKIN_WHATSAPP_INTRO_HEAD, lang).format(
+    head = _property_guest_text(
+        reservation,
+        "autocheckin_whatsapp_intro_head",
+        lang,
         display_phone=display_phone or "",
     )
-    tail = _text_for_lang(AUTOCHECKIN_WHATSAPP_INTRO_TAIL, lang).format(
+    tail = _property_guest_text(
+        reservation,
+        "autocheckin_whatsapp_intro_tail",
+        lang,
         booking_code=booking_code,
     )
     return "\n\n".join(part for part in (head, cta_line, tail) if part)
@@ -796,10 +502,11 @@ def render_autocheckin_whatsapp_intro_email(
     context = build_compose_context(reservation)
     lang = context["language"]
     body = _render_autocheckin_intro_core(
+        reservation=reservation,
         lang=lang,
         display_phone=display_phone or "",
         booking_code=_autocheckin_intro_booking_code(reservation, context),
-        cta_line=_autocheckin_intro_plain_cta_line(lang=lang, wa_link=wa_link),
+        cta_line=_autocheckin_intro_plain_cta_line(reservation=reservation, lang=lang, wa_link=wa_link),
     )
     return "\n".join(
         [
@@ -829,11 +536,17 @@ def render_autocheckin_whatsapp_intro_email_html(
     footer = html.escape(FOOTER)
 
     head = html.escape(
-        _text_for_lang(AUTOCHECKIN_WHATSAPP_INTRO_HEAD, lang).format(
+        _property_guest_text(
+            reservation,
+            "autocheckin_whatsapp_intro_head",
+            lang,
             display_phone=display_phone or "",
         )
     ).replace("\n\n", "<br><br>")
-    tail_raw = _text_for_lang(AUTOCHECKIN_WHATSAPP_INTRO_TAIL, lang).format(
+    tail_raw = _property_guest_text(
+        reservation,
+        "autocheckin_whatsapp_intro_tail",
+        lang,
         booking_code=booking_code,
     )
     tail_parts = tail_raw.split("\n\n", 1)
@@ -847,7 +560,7 @@ def render_autocheckin_whatsapp_intro_email_html(
         )
     cta = _whatsapp_cta_button_html(
         href=wa_link or "",
-        label=_autocheckin_intro_cta_label(lang),
+        label=_autocheckin_intro_cta_label(reservation, lang),
     )
 
     return "\n".join(
@@ -869,31 +582,22 @@ def _lang_key_from_code(language: str) -> str:
     return "en"
 
 
-def _render_evisitor_registered_fallback(context: dict) -> str:
+def _render_evisitor_registered_fallback(reservation: Reservation, context: dict) -> str:
     lang = context["language"]
-    body = _text_for_lang(EVISITOR_REGISTERED, lang)
-    return "\n".join(
-        [
-            body,
-            "",
-            _text_for_lang(SIGN_OFF, lang),
-            context["property_name"],
-            "",
-            FOOTER,
-        ]
-    )
+    body = _property_guest_text(reservation, "evisitor_registered", lang)
+    return _message_lines_before_signoff(reservation, context, body_lines=[body])
 
 
 def render_evisitor_registered_message(reservation: Reservation) -> str:
     """WhatsApp message after all required guests are registered in eVisitor."""
     context = build_compose_context(reservation)
-    return _render_evisitor_registered_fallback(context)
+    return _render_evisitor_registered_fallback(reservation, context)
 
 
-def _render_documents_fallback(context: dict) -> str:
+def _render_documents_fallback(reservation: Reservation, context: dict) -> str:
     lang = context["language"]
     adults = context["adults_count"]
-    documents = _text_for_lang(DOCUMENTS_TEXTS, lang).format(adults=adults)
+    documents = _property_guest_text(reservation, "documents", lang, adults=adults)
     return "\n".join(
         [
             documents,
@@ -909,26 +613,26 @@ def _render_documents_fallback(context: dict) -> str:
 def render_documents_message(reservation: Reservation) -> str:
     """Document upload instructions after Auto check-in quick reply."""
     context = build_compose_context(reservation)
-    return _render_documents_fallback(context)
+    return _render_documents_fallback(reservation, context)
 
 
 def render_documents_batch_confirm_message(reservation: Reservation) -> str:
     context = build_compose_context(reservation)
-    return _text_for_lang(DOCUMENTS_BATCH_CONFIRM, context["language"])
+    return _property_guest_text(reservation, "documents_batch_confirm", context["language"])
 
 
 def documents_batch_confirm_button_labels(reservation: Reservation) -> tuple[str, str]:
     context = build_compose_context(reservation)
     lang = context["language"]
     return (
-        _text_for_lang(DOCUMENTS_BATCH_CONFIRM_YES, lang),
-        _text_for_lang(DOCUMENTS_BATCH_CONFIRM_NO, lang),
+        _property_guest_text(reservation, "documents_batch_confirm_yes", lang),
+        _property_guest_text(reservation, "documents_batch_confirm_no", lang),
     )
 
 
-def _render_checkin_partial_fallback(context: dict) -> str:
+def _render_checkin_partial_fallback(reservation: Reservation, context: dict) -> str:
     lang = context["language"]
-    body = _text_for_lang(CHECKIN_PARTIAL_DOCUMENTS, lang)
+    body = _property_guest_text(reservation, "checkin_partial_documents", lang)
     return "\n".join(
         [
             body,
@@ -943,25 +647,25 @@ def _render_checkin_partial_fallback(context: dict) -> str:
 
 def render_checkin_partial_documents_message(reservation: Reservation) -> str:
     context = build_compose_context(reservation)
-    return _render_checkin_partial_fallback(context)
+    return _render_checkin_partial_fallback(reservation, context)
 
 
-def _missing_id_side_label(*, lang: str, gap: MissingIdSide) -> str:
+def _missing_id_side_label(*, reservation: Reservation, lang: str, gap: MissingIdSide) -> str:
     if gap.is_passport:
-        return _text_for_lang(MISSING_ID_SIDE_LABEL_PASSPORT, lang)
+        return _property_guest_text(reservation, "missing_id_side_label_passport", lang)
     if gap.side == "back":
-        return _text_for_lang(MISSING_ID_SIDE_LABEL_NATIONAL_BACK, lang)
-    return _text_for_lang(MISSING_ID_SIDE_LABEL_NATIONAL_FRONT, lang)
+        return _property_guest_text(reservation, "missing_id_side_label_national_back", lang)
+    return _property_guest_text(reservation, "missing_id_side_label_national_front", lang)
 
 
-def _render_missing_id_sides_fallback(context: dict, gaps: list[MissingIdSide]) -> str:
+def _render_missing_id_sides_fallback(reservation: Reservation, context: dict, gaps: list[MissingIdSide]) -> str:
     lang = context["language"]
-    line_template = _text_for_lang(MISSING_ID_SIDE_LINE, lang)
+    line_template = _property_guest_text(reservation, "missing_id_side_line", lang)
     lines = [
-        _text_for_lang(MISSING_ID_SIDES_INTRO, lang),
+        _property_guest_text(reservation, "missing_id_sides_intro", lang),
         "",
         *[
-            line_template.format(name=gap.guest_name, side_label=_missing_id_side_label(lang=lang, gap=gap))
+            line_template.format(name=gap.guest_name, side_label=_missing_id_side_label(reservation=reservation, lang=lang, gap=gap))
             for gap in gaps
         ],
         "",
@@ -975,12 +679,12 @@ def _render_missing_id_sides_fallback(context: dict, gaps: list[MissingIdSide]) 
 
 def render_missing_id_sides_message(reservation: Reservation, gaps: list[MissingIdSide]) -> str:
     context = build_compose_context(reservation)
-    return _render_missing_id_sides_fallback(context, gaps)
+    return _render_missing_id_sides_fallback(reservation, context, gaps)
 
 
-def _render_checkin_automation_failed_fallback(context: dict) -> str:
+def _render_checkin_automation_failed_fallback(reservation: Reservation, context: dict) -> str:
     lang = context["language"]
-    body = _text_for_lang(CHECKIN_AUTOMATION_FAILED, lang)
+    body = _property_guest_text(reservation, "checkin_automation_failed", lang)
     return "\n".join(
         [
             body,
@@ -995,7 +699,54 @@ def _render_checkin_automation_failed_fallback(context: dict) -> str:
 
 def render_checkin_automation_failed_message(reservation: Reservation) -> str:
     context = build_compose_context(reservation)
-    return _render_checkin_automation_failed_fallback(context)
+    return _render_checkin_automation_failed_fallback(reservation, context)
+
+
+def _render_autocheckin_waived_fallback(reservation: Reservation, context: dict) -> str:
+    lang = context["language"]
+    raw_name = (context["guest_name"] or "").strip()
+    first_name = raw_name.split()[0] if raw_name else _text_for_lang(DEFAULT_GUEST_NAME, lang)
+    property_name = context["property_name"]
+    body = _property_guest_text(
+        reservation,
+        "autocheckin_waived",
+        lang,
+        first_name=first_name,
+        property_name=property_name,
+    )
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            property_name,
+            "",
+            FOOTER,
+        ]
+    )
+
+
+def render_autocheckin_waived_message(reservation: Reservation) -> str:
+    context = build_compose_context(reservation)
+    return _render_autocheckin_waived_fallback(reservation, context)
+
+
+def render_arrival_thanks_message(reservation: Reservation) -> str:
+    """Short thanks when guest shares arrival time (waived auto check-in flow)."""
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    property_name = context["property_name"]
+    body = _property_guest_text(reservation, "post_checkin_arrival_thanks", lang)
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            property_name,
+            "",
+            FOOTER,
+        ]
+    )
 
 
 def _system_prompt() -> str:
@@ -1035,19 +786,19 @@ def _generate_body(
     context = build_compose_context(reservation, language=language)
 
     if intent == GuestMessageIntent.CHECKIN:
-        return _render_checkin_fallback(context), False, ""
+        return _render_checkin_fallback(reservation, context), False, ""
 
     if intent == GuestMessageIntent.REPLY and _normalize_hint(hint) == HINT_CHECKIN_READY:
-        return _render_checkin_ready_fallback(context), False, ""
+        return _render_checkin_ready_fallback(reservation, context), False, ""
 
     if intent == GuestMessageIntent.REPLY and _normalize_hint(hint) == HINT_EVISITOR_REGISTERED:
-        return _render_evisitor_registered_fallback(context), False, ""
+        return _render_evisitor_registered_fallback(reservation, context), False, ""
 
     if intent == GuestMessageIntent.REPLY and _normalize_hint(hint) == HINT_ID_MISSING_SIDES:
         from apps.reservations.document_intake_sides import find_missing_id_sides
 
         gaps = find_missing_id_sides(reservation)
-        return _render_missing_id_sides_fallback(context, gaps), False, ""
+        return _render_missing_id_sides_fallback(reservation, context, gaps), False, ""
 
     used_llm = False
     model_name = ""

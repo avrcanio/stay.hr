@@ -126,9 +126,10 @@ class ReceptionGuestMessagesAPITests(TestCase):
         self.assertIn("body_text_tenant", data)
         self.assertIn("tenant_language", data)
 
+    @patch("apps.communications.guest_compose.translation_available", return_value=True)
     @patch("apps.communications.guest_compose.translate_text")
     @patch.dict(os.environ, {}, clear=False)
-    def test_compose_checkin_dual_language_tenant_preview(self, mock_translate):
+    def test_compose_checkin_dual_language_tenant_preview(self, mock_translate, _mock_translation_available):
         os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
         self.tenant.default_language = "hr"
         self.tenant.save(update_fields=["default_language"])

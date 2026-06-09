@@ -14,6 +14,11 @@ class Property(TenantScopedModel):
     address = models.TextField(blank=True)
     contact = models.JSONField(default=dict, blank=True)
     branding = models.JSONField(default=dict, blank=True)
+    guest_info = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Guest FAQ, localized WhatsApp/check-in texts, maps link, entrance image path.",
+    )
     timezone = models.CharField(max_length=64, blank=True)
     language = models.CharField(max_length=10, blank=True)
     check_in_time = models.TimeField(default=time(15, 0))

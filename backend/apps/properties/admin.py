@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 
 from apps.core.admin import TenantScopedAdminMixin
+from apps.properties.admin_forms import PropertyAdminForm
 from apps.properties.models import Property, Unit, UnitBed, UnitBathroom
 
 
@@ -48,6 +49,7 @@ class UnitInline(admin.TabularInline):
 
 @admin.register(Property)
 class PropertyAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    form = PropertyAdminForm
     list_display = (
         "name",
         "slug",
@@ -73,8 +75,19 @@ class PropertyAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                     "address",
                     "contact",
                     "branding",
+                    "guest_info",
                     "timezone",
                     "language",
+                ),
+            },
+        ),
+        (
+            "WiFi za goste",
+            {
+                "fields": ("wifi_ssid", "wifi_password"),
+                "description": (
+                    "WiFi podaci u porukama dobrodošlice nakon check-in-a "
+                    "(WhatsApp i email). Sprema se u guest_info."
                 ),
             },
         ),

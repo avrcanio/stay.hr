@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from apps.ai.document_ocr import DocumentOcrError, ocr_configured, run_document_batch_ocr
+from apps.reservations.document_intake_ocr_fixup import fixup_document_ocr_result
 from apps.reservations.document_intake_face import crop_face_jpeg, _coerce_bbox_dict
 from apps.reservations.document_intake_match import match_persons_to_guests, normalize_mrz_lines
 from apps.reservations.document_intake_sides import find_id_document_for_side_merge
@@ -70,7 +71,9 @@ def process_document_intake_job(job_id: int) -> None:
                 img.image.close()
             mimes.append(_mime_for_path(img.image.name))
 
-        ocr_result = run_document_batch_ocr(image_bytes_list=bytes_list, mime_types=mimes)
+        ocr_result = fixup_document_ocr_result(
+            run_document_batch_ocr(image_bytes_list=bytes_list, mime_types=mimes)
+        )
         persons = ocr_result.get("persons") or []
         if not isinstance(persons, list):
             persons = []
@@ -259,6 +262,42 @@ def apply_document_intake_job(
     return applied
 
 
+
+def _intake_image_side(img) -> str:
+    side = str(getattr(img, "detected_side", "") or "").strip().lower()
+    if side in {"front", "back", "passport"}:
+        return side
+    return "unknown"
+
+
+def _resolve_side_images(
+    images: list,
+    front_idx: Any,
+    back_idx: Any,
+) -> tuple[Any | None, Any | None, bool, bool]:
+    """Map person image indices to front/back rows; honor detected_side on intake images."""
+    front_img = _image_at_index(images, front_idx)
+    back_img = _image_at_index(images, back_idx)
+
+    if front_img is not None and _intake_image_side(front_img) == "back" and back_img is None:
+        back_img = front_img
+        front_img = None
+    elif back_img is not None and _intake_image_side(back_img) == "front" and front_img is None:
+        front_img = back_img
+        back_img = None
+    elif (
+        front_img is not None
+        and back_img is not None
+        and _intake_image_side(front_img) == "back"
+        and _intake_image_side(back_img) == "front"
+    ):
+        front_img, back_img = back_img, front_img
+
+    applying_front = front_img is not None
+    applying_back = back_img is not None
+    return front_img, back_img, applying_front, applying_back
+
+
 def _apply_person_to_guest(
     *,
     person: dict,
@@ -274,8 +313,9 @@ def _apply_person_to_guest(
 
     front_idx = person.get("front_image_index")
     back_idx = person.get("back_image_index")
-    front_img = _image_at_index(images, front_idx)
-    back_img = _image_at_index(images, back_idx)
+    front_img, back_img, applying_front, applying_back = _resolve_side_images(
+        images, front_idx, back_idx,
+    )
 
     raw_payload = _build_scan_payload(person=person, device_id=device_id, tip=tip)
     guest_updates, suggested = _guest_updates_from_payload(raw_payload)
@@ -304,8 +344,6 @@ def _apply_person_to_guest(
             setattr(guest, field, value)
         guest.save(update_fields=list(guest_updates.keys()) + ["updated_at", "name"])
 
-    applying_front = front_img is not None
-    applying_back = back_img is not None
     id_document = find_id_document_for_side_merge(
         guest=guest,
         tip=tip,

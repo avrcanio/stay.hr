@@ -14,6 +14,7 @@ from apps.integrations.whatsapp.whatsapp_operator import (
 from apps.integrations.whatsapp.whatsapp_operator_service import (
     OPERATOR_CHECKIN_BUTTON_ID,
     OPERATOR_CHECKIN_BUTTON_TITLE,
+    _format_match_candidates,
     handle_operator_inbound,
     is_operator_checkin_command,
     is_operator_checkin_trigger,
@@ -153,7 +154,7 @@ class WhatsAppOperatorTests(TestCase):
         self.assertIn("Pritisnite Check-in ako ste gotovi", kwargs["body"])
         self.assertIn("1 slika", kwargs["body"])
 
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service._send_guest_operator_checkin_email")
+    @patch("apps.integrations.whatsapp.operator_job_complete.complete_operator_checkin_after_apply")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.apply_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.process_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
@@ -166,13 +167,26 @@ class WhatsAppOperatorTests(TestCase):
         mock_send,
         mock_process,
         mock_apply,
-        mock_email,
+        mock_finalize_after_apply,
     ):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
         mock_interactive.return_value = {"messages": [{"id": "wamid.out.prompt"}]}
         mock_send.return_value = {"messages": [{"id": "wamid.out.success"}]}
         mock_apply.return_value = [{"guest_name": "Robert Siebinger"}]
-        mock_email.return_value = {"sent": True, "to": "guest@example.com"}
+
+        def _finalize_side_effect(**kwargs):
+            session = kwargs.get("session")
+            if session is not None:
+                session.status = WhatsAppOperatorSessionStatus.DONE
+                session.save(update_fields=["status", "updated_at"])
+            return {
+                "status": "completed",
+                "job_id": kwargs["job"].pk,
+                "reservation_id": self.target_reservation.pk,
+                "guest_notify": {"channel": "whatsapp", "status": "sent"},
+            }
+
+        mock_finalize_after_apply.side_effect = _finalize_side_effect
 
         image_message = WhatsAppMessage.objects.create(
             tenant=self.tenant,
@@ -238,11 +252,11 @@ class WhatsAppOperatorTests(TestCase):
         self.assertEqual(session.status, WhatsAppOperatorSessionStatus.DONE)
         mock_process.assert_called_once_with(job.pk)
         mock_apply.assert_called_once_with(job.pk)
-        mock_email.assert_called_once()
+        mock_finalize_after_apply.assert_called_once()
         job.refresh_from_db()
         self.assertEqual(job.reservation_id, self.target_reservation.pk)
 
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service._send_guest_operator_checkin_email")
+    @patch("apps.integrations.whatsapp.operator_job_complete.complete_operator_checkin_after_apply")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.apply_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.process_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
@@ -255,13 +269,17 @@ class WhatsAppOperatorTests(TestCase):
         mock_send,
         mock_process,
         mock_apply,
-        mock_email,
+        mock_finalize_after_apply,
     ):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
         mock_interactive.return_value = {"messages": [{"id": "wamid.out.prompt"}]}
         mock_send.return_value = {"messages": [{"id": "wamid.out.success"}]}
         mock_apply.return_value = [{"guest_name": "Robert Siebinger"}]
-        mock_email.return_value = {"sent": True, "to": "guest@example.com"}
+        mock_finalize_after_apply.return_value = {
+            "status": "completed",
+            "job_id": 1,
+            "reservation_id": self.target_reservation.pk,
+        }
 
         image_message = WhatsAppMessage.objects.create(
             tenant=self.tenant,
@@ -375,3 +393,35 @@ class WhatsAppOperatorTests(TestCase):
         mock_guest_document.assert_not_called()
         message.refresh_from_db()
         self.assertIsNone(message.reservation_id)
+
+
+class OperatorMatchCandidateFormatTests(TestCase):
+    def test_format_nested_candidates_with_person_names(self):
+        formatted = _format_match_candidates(
+            [
+                {
+                    "person_name": "Francois HARTWEG",
+                    "reservation_id": None,
+                    "candidates": [
+                        {
+                            "reservation_id": 8,
+                            "guest_id": 1014,
+                            "guest_name": "François Hartweg",
+                            "reservation_label": "#8 · François Hartweg · 2026-06-09",
+                            "match_type": "name",
+                        },
+                        {
+                            "reservation_id": 138,
+                            "guest_id": 1951,
+                            "guest_name": "Novi gost",
+                            "reservation_label": "#138 · Jasmin Engeland · 2026-06-10",
+                            "match_type": "unfilled_slot",
+                        },
+                    ],
+                }
+            ]
+        )
+        self.assertIn("#8", formatted)
+        self.assertIn("Francois HARTWEG", formatted)
+        self.assertIn("[name]", formatted)
+        self.assertIn("#138", formatted)

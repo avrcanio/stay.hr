@@ -13,6 +13,7 @@ from apps.reservations.booking_xls_import import (
     _normalize_guest_name_key,
 )
 from apps.reservations.guest_slots import PLACEHOLDER_NAME, is_unfilled_guest
+from apps.reservations.document_intake_ocr_fixup import normalize_document_number
 from apps.reservations.models import Guest, Reservation
 
 ZAGREB = ZoneInfo("Europe/Zagreb")
@@ -32,8 +33,14 @@ def _person_full_name(person: dict) -> str:
     return given or surnames
 
 
+def _clean_name_token(token: str) -> str:
+    return re.sub(r"[^\w'-]", "", (token or "").strip(), flags=re.UNICODE)
+
+
 def _first_given_name(given: str) -> str:
-    return (given.split() or [""])[0]
+    """First name token; OCR often uses comma-separated given names."""
+    head = (given.split(",")[0] if "," in given else given).strip()
+    return _clean_name_token((head.split() or [""])[0])
 
 
 def _short_name_key(given: str, surnames: str) -> str:
@@ -43,18 +50,63 @@ def _short_name_key(given: str, surnames: str) -> str:
     return ""
 
 
+def _person_surname_tokens(person: dict) -> set[str]:
+    """Surname tokens from structured fields and OCR blobs (married names, commas)."""
+    tokens: set[str] = set()
+    raw_surnames = str(person.get("surnames") or "").strip()
+    if raw_surnames:
+        for part in re.split(r"[\s,]+", raw_surnames):
+            key = _normalize_guest_name_key(part)
+            if key:
+                tokens.add(key)
+
+    raw_given = str(person.get("given_names") or "").strip()
+    blob = _person_full_name(person)
+    for source in (raw_given, blob):
+        married = re.search(r"\bep\.?\s*([A-Za-zÀ-ž'-]+)", source, re.IGNORECASE)
+        if married:
+            key = _normalize_guest_name_key(married.group(1))
+            if key:
+                tokens.add(key)
+        words = re.findall(r"[A-Za-zÀ-ž'-]+", source)
+        if len(words) >= 2:
+            key = _normalize_guest_name_key(words[-1])
+            if key:
+                tokens.add(key)
+    return tokens
+
+
 def _person_name_keys(person: dict) -> set[str]:
     keys: set[str] = set()
-    full = _normalize_guest_name_key(_person_full_name(person))
-    if full:
-        keys.add(full)
-    surnames = _normalize_guest_name_key(str(person.get("surnames") or ""))
-    given = _normalize_guest_name_key(str(person.get("given_names") or ""))
+    raw_given = str(person.get("given_names") or "").strip()
+    raw_surnames = str(person.get("surnames") or "").strip()
+    full = _person_full_name(person)
+    full_key = _normalize_guest_name_key(full)
+    if full_key:
+        keys.add(full_key)
+
+    surnames = _normalize_guest_name_key(raw_surnames)
+    given = _normalize_guest_name_key(raw_given)
     if surnames and given:
         keys.add(f"{given} {surnames}")
         short = _short_name_key(given, surnames)
         if short:
             keys.add(short)
+        first_given = _first_given_name(raw_given)
+        if first_given and surnames:
+            keys.add(_normalize_guest_name_key(f"{first_given} {surnames}"))
+
+    for surname_token in _person_surname_tokens(person):
+        keys.add(surname_token)
+        if raw_given:
+            first_given = _first_given_name(raw_given)
+            if first_given:
+                keys.add(_normalize_guest_name_key(f"{first_given} {surname_token}"))
+            for comma_part in raw_given.split(","):
+                part = _clean_name_token(comma_part)
+                if part:
+                    keys.add(_normalize_guest_name_key(f"{part} {surname_token}"))
+
     if surnames:
         keys.add(surnames)
     return {k for k in keys if k}
@@ -68,6 +120,7 @@ def _booker_name_keys(reservation: Reservation) -> set[str]:
     parts = booker.split()
     if len(parts) >= 2:
         keys.add(f"{parts[0]} {parts[-1]}")
+        keys.add(parts[-1])
     return keys
 
 
@@ -121,11 +174,20 @@ def _fuzzy_guest_match(
         if _guest_name_matches(guest, keys):
             return guest
 
-    if _booker_name_keys(reservation) & keys:
+    booker_keys = _booker_name_keys(reservation)
+    if booker_keys & keys:
         for guest in reservation.guests.all():
             if guest.pk in blocked:
                 continue
-            if guest.is_primary and is_unfilled_guest(guest):
+            if _guest_name_matches(guest, keys):
+                return guest
+        unfilled = _find_unfilled_slot(reservation, exclude=blocked)
+        if unfilled is not None:
+            return unfilled
+        for guest in reservation.guests.all():
+            if guest.pk in blocked:
+                continue
+            if guest.is_primary:
                 return guest
     return None
 
@@ -228,6 +290,26 @@ def _apply_batch_reservation_heuristic(
         assigned_guest_ids.add(guest.pk)
 
 
+
+
+def _guest_by_document_number(
+    reservation: Reservation,
+    person: dict,
+    *,
+    exclude: set[int] | None = None,
+) -> Guest | None:
+    doc_no = normalize_document_number(str(person.get("document_number") or ""))
+    if not doc_no:
+        return None
+    blocked = exclude or set()
+    for guest in reservation.guests.all():
+        if guest.pk in blocked:
+            continue
+        if normalize_document_number(guest.document_number) == doc_no:
+            return guest
+    return None
+
+
 def match_persons_to_guests(
     *,
     tenant_id: int,
@@ -250,12 +332,21 @@ def match_persons_to_guests(
 
     for idx, person in enumerate(persons):
         keys = _person_name_keys(person)
+        person_surnames = _person_surname_tokens(person)
         full_name = _person_full_name(person)
         candidates: list[dict] = []
 
         for reservation in reservations:
             guest = None
             match_type = ""
+            if len(reservations) == 1:
+                guest = _guest_by_document_number(
+                    reservations[0],
+                    person,
+                    exclude=assigned_guest_ids,
+                )
+                if guest:
+                    match_type = "document_number"
             if keys:
                 guest = _fuzzy_guest_match(reservation, keys, exclude=assigned_guest_ids)
                 if guest:
@@ -268,6 +359,11 @@ def match_persons_to_guests(
             if guest is None:
                 continue
 
+            if match_type == "unfilled_slot" and person_surnames:
+                booker_keys = _booker_name_keys(reservation)
+                if not (booker_keys & keys) and not (booker_keys & person_surnames):
+                    continue
+
             candidates.append(
                 {
                     "reservation_id": reservation.pk,
@@ -279,7 +375,9 @@ def match_persons_to_guests(
                 }
             )
 
-        name_matches = [c for c in candidates if c.get("match_type") == "name"]
+        name_matches = [
+            c for c in candidates if c.get("match_type") in {"name", "document_number"}
+        ]
         if name_matches:
             # Jedinstveni name match — ne miješaj s praznim slotovima drugih rezervacija.
             candidates = name_matches
@@ -337,11 +435,13 @@ def _reservation_label(reservation: Reservation) -> str:
 def _confidence_for_candidates(candidates: list[dict], keys: set[str]) -> str:
     if not candidates:
         return "none"
-    if len(candidates) == 1 and candidates[0].get("match_type") == "name":
+    if len(candidates) == 1 and candidates[0].get("match_type") in {"name", "document_number"}:
         return "high"
     if len(candidates) == 1:
         return "medium"
-    name_matches = [c for c in candidates if c.get("match_type") == "name"]
+    name_matches = [
+        c for c in candidates if c.get("match_type") in {"name", "document_number"}
+    ]
     if len(name_matches) == 1:
         return "high"
     return "low"
