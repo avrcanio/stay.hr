@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from apps.integrations.whatsapp.whatsapp_operator_service import GuestNotifyMode
+
 from apps.integrations.evisitor.eligibility import guest_requires_evisitor
 from apps.integrations.evisitor.exceptions import (
     EvisitorApiError,
@@ -23,7 +25,7 @@ from apps.integrations.whatsapp.whatsapp_operator_service import (
 )
 from apps.reservations.checkin import CheckInBlockedError, validate_reservation_check_in
 from apps.reservations.document_intake_match import match_persons_to_guests
-from apps.reservations.document_intake_service import apply_document_intake_job
+from apps.reservations.document_intake_service import apply_document_intake_job, process_document_intake_job
 from apps.reservations.models import (
     DocumentIntakeJob,
     DocumentIntakeJobSource,
@@ -51,6 +53,16 @@ def _validate_job(job: DocumentIntakeJob) -> None:
         raise ValueError(f"Job #{job.pk} has no OCR persons")
     if job.images.count() == 0:
         raise ValueError(f"Job #{job.pk} has no images")
+
+
+def _ensure_job_ocr_ready(job: DocumentIntakeJob) -> None:
+    if job.status in {
+        DocumentIntakeJobStatus.QUEUED,
+        DocumentIntakeJobStatus.PROCESSING,
+    } or not (job.ocr_result or {}).get("persons"):
+        process_document_intake_job(job.pk)
+        job.refresh_from_db()
+    _validate_job(job)
 
 
 def _rematch_job(job: DocumentIntakeJob) -> list[dict]:
@@ -265,6 +277,7 @@ def complete_operator_checkin_after_apply(
     integration_row: IntegrationConfig | None = None,
     runtime: WhatsAppRuntimeConfig | None = None,
     session: WhatsAppOperatorSession | None = None,
+    guest_notify_mode: GuestNotifyMode = "default",
 ) -> dict:
     """Check-in status, eVisitor, guest notify (WA-first), Toni confirmation."""
     checkin_result = _mark_reservation_checked_in(reservation)
@@ -292,7 +305,10 @@ def complete_operator_checkin_after_apply(
     evisitor_results = _submit_evisitor_for_reservation(reservation)
     reservation.refresh_from_db()
 
-    guest_notify = notify_guest_operator_checkin_complete(reservation)
+    guest_notify = notify_guest_operator_checkin_complete(
+        reservation,
+        guest_notify_mode=guest_notify_mode,
+    )
 
     operator_name = operator_name_for_wa_id(tenant_id=job.tenant_id, wa_id=operator_wa_id) or "Operator"
     success_body = _format_operator_success_message(
@@ -333,9 +349,10 @@ def complete_operator_document_job(
     reservation_id: int | None = None,
     operator_wa_id: str | None = None,
     dry_run: bool = False,
+    guest_notify_mode: GuestNotifyMode = "default",
 ) -> dict:
     job = DocumentIntakeJob.objects.prefetch_related("images").select_related("tenant").get(pk=job_id)
-    _validate_job(job)
+    _ensure_job_ocr_ready(job)
 
     matches = _rematch_job(job)
     auto_res_ids = _reservation_ids_from_auto_matches(matches)
@@ -353,6 +370,25 @@ def complete_operator_document_job(
         pk=target_reservation_id,
         tenant_id=job.tenant_id,
     )
+
+    persons = (job.ocr_result or {}).get("persons") or []
+    if not isinstance(persons, list):
+        persons = []
+    from apps.reservations.document_intake_match import match_persons_to_guests
+    from apps.reservations.guest_slots import ensure_guest_slots_for_intake
+
+    ensure_guest_slots_for_intake(
+        tenant=reservation.tenant,
+        reservation=reservation,
+        min_count=len(persons),
+    )
+    matches = match_persons_to_guests(
+        tenant_id=job.tenant_id,
+        persons=persons,
+        reservation_id=reservation.pk,
+    )
+    job.matches = matches
+    job.save(update_fields=["matches", "updated_at"])
 
     selections = _build_selections_for_reservation(reservation, matches)
     if len(selections) != len((job.ocr_result or {}).get("persons") or []):
@@ -391,5 +427,6 @@ def complete_operator_document_job(
         operator_wa_id=operator_wa,
         applied=applied,
         session=session,
+        guest_notify_mode=guest_notify_mode,
     )
     return result

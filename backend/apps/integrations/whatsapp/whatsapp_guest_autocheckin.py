@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from datetime import timedelta
 
 from django.utils import timezone
@@ -17,6 +18,8 @@ from apps.integrations.whatsapp.client import (
 )
 from apps.integrations.whatsapp.reservation_lookup import (
     ACTIVE_STATUSES,
+    extract_booking_code_from_text,
+    find_reservation_by_booking_code,
     find_reservation_for_wa_id,
 )
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
@@ -42,23 +45,120 @@ _GUEST_AUTO_CHECKIN_BUTTON_TITLE = {
 _ASK_BOOKING_CODE = {
     "hr": (
         "Bok! Ne mogu pronaći rezervaciju za ovaj broj.\n\n"
-        "Molimo pošaljite booking kod (npr. s Booking.com potvrde)."
+        "Ako pišete s drugog telefona, pošaljite booking kod s Booking.com potvrde "
+        "(obično 10 znamenaka).\n\n"
+        "Molimo pošaljite booking kod."
     ),
     "en": (
         "Hi! I could not find a reservation for this number.\n\n"
-        "Please send your booking code (e.g. from your Booking.com confirmation)."
+        "If you are messaging from a different phone, send the booking code from your "
+        "Booking.com confirmation (usually 10 digits).\n\n"
+        "Please send your booking code."
     ),
     "de": (
         "Guten Tag! Für diese Nummer habe ich keine Reservierung gefunden.\n\n"
-        "Bitte senden Sie Ihre Buchungsnummer (z. B. aus der Booking.com-Bestätigung)."
+        "Wenn Sie von einer anderen Nummer schreiben, senden Sie die Buchungsnummer "
+        "aus der Booking.com-Bestätigung (meist 10 Ziffern).\n\n"
+        "Bitte senden Sie Ihre Buchungsnummer."
     ),
     "es": (
         "¡Hola! No encontramos una reserva para este número.\n\n"
-        "Envíe su código de reserva (p. ej. de la confirmación de Booking.com)."
+        "Si escribe desde otro teléfono, envíe el código de reserva de la confirmación "
+        "de Booking.com (normalmente 10 dígitos).\n\n"
+        "Envíe su código de reserva."
     ),
     "fr": (
         "Bonjour ! Aucune réservation trouvée pour ce numéro.\n\n"
-        "Veuillez envoyer votre code de réservation (ex. confirmation Booking.com)."
+        "Si vous écrivez depuis un autre téléphone, envoyez le code de réservation "
+        "de la confirmation Booking.com (généralement 10 chiffres).\n\n"
+        "Veuillez envoyer votre code de réservation."
+    ),
+}
+
+_BOOKING_CODE_NOT_FOUND = {
+    "hr": (
+        "Ne prepoznajem taj booking kod.\n\n"
+        "Provjerite Booking.com potvrdu (10 znamenaka) i pošaljite kod ponovo, "
+        "ili kontaktirajte recepciju."
+    ),
+    "en": (
+        "I could not find a reservation with that booking code.\n\n"
+        "Please check your Booking.com confirmation (10 digits) and try again, "
+        "or contact reception."
+    ),
+    "de": (
+        "Ich habe keine Reservierung mit dieser Buchungsnummer gefunden.\n\n"
+        "Bitte prüfen Sie die Booking.com-Bestätigung (10 Ziffern) oder kontaktieren "
+        "Sie die Rezeption."
+    ),
+    "es": (
+        "No encontramos una reserva con ese código.\n\n"
+        "Revise la confirmación de Booking.com (10 dígitos) o contacte con recepción."
+    ),
+    "fr": (
+        "Aucune réservation avec ce code.\n\n"
+        "Vérifiez la confirmation Booking.com (10 chiffres) ou contactez la réception."
+    ),
+}
+
+_BOOKING_MATCHED_NOT_CHECKIN_DAY = {
+    "hr": (
+        "Pronašli smo rezervaciju {booking_code} ({check_in}–{check_out}) "
+        "u {property_name}.\n\n"
+        "Online check-in (Auto check-in) bit će dostupan na dan dolaska ({check_in})."
+    ),
+    "en": (
+        "We found booking {booking_code} ({check_in}–{check_out}) at {property_name}.\n\n"
+        "Online check-in (Auto check-in) will be available on your arrival day ({check_in})."
+    ),
+    "de": (
+        "Wir haben Buchung {booking_code} ({check_in}–{check_out}) in {property_name} gefunden.\n\n"
+        "Online-Check-in (Autocheck-in) ist am Ankunftstag ({check_in}) verfügbar."
+    ),
+    "es": (
+        "Encontramos la reserva {booking_code} ({check_in}–{check_out}) en {property_name}.\n\n"
+        "El check-in online (Auto check-in) estará disponible el día de llegada ({check_in})."
+    ),
+    "fr": (
+        "Nous avons trouvé la réservation {booking_code} ({check_in}–{check_out}) "
+        "à {property_name}.\n\n"
+        "L’enregistrement en ligne (Auto check-in) sera disponible le jour d’arrivée ({check_in})."
+    ),
+}
+
+_BOOKING_DOCS_ALREADY_RECEIVED = {
+    "hr": (
+        "Vaši dokumenti su već primljeni. Javite nam ako trebate parking ili upute za dolazak."
+    ),
+    "en": (
+        "We already have your documents. Let us know if you need parking or arrival directions."
+    ),
+    "de": (
+        "Ihre Dokumente sind bereits erfasst. Melden Sie sich bei Fragen zu Parken oder Ankunft."
+    ),
+    "es": (
+        "Ya tenemos sus documentos. Avísenos si necesita parking o indicaciones de llegada."
+    ),
+    "fr": (
+        "Vos documents sont déjà enregistrés. Contactez-nous pour le parking ou l’accès."
+    ),
+}
+
+_BOOKING_ALREADY_HANDLED = {
+    "hr": (
+        "Vaš check-in je već riješen. Javite nam samo okvirno vrijeme dolaska ako još niste."
+    ),
+    "en": (
+        "Your check-in is already complete. Please share your approximate arrival time if you have not yet."
+    ),
+    "de": (
+        "Ihr Check-in ist bereits erledigt. Teilen Sie uns bitte Ihre Ankunftszeit mit, falls noch nicht geschehen."
+    ),
+    "es": (
+        "Su check-in ya está completado. Indíquenos su hora de llegada si aún no lo ha hecho."
+    ),
+    "fr": (
+        "Votre enregistrement est déjà fait. Indiquez votre heure d’arrivée si ce n’est pas encore fait."
     ),
 }
 
@@ -91,6 +191,20 @@ _AUTOCHECKIN_GREETING = {
 }
 
 
+class GuestResolveOutcome:
+    MATCHED_PHONE = "matched_phone"
+    MATCHED_CODE = "matched_code"
+    CODE_NOT_FOUND = "code_not_found"
+    AWAITING_CODE = "awaiting_code"
+
+
+@dataclass
+class GuestReservationResolveResult:
+    reservation: Reservation | None
+    outcome: str
+    attempted_code: str | None = None
+
+
 def is_guest_auto_checkin_button(*, button_id: str = "", text: str = "") -> bool:
     if (button_id or "").strip() == GUEST_AUTO_CHECKIN_BUTTON_ID:
         return True
@@ -99,40 +213,15 @@ def is_guest_auto_checkin_button(*, button_id: str = "", text: str = "") -> bool
     return is_auto_checkin_quick_reply(text)
 
 
-def extract_booking_code_from_text(text: str) -> str | None:
-    raw = (text or "").strip()
-    if not raw:
-        return None
-    if re.fullmatch(r"[A-Za-z0-9\-]{4,64}", raw) and not raw.isdigit():
-        return raw
-    matches = re.findall(r"\b(\d{6,12})\b", raw)
-    if not matches:
-        return None
-    return matches[0]
-
-
-def find_reservation_by_booking_code(*, tenant_id: int, code: str) -> Reservation | None:
-    code = (code or "").strip()
-    if not code:
-        return None
-    qs = Reservation.objects.filter(
-        tenant_id=tenant_id,
-        status__in=ACTIVE_STATUSES,
-        booking_code__iexact=code,
-    ).select_related("property", "tenant")
-    if not qs.exists():
-        qs = Reservation.objects.filter(
-            tenant_id=tenant_id,
-            status__in=ACTIVE_STATUSES,
-            external_id__iexact=code,
-        ).select_related("property", "tenant")
-    candidates = list(qs)
-    if not candidates:
-        return None
-    if len(candidates) == 1:
-        return candidates[0]
-    today = timezone.localdate()
-    return min(candidates, key=lambda row: abs((row.check_in - today).days))
+def _extract_code_attempt(action_text: str, session: WhatsAppGuestAutocheckinSession | None) -> str | None:
+    code = extract_booking_code_from_text(action_text)
+    if code:
+        return code
+    if session is not None:
+        stripped = (action_text or "").strip()
+        if stripped:
+            return extract_booking_code_from_text(stripped) or stripped
+    return None
 
 
 def _text_for_lang(texts: dict[str, str], lang: str) -> str:
@@ -142,6 +231,22 @@ def _text_for_lang(texts: dict[str, str], lang: str) -> str:
 
 def _button_title(lang: str) -> str:
     return _text_for_lang(_GUEST_AUTO_CHECKIN_BUTTON_TITLE, lang)
+
+
+def _reservation_date_fmt(reservation: Reservation, lang: str) -> tuple[str, str]:
+    fmt = "%d.%m.%Y" if lang == "hr" else "%Y-%m-%d"
+    return reservation.check_in.strftime(fmt), reservation.check_out.strftime(fmt)
+
+
+def _booking_matched_not_checkin_body(reservation: Reservation, lang: str) -> str:
+    check_in, check_out = _reservation_date_fmt(reservation, lang)
+    booking_code = reservation.booking_code or reservation.external_id or str(reservation.pk)
+    return _text_for_lang(_BOOKING_MATCHED_NOT_CHECKIN_DAY, lang).format(
+        booking_code=booking_code,
+        check_in=check_in,
+        check_out=check_out,
+        property_name=reservation.property.name,
+    )
 
 
 def _session_expired(session: WhatsAppGuestAutocheckinSession) -> bool:
@@ -240,11 +345,12 @@ def _send_autocheckin_prompt(
 ) -> dict:
     lang = compose_language_for_reservation(reservation)
     name = (reservation.booker_name or "").strip() or ("gost" if lang == "hr" else "guest")
+    check_in, check_out = _reservation_date_fmt(reservation, lang)
     body = _text_for_lang(_AUTOCHECKIN_GREETING, lang).format(
         name=name.split()[0] if name else name,
         booking_code=reservation.booking_code or reservation.external_id or str(reservation.pk),
-        check_in=reservation.check_in.strftime("%d.%m.%Y" if lang == "hr" else "%Y-%m-%d"),
-        check_out=reservation.check_out.strftime("%d.%m.%Y" if lang == "hr" else "%Y-%m-%d"),
+        check_in=check_in,
+        check_out=check_out,
         property_name=reservation.property.name,
     )
     try:
@@ -286,43 +392,76 @@ def _is_autocheckin_day(reservation: Reservation) -> bool:
     return reservation.check_in == now.date()
 
 
-def resolve_guest_reservation(
+def try_resolve_guest_reservation(
     *,
     row: WhatsAppMessage,
     action_text: str,
-) -> Reservation | None:
+) -> GuestReservationResolveResult:
     if row.reservation_id is not None:
-        return row.reservation
+        reservation = row.reservation
+        if reservation is None:
+            reservation = Reservation.objects.select_related("property", "tenant").get(
+                pk=row.reservation_id,
+            )
+        return GuestReservationResolveResult(
+            reservation=reservation,
+            outcome=GuestResolveOutcome.MATCHED_PHONE,
+        )
 
     reservation = find_reservation_for_wa_id(tenant_id=row.tenant_id, wa_id=row.wa_id)
     if reservation is not None:
         _link_message_to_reservation(row, reservation)
         _clear_session(tenant_id=row.tenant_id, wa_id=row.wa_id)
-        return reservation
+        return GuestReservationResolveResult(
+            reservation=reservation,
+            outcome=GuestResolveOutcome.MATCHED_PHONE,
+        )
 
     session = _get_awaiting_session(tenant_id=row.tenant_id, wa_id=row.wa_id)
-    code = extract_booking_code_from_text(action_text)
-    if code is None and session is not None:
-        stripped = action_text.strip()
-        code = extract_booking_code_from_text(stripped) or stripped or None
+    code_attempt = _extract_code_attempt(action_text, session)
 
-    if code:
-        reservation = find_reservation_by_booking_code(tenant_id=row.tenant_id, code=code)
+    if code_attempt:
+        reservation = find_reservation_by_booking_code(tenant_id=row.tenant_id, code=code_attempt)
         if reservation is not None:
             _link_message_to_reservation(row, reservation)
             _clear_session(tenant_id=row.tenant_id, wa_id=row.wa_id)
-            return reservation
+            return GuestReservationResolveResult(
+                reservation=reservation,
+                outcome=GuestResolveOutcome.MATCHED_CODE,
+                attempted_code=code_attempt,
+            )
+        return GuestReservationResolveResult(
+            reservation=None,
+            outcome=GuestResolveOutcome.CODE_NOT_FOUND,
+            attempted_code=code_attempt,
+        )
 
-    return None
+    return GuestReservationResolveResult(
+        reservation=None,
+        outcome=GuestResolveOutcome.AWAITING_CODE,
+    )
 
 
-def handle_guest_autocheckin_inbound(
+def resolve_guest_reservation(
+    *,
+    row: WhatsAppMessage,
+    action_text: str,
+) -> Reservation | None:
+    return try_resolve_guest_reservation(row=row, action_text=action_text).reservation
+
+
+def _tenant_lang(integration_row: IntegrationConfig) -> str:
+    return (integration_row.tenant.default_language or "hr").split("-")[0].lower()
+
+
+def _handle_matched_reservation(
     *,
     row: WhatsAppMessage,
     integration_row: IntegrationConfig,
     runtime: WhatsAppRuntimeConfig,
     action_text: str,
-    reservation: Reservation | None,
+    reservation: Reservation,
+    resolve_outcome: str,
 ) -> dict:
     from apps.communications.whatsapp_autocheckin_tasks import mark_autocheckin_engaged
     from apps.integrations.whatsapp.apply_reply import (
@@ -340,53 +479,125 @@ def handle_guest_autocheckin_inbound(
         send_post_checkin_whatsapp_auto_reply,
     )
 
-    resolved = reservation or resolve_guest_reservation(row=row, action_text=action_text)
-    if resolved is not None:
-        if is_whatsapp_autocheckin_waived(resolved):
-            if guest_message_mentions_arrival(action_text) and not arrival_thanks_sent_today(resolved):
-                return send_arrival_thanks_only(row=row, reservation=resolved)
-            return {"status": "skipped", "reason": "autocheckin_waived"}
+    lang = compose_language_for_reservation(reservation)
 
-        if is_guest_checkin_acknowledged(resolved):
-            if (
-                guest_message_needs_post_checkin_reply(action_text)
-                and not post_checkin_auto_reply_already_sent_today(resolved)
-            ):
-                hints = parse_post_checkin_message_hints(action_text, reservation=resolved)
-                return send_post_checkin_whatsapp_auto_reply(
-                    integration_row=integration_row,
-                    runtime=runtime,
-                    row=row,
-                    reservation=resolved,
-                    **hints,
-                )
-            return {"status": "skipped", "reason": "documents_complete"}
+    if is_whatsapp_autocheckin_waived(reservation):
+        if guest_message_mentions_arrival(action_text) and not arrival_thanks_sent_today(reservation):
+            return send_arrival_thanks_only(row=row, reservation=reservation)
+        body = _text_for_lang(_BOOKING_ALREADY_HANDLED, lang)
+        return _send_whatsapp_text(
+            integration_row=integration_row,
+            runtime=runtime,
+            row=row,
+            reservation=reservation,
+            body=body,
+        )
 
-        mark_autocheckin_engaged(resolved)
-        if _is_autocheckin_day(resolved):
-            return _send_autocheckin_prompt(
+    if is_guest_checkin_acknowledged(reservation):
+        if (
+            guest_message_needs_post_checkin_reply(action_text)
+            and not post_checkin_auto_reply_already_sent_today(reservation)
+        ):
+            hints = parse_post_checkin_message_hints(action_text, reservation=reservation)
+            return send_post_checkin_whatsapp_auto_reply(
                 integration_row=integration_row,
                 runtime=runtime,
                 row=row,
-                reservation=resolved,
+                reservation=reservation,
+                **hints,
             )
-        if not runtime.auto_reply:
-            return {"status": "auto_reply_disabled"}
+        body = _text_for_lang(_BOOKING_DOCS_ALREADY_RECEIVED, lang)
+        return _send_whatsapp_text(
+            integration_row=integration_row,
+            runtime=runtime,
+            row=row,
+            reservation=reservation,
+            body=body,
+        )
+
+    mark_autocheckin_engaged(reservation)
+    if _is_autocheckin_day(reservation):
+        return _send_autocheckin_prompt(
+            integration_row=integration_row,
+            runtime=runtime,
+            row=row,
+            reservation=reservation,
+        )
+
+    if resolve_outcome == GuestResolveOutcome.MATCHED_CODE:
+        body = _booking_matched_not_checkin_body(reservation, lang)
+        return _send_whatsapp_text(
+            integration_row=integration_row,
+            runtime=runtime,
+            row=row,
+            reservation=reservation,
+            body=body,
+        )
+
+    if runtime.auto_reply:
         body = build_greeting(
             integration_row=integration_row,
-            reservation=resolved,
+            reservation=reservation,
             profile_name="",
         )
         return _send_whatsapp_text(
             integration_row=integration_row,
             runtime=runtime,
             row=row,
-            reservation=resolved,
+            reservation=reservation,
             body=body,
         )
 
+    body = _booking_matched_not_checkin_body(reservation, lang)
+    return _send_whatsapp_text(
+        integration_row=integration_row,
+        runtime=runtime,
+        row=row,
+        reservation=reservation,
+        body=body,
+    )
+
+
+def handle_guest_autocheckin_inbound(
+    *,
+    row: WhatsAppMessage,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+    action_text: str,
+    reservation: Reservation | None,
+) -> dict:
+    if reservation is not None:
+        resolve_result = GuestReservationResolveResult(
+            reservation=reservation,
+            outcome=GuestResolveOutcome.MATCHED_PHONE,
+        )
+    else:
+        resolve_result = try_resolve_guest_reservation(row=row, action_text=action_text)
+
+    if resolve_result.outcome == GuestResolveOutcome.CODE_NOT_FOUND:
+        _ensure_awaiting_session(tenant_id=row.tenant_id, wa_id=row.wa_id)
+        lang = _tenant_lang(integration_row)
+        body = _text_for_lang(_BOOKING_CODE_NOT_FOUND, lang)
+        return _send_whatsapp_text(
+            integration_row=integration_row,
+            runtime=runtime,
+            row=row,
+            reservation=None,
+            body=body,
+        )
+
+    if resolve_result.reservation is not None:
+        return _handle_matched_reservation(
+            row=row,
+            integration_row=integration_row,
+            runtime=runtime,
+            action_text=action_text,
+            reservation=resolve_result.reservation,
+            resolve_outcome=resolve_result.outcome,
+        )
+
     _ensure_awaiting_session(tenant_id=row.tenant_id, wa_id=row.wa_id)
-    lang = (integration_row.tenant.default_language or "hr").split("-")[0].lower()
+    lang = _tenant_lang(integration_row)
     body = _text_for_lang(_ASK_BOOKING_CODE, lang)
     return _send_whatsapp_text(
         integration_row=integration_row,

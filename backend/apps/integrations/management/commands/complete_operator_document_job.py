@@ -28,15 +28,24 @@ class Command(BaseCommand):
             action="store_true",
             help="Re-match and show plan without applying or sending messages",
         )
+        parser.add_argument(
+            "--guest-notify",
+            type=str,
+            choices=["default", "email-only", "skip"],
+            default="default",
+            help="Guest notification: default (WA first), email-only, skip",
+        )
 
     def handle(self, *args, **options):
         job_id = options["job_id"]
+        guest_notify_mode = (options.get("guest_notify") or "default").replace("-", "_")
         try:
             result = complete_operator_document_job(
                 job_id,
                 reservation_id=options.get("reservation_id"),
                 operator_wa_id=(options.get("operator_wa_id") or "").strip() or None,
                 dry_run=options["dry_run"],
+                guest_notify_mode=guest_notify_mode,
             )
         except ValueError as exc:
             raise CommandError(str(exc)) from exc

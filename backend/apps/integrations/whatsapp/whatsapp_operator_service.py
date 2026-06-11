@@ -3,15 +3,24 @@ from __future__ import annotations
 import logging
 import mimetypes
 import re
+import zlib
 from datetime import timedelta
+from typing import Literal
 
 from django.core.files.base import ContentFile
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.communications.guest_compose import (
     HINT_OPERATOR_CHECKIN_COMPLETE,
+    render_checkin_partial_documents_message,
+    render_missing_id_sides_message,
     render_operator_checkin_complete_message,
+)
+from apps.communications.guest_compose_defaults import (
+    DOCUMENTS_BATCH_CONFIRM_NO,
+    DOCUMENTS_BATCH_CONFIRM_YES,
+    OPERATOR_DOCUMENTS_CONFIRM,
 )
 from apps.communications.guest_message_send import (
     default_email_subject,
@@ -23,6 +32,7 @@ from apps.communications.models import (
     GuestOutboundMessageStatus,
 )
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
+from apps.integrations.whatsapp.apply_reply import is_document_checkin_complete
 from apps.integrations.whatsapp.client import (
     WhatsAppApiError,
     extract_outbound_wamid,
@@ -34,9 +44,19 @@ from apps.integrations.whatsapp.media_download import (
     extract_media_from_message,
     fetch_whatsapp_media,
 )
+from apps.integrations.whatsapp.operator_reservation_pick import (
+    build_operator_reservation_pick_message,
+)
+from apps.integrations.whatsapp.reservation_lookup import (
+    extract_booking_code_from_text,
+    find_reservation_by_booking_code,
+)
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 from apps.integrations.whatsapp.whatsapp_operator import operator_name_for_wa_id
+from apps.reservations.document_intake_match import match_persons_to_guests
 from apps.reservations.document_intake_service import apply_document_intake_job, process_document_intake_job
+from apps.reservations.guest_slots import ensure_guest_slots_for_intake
+from apps.reservations.document_intake_sides import find_missing_id_sides
 from apps.reservations.models import (
     DocumentIntakeImage,
     DocumentIntakeJob,
@@ -49,11 +69,29 @@ from apps.reservations.models import (
 
 logger = logging.getLogger(__name__)
 
-SESSION_TTL = timedelta(minutes=30)
+SESSION_TTL = timedelta(minutes=120)
+SESSION_TTL_HOURS_LABEL = "2 h"
 _MEDIA_MESSAGE_TYPES = frozenset({"image", "document"})
 _CHECKIN_COMMANDS = frozenset({"check in", "checkin"})
 OPERATOR_CHECKIN_BUTTON_ID = "op_check_in"
 OPERATOR_CHECKIN_BUTTON_TITLE = "Check-in"
+OPERATOR_DOCS_ALL_YES_ID = "op_docs_all_yes"
+OPERATOR_DOCS_ALL_NO_ID = "op_docs_all_no"
+
+_ACTIVE_COLLECT_STATUSES = frozenset(
+    {
+        WhatsAppOperatorSessionStatus.COLLECTING,
+        WhatsAppOperatorSessionStatus.AWAITING_CONFIRM,
+        WhatsAppOperatorSessionStatus.AWAITING_RES_PICK,
+    }
+)
+
+_DOCS_ALL_YES_IDS = frozenset({OPERATOR_DOCS_ALL_YES_ID, "docs_all_yes"})
+_DOCS_ALL_NO_IDS = frozenset({OPERATOR_DOCS_ALL_NO_ID, "docs_all_no"})
+_DOCS_ALL_YES_TEXTS = frozenset({"da", "yes", "ja", "si", "sí", "oui"})
+_DOCS_ALL_NO_TEXTS = frozenset({"ne", "no", "nein"})
+
+GuestNotifyMode = Literal["default", "email_only", "skip"]
 
 
 def _normalize_command(text: str) -> str:
@@ -72,6 +110,18 @@ def is_operator_checkin_trigger(*, button_id: str = "", text: str = "") -> bool:
     return is_operator_checkin_command(text)
 
 
+def is_operator_docs_all_yes_reply(*, button_id: str = "", text: str = "") -> bool:
+    if (button_id or "").strip() in _DOCS_ALL_YES_IDS:
+        return True
+    return _normalize_command(text) in _DOCS_ALL_YES_TEXTS
+
+
+def is_operator_docs_all_no_reply(*, button_id: str = "", text: str = "") -> bool:
+    if (button_id or "").strip() in _DOCS_ALL_NO_IDS:
+        return True
+    return _normalize_command(text) in _DOCS_ALL_NO_TEXTS
+
+
 def _image_count_label(count: int) -> str:
     if count == 1:
         return "1 slika"
@@ -85,6 +135,18 @@ def _checkin_prompt_body(image_count: int) -> str:
         f"Primljeno {_image_count_label(image_count)}. "
         f"Pritisnite {OPERATOR_CHECKIN_BUTTON_TITLE} ako ste gotovi."
     )
+
+
+def _operator_confirm_body() -> str:
+    return OPERATOR_DOCUMENTS_CONFIRM.get("hr") or OPERATOR_DOCUMENTS_CONFIRM["en"]
+
+
+def _operator_confirm_yes_label() -> str:
+    return DOCUMENTS_BATCH_CONFIRM_YES.get("hr") or DOCUMENTS_BATCH_CONFIRM_YES["en"]
+
+
+def _operator_confirm_no_label() -> str:
+    return DOCUMENTS_BATCH_CONFIRM_NO.get("hr") or DOCUMENTS_BATCH_CONFIRM_NO["en"]
 
 
 def _extension_for_mime(mime_type: str) -> str:
@@ -104,28 +166,196 @@ def _session_expired(session: WhatsAppOperatorSession) -> bool:
     return session.last_activity_at + SESSION_TTL < timezone.now()
 
 
-def _get_collecting_session(
+def _mark_session_failed(session: WhatsAppOperatorSession) -> None:
+    session.status = WhatsAppOperatorSessionStatus.FAILED
+    session.save(update_fields=["status", "updated_at"])
+
+
+def _pg_advisory_xact_lock_operator(tenant_id: int, operator_wa_id: str) -> None:
+    """Serialize operator collect/check-in per tenant+wa_id (works when no session row exists yet)."""
+    key = zlib.crc32(f"wa-op:{tenant_id}:{operator_wa_id}".encode()) & 0x7FFFFFFF
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [key])
+
+
+def _message_already_in_operator_job(job: DocumentIntakeJob, message_id: int) -> bool:
+    prefix = f"op_{message_id}"
+    for img in job.images.only("image"):
+        name = (img.image.name or "").rsplit("/", 1)[-1]
+        if name.startswith(prefix):
+            return True
+    return False
+
+
+def _image_filename_in_job(job: DocumentIntakeJob, filename: str) -> bool:
+    for img in job.images.only("image"):
+        name = (img.image.name or "").rsplit("/", 1)[-1]
+        if name == filename:
+            return True
+    return False
+
+
+def consolidate_operator_collect_sessions(
+    *,
+    tenant_id: int,
+    operator_wa_id: str,
+    canonical_session: WhatsAppOperatorSession,
+) -> WhatsAppOperatorSession:
+    """Merge stray active sessions into canonical job (race / legacy cleanup)."""
+    others = list(
+        WhatsAppOperatorSession.objects.filter(
+            tenant_id=tenant_id,
+            operator_wa_id=operator_wa_id,
+            status__in=_ACTIVE_COLLECT_STATUSES,
+        )
+        .exclude(pk=canonical_session.pk)
+        .select_related("job")
+    )
+    if not others:
+        return canonical_session
+
+    canonical_job = canonical_session.job
+    for other in others:
+        other_job = other.job
+        for img in other_job.images.order_by("sort_order", "id"):
+            name = (img.image.name or "").rsplit("/", 1)[-1]
+            if _image_filename_in_job(canonical_job, name):
+                continue
+            img.image.open("rb")
+            try:
+                content = img.image.read()
+            finally:
+                img.image.close()
+            sort_order = canonical_job.images.count()
+            DocumentIntakeImage.objects.create(
+                tenant_id=tenant_id,
+                job=canonical_job,
+                image=ContentFile(content, name=name),
+                sort_order=sort_order,
+            )
+        logger.info(
+            "Merged operator session #%s (job #%s) into session #%s",
+            other.pk,
+            other_job.pk,
+            canonical_session.pk,
+        )
+        _mark_session_failed(other)
+
+    canonical_session.last_activity_at = timezone.now()
+    canonical_session.save(update_fields=["last_activity_at", "updated_at"])
+    return canonical_session
+
+
+def merge_images_into_operator_job(
+    canonical_job: DocumentIntakeJob,
+    source_jobs: list[DocumentIntakeJob],
+) -> int:
+    """Copy images from other operator jobs into canonical job (reconcile / replay)."""
+    moved = 0
+    tenant_id = canonical_job.tenant_id
+    for job in source_jobs:
+        if job.pk == canonical_job.pk:
+            continue
+        for img in job.images.order_by("sort_order", "id"):
+            name = (img.image.name or "").rsplit("/", 1)[-1]
+            if _image_filename_in_job(canonical_job, name):
+                continue
+            img.image.open("rb")
+            try:
+                content = img.image.read()
+            finally:
+                img.image.close()
+            sort_order = canonical_job.images.count()
+            DocumentIntakeImage.objects.create(
+                tenant_id=tenant_id,
+                job=canonical_job,
+                image=ContentFile(content, name=name),
+                sort_order=sort_order,
+            )
+            moved += 1
+    return moved
+
+
+def _get_operator_session_queryset(
+    *,
+    tenant_id: int,
+    operator_wa_id: str,
+    statuses: frozenset[str] | None = None,
+    for_update: bool = False,
+):
+    qs = WhatsAppOperatorSession.objects.filter(
+        tenant_id=tenant_id,
+        operator_wa_id=operator_wa_id,
+    ).select_related("job")
+    if statuses is not None:
+        qs = qs.filter(status__in=statuses)
+    if for_update:
+        qs = qs.select_for_update()
+    return qs.order_by("-last_activity_at", "id")
+
+
+def _get_latest_operator_session(
     *,
     tenant_id: int,
     operator_wa_id: str,
 ) -> WhatsAppOperatorSession | None:
-    session = (
-        WhatsAppOperatorSession.objects.filter(
-            tenant_id=tenant_id,
-            operator_wa_id=operator_wa_id,
-            status=WhatsAppOperatorSessionStatus.COLLECTING,
-        )
-        .select_related("job")
-        .order_by("-last_activity_at", "id")
-        .first()
+    return _get_operator_session_queryset(
+        tenant_id=tenant_id,
+        operator_wa_id=operator_wa_id,
+    ).first()
+
+
+def _get_active_collect_session(
+    *,
+    tenant_id: int,
+    operator_wa_id: str,
+    for_update: bool = False,
+) -> WhatsAppOperatorSession | None:
+    qs = _get_operator_session_queryset(
+        tenant_id=tenant_id,
+        operator_wa_id=operator_wa_id,
+        statuses=_ACTIVE_COLLECT_STATUSES,
+        for_update=for_update,
     )
-    if session is None:
+    sessions = list(qs[:5])
+    if not sessions:
         return None
+
+    session = max(sessions, key=lambda s: (s.job.images.count(), s.last_activity_at, s.pk))
     if _session_expired(session):
-        session.status = WhatsAppOperatorSessionStatus.FAILED
-        session.save(update_fields=["status", "updated_at"])
+        _mark_session_failed(session)
         return None
     return session
+
+
+def _blocked_finalize_message(
+    *,
+    tenant_id: int,
+    operator_wa_id: str,
+) -> str:
+    latest = _get_latest_operator_session(tenant_id=tenant_id, operator_wa_id=operator_wa_id)
+    if latest is None:
+        return "Pošaljite fotografije dokumenta."
+
+    if latest.status == WhatsAppOperatorSessionStatus.PROCESSING:
+        return "Check-in je u tijeku, pričekajte…"
+
+    if latest.status == WhatsAppOperatorSessionStatus.DONE:
+        return "Check-in za ovu seriju je već obavljen."
+
+    if latest.status == WhatsAppOperatorSessionStatus.FAILED and _session_expired(latest):
+        return (
+            f"Sesija istekla ({SESSION_TTL_HOURS_LABEL}). "
+            "Pošaljite slike ponovo."
+        )
+
+    if latest.status in _ACTIVE_COLLECT_STATUSES and _session_expired(latest):
+        return (
+            f"Sesija istekla ({SESSION_TTL_HOURS_LABEL}). "
+            "Pošaljite slike ponovo."
+        )
+
+    return "Pošaljite fotografije dokumenta."
 
 
 def _send_operator_text(
@@ -204,11 +434,54 @@ def _send_operator_checkin_prompt(
     return {"status": "sent", "outbound_wamid": outbound_wamid}
 
 
+def _send_operator_docs_confirm_prompt(
+    *,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+    operator_wa_id: str,
+) -> dict:
+    body = _operator_confirm_body()
+    yes_label = _operator_confirm_yes_label()
+    no_label = _operator_confirm_no_label()
+    try:
+        response = send_interactive_button_message(
+            phone_number_id=runtime.phone_number_id,
+            access_token=runtime.access_token,
+            to_wa_id=operator_wa_id,
+            body=body,
+            buttons=[
+                (OPERATOR_DOCS_ALL_YES_ID, yes_label),
+                (OPERATOR_DOCS_ALL_NO_ID, no_label),
+            ],
+            provider=runtime.provider,
+            api_base_url=runtime.api_base_url,
+        )
+    except WhatsAppApiError as exc:
+        logger.warning("Operator docs confirm failed wa_id=%s: %s", operator_wa_id, exc)
+        return {"status": "send_failed", "detail": str(exc)}
+
+    outbound_wamid = extract_outbound_wamid(response)
+    if outbound_wamid:
+        WhatsAppMessage.objects.create(
+            tenant_id=integration_row.tenant_id,
+            integration=integration_row,
+            wamid=outbound_wamid,
+            wa_id=operator_wa_id,
+            phone_number_id=runtime.phone_number_id,
+            direction=WhatsAppMessage.Direction.OUTBOUND,
+            message_type="interactive",
+            body=body,
+            raw_payload=response,
+        )
+    return {"status": "sent", "outbound_wamid": outbound_wamid}
+
+
 def _operator_help_text() -> str:
     return (
         "Operatorski check-in:\n"
         "1) Pošaljite slike dokumenata (osobna/putovnica).\n"
-        f"2) Pritisnite gumb {OPERATOR_CHECKIN_BUTTON_TITLE} kad ste gotovi.\n\n"
+        f"2) Pritisnite gumb {OPERATOR_CHECKIN_BUTTON_TITLE} kad ste gotovi.\n"
+        "3) Potvrdite Da da sustav obradi dokumente.\n\n"
         "Sustav pronađe rezervaciju, popuni gosta i pošalje potvrdu gostu "
         "na WhatsApp (ili email ako gost nema WA)."
     )
@@ -221,10 +494,28 @@ def _operator_checkin_complete_already_sent(reservation_id: int) -> bool:
     ).exists()
 
 
-def notify_guest_operator_checkin_complete(reservation: Reservation) -> dict:
-    """Send operator check-in complete to guest on WhatsApp, email fallback."""
+def notify_guest_operator_checkin_complete(
+    reservation: Reservation,
+    *,
+    guest_notify_mode: GuestNotifyMode = "default",
+) -> dict:
+    """Send operator check-in complete to guest (WA-first, email fallback by default)."""
+    if guest_notify_mode == "skip":
+        return {"channel": "none", "status": "skipped", "reason": "guest_notify_skipped"}
+
     if _operator_checkin_complete_already_sent(reservation.pk):
         return {"channel": "none", "status": "already_sent"}
+
+    if guest_notify_mode == "email_only":
+        email_result = _send_guest_operator_checkin_email(reservation)
+        if email_result.get("sent"):
+            return {"channel": "email", "sent": True, "to": email_result.get("to")}
+        return {
+            "channel": "none",
+            "status": "failed",
+            "reason": email_result.get("reason") or "send_failed",
+            "email": email_result,
+        }
 
     body = render_operator_checkin_complete_message(reservation)
     from apps.integrations.whatsapp.evisitor_reply import _send_reservation_whatsapp_text
@@ -300,8 +591,14 @@ def _collect_operator_image(
     mime = downloaded_mime or mime_type
     filename = f"op_{row.pk}{_extension_for_mime(mime)}"
 
+    duplicate = False
     with transaction.atomic():
-        session = _get_collecting_session(tenant_id=row.tenant_id, operator_wa_id=row.wa_id)
+        _pg_advisory_xact_lock_operator(row.tenant_id, row.wa_id)
+        session = _get_active_collect_session(
+            tenant_id=row.tenant_id,
+            operator_wa_id=row.wa_id,
+            for_update=True,
+        )
         if session is None:
             job = DocumentIntakeJob.objects.create(
                 tenant_id=row.tenant_id,
@@ -318,29 +615,46 @@ def _collect_operator_image(
             )
         else:
             job = session.job
+            if session.status in {
+                WhatsAppOperatorSessionStatus.AWAITING_CONFIRM,
+                WhatsAppOperatorSessionStatus.AWAITING_RES_PICK,
+            }:
+                session.status = WhatsAppOperatorSessionStatus.COLLECTING
+                job.reservation_id = None
+                job.save(update_fields=["reservation_id", "updated_at"])
 
-        sort_order = job.images.count()
-        DocumentIntakeImage.objects.create(
+        session = consolidate_operator_collect_sessions(
             tenant_id=row.tenant_id,
-            job=job,
-            image=ContentFile(content, name=filename),
-            sort_order=sort_order,
+            operator_wa_id=row.wa_id,
+            canonical_session=session,
         )
-        session.last_activity_at = timezone.now()
-        session.save(update_fields=["last_activity_at", "updated_at"])
+        job = session.job
+
+        if _message_already_in_operator_job(job, row.pk):
+            duplicate = True
+            session.last_activity_at = timezone.now()
+            session.save(update_fields=["last_activity_at", "updated_at"])
+        else:
+            sort_order = job.images.count()
+            DocumentIntakeImage.objects.create(
+                tenant_id=row.tenant_id,
+                job=job,
+                image=ContentFile(content, name=filename),
+                sort_order=sort_order,
+            )
+            session.last_activity_at = timezone.now()
+            session.save(update_fields=["status", "last_activity_at", "updated_at"])
+
         if caption and not (row.body or "").strip():
             row.body = caption
             row.save(update_fields=["body"])
 
+    from apps.integrations.whatsapp.whatsapp_operator_batch import schedule_operator_quiet_timer
+
+    schedule_operator_quiet_timer(session)
     image_count = job.images.count()
-    _send_operator_checkin_prompt(
-        integration_row=integration_row,
-        runtime=runtime,
-        operator_wa_id=row.wa_id,
-        image_count=image_count,
-    )
     return {
-        "status": "collected",
+        "status": "duplicate" if duplicate else "collected",
         "session_id": session.pk,
         "job_id": job.pk,
         "image_count": image_count,
@@ -399,83 +713,84 @@ def _format_match_candidates(matches: list[dict]) -> str:
     return "\n".join(lines[:12])
 
 
-def _finalize_operator_checkin(
-    *,
-    row: WhatsAppMessage,
-    integration_row: IntegrationConfig,
-    runtime: WhatsAppRuntimeConfig,
-) -> dict:
-    session = _get_collecting_session(tenant_id=row.tenant_id, operator_wa_id=row.wa_id)
-    if session is None:
-        _send_operator_text(
-            integration_row=integration_row,
-            runtime=runtime,
-            operator_wa_id=row.wa_id,
-            body="Nema aktivnih slika. Prvo pošaljite fotografije dokumenta.",
-        )
-        return {"status": "no_session"}
-
-    job = session.job
-    if job.images.count() == 0:
-        _send_operator_text(
-            integration_row=integration_row,
-            runtime=runtime,
-            operator_wa_id=row.wa_id,
-            body="Nema slika u sesiji. Pošaljite fotografije dokumenta pa check-in.",
-        )
-        return {"status": "no_images"}
-
-    session.status = WhatsAppOperatorSessionStatus.PROCESSING
-    session.save(update_fields=["status", "updated_at"])
-
-    process_document_intake_job(job.pk)
-    job.refresh_from_db()
-
-    if job.status == DocumentIntakeJobStatus.FAILED:
-        session.status = WhatsAppOperatorSessionStatus.FAILED
-        session.save(update_fields=["status", "updated_at"])
-        detail = (job.error_message or "OCR nije uspio.").strip()
-        _send_operator_text(
-            integration_row=integration_row,
-            runtime=runtime,
-            operator_wa_id=row.wa_id,
-            body=f"Check-in nije uspio.\n{detail}",
-        )
-        return {"status": "ocr_failed", "job_id": job.pk}
-
-    auto_matches = [
+def _auto_matches_from_job(job: DocumentIntakeJob) -> list[dict]:
+    return [
         m
         for m in (job.matches or [])
         if isinstance(m, dict) and m.get("auto_apply") and m.get("guest_id")
     ]
-    reservation_ids = {int(m["reservation_id"]) for m in auto_matches if m.get("reservation_id")}
 
-    if not auto_matches:
-        candidates = _format_match_candidates(job.matches or [])
-        body = "Nisam pronašao jednoznačnu rezervaciju."
-        if candidates:
-            body += f"\n\nKandidati:\n{candidates}"
-        session.status = WhatsAppOperatorSessionStatus.FAILED
-        session.save(update_fields=["status", "updated_at"])
-        _send_operator_text(
+
+def _reservation_ids_from_auto_matches(auto_matches: list[dict]) -> set[int]:
+    return {int(m["reservation_id"]) for m in auto_matches if m.get("reservation_id")}
+
+
+def _rematch_operator_job_for_reservation(
+    job: DocumentIntakeJob,
+    reservation: Reservation,
+) -> list[dict]:
+    persons = (job.ocr_result or {}).get("persons") or []
+    if not isinstance(persons, list):
+        persons = []
+    ensure_guest_slots_for_intake(
+        tenant=reservation.tenant,
+        reservation=reservation,
+        min_count=len(persons),
+    )
+    matches = match_persons_to_guests(
+        tenant_id=job.tenant_id,
+        persons=persons,
+        reservation_id=reservation.pk,
+    )
+    job.reservation_id = reservation.pk
+    job.matches = matches
+    job.save(update_fields=["reservation_id", "matches", "updated_at"])
+    return matches
+
+
+def _enter_awaiting_reservation_pick(
+    *,
+    session: WhatsAppOperatorSession,
+    job: DocumentIntakeJob,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+    operator_wa_id: str,
+) -> dict:
+    session.status = WhatsAppOperatorSessionStatus.AWAITING_RES_PICK
+    session.last_activity_at = timezone.now()
+    session.save(update_fields=["status", "last_activity_at", "updated_at"])
+    body = build_operator_reservation_pick_message(job)
+    _send_operator_text(
+        integration_row=integration_row,
+        runtime=runtime,
+        operator_wa_id=operator_wa_id,
+        body=body,
+    )
+    return {
+        "status": "awaiting_reservation_pick",
+        "session_id": session.pk,
+        "job_id": job.pk,
+    }
+
+
+def _continue_operator_apply_and_checkin(
+    *,
+    session: WhatsAppOperatorSession,
+    job: DocumentIntakeJob,
+    row: WhatsAppMessage,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+) -> dict:
+    auto_matches = _auto_matches_from_job(job)
+    reservation_ids = _reservation_ids_from_auto_matches(auto_matches)
+    if not auto_matches or len(reservation_ids) != 1:
+        return _enter_awaiting_reservation_pick(
+            session=session,
+            job=job,
             integration_row=integration_row,
             runtime=runtime,
             operator_wa_id=row.wa_id,
-            body=body,
         )
-        return {"status": "no_match", "job_id": job.pk}
-
-    if len(reservation_ids) != 1:
-        labels = _format_match_candidates(auto_matches)
-        session.status = WhatsAppOperatorSessionStatus.FAILED
-        session.save(update_fields=["status", "updated_at"])
-        _send_operator_text(
-            integration_row=integration_row,
-            runtime=runtime,
-            operator_wa_id=row.wa_id,
-            body=f"Više mogućih rezervacija — pojašnjenje ručno u recepciji.\n{labels}",
-        )
-        return {"status": "ambiguous", "job_id": job.pk}
 
     reservation_id = next(iter(reservation_ids))
     job.reservation_id = reservation_id
@@ -507,6 +822,27 @@ def _finalize_operator_checkin(
         return {"status": "nothing_applied", "job_id": job.pk}
 
     reservation = Reservation.objects.select_related("property", "tenant").get(pk=reservation_id)
+    reservation.refresh_from_db()
+
+    if not is_document_checkin_complete(reservation):
+        missing_sides = find_missing_id_sides(reservation)
+        if missing_sides:
+            body = render_missing_id_sides_message(reservation, missing_sides)
+        else:
+            body = render_checkin_partial_documents_message(reservation)
+
+        session.status = WhatsAppOperatorSessionStatus.COLLECTING
+        session.last_activity_at = timezone.now()
+        session.save(update_fields=["status", "last_activity_at", "updated_at"])
+        _send_operator_text(
+            integration_row=integration_row,
+            runtime=runtime,
+            operator_wa_id=row.wa_id,
+            body=body,
+            reservation=reservation,
+        )
+        return {"status": "incomplete_documents", "job_id": job.pk}
+
     from apps.integrations.whatsapp.operator_job_complete import complete_operator_checkin_after_apply
 
     return complete_operator_checkin_after_apply(
@@ -517,6 +853,312 @@ def _finalize_operator_checkin(
         integration_row=integration_row,
         runtime=runtime,
         session=session,
+    )
+
+
+def _get_awaiting_res_pick_session(
+    *,
+    tenant_id: int,
+    operator_wa_id: str,
+    for_update: bool = False,
+) -> WhatsAppOperatorSession | None:
+    return (
+        _get_operator_session_queryset(
+            tenant_id=tenant_id,
+            operator_wa_id=operator_wa_id,
+            statuses=frozenset({WhatsAppOperatorSessionStatus.AWAITING_RES_PICK}),
+            for_update=for_update,
+        ).first()
+    )
+
+
+def _handle_operator_reservation_pick(
+    *,
+    row: WhatsAppMessage,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+    action_text: str,
+) -> dict:
+    with transaction.atomic():
+        _pg_advisory_xact_lock_operator(row.tenant_id, row.wa_id)
+        session = _get_awaiting_res_pick_session(
+            tenant_id=row.tenant_id,
+            operator_wa_id=row.wa_id,
+            for_update=True,
+        )
+        if session is None:
+            return {"status": "skipped", "reason": "not_awaiting_res_pick"}
+
+        if _session_expired(session):
+            _mark_session_failed(session)
+            body = (
+                f"Sesija istekla ({SESSION_TTL_HOURS_LABEL}). "
+                "Pošaljite slike ponovo."
+            )
+            _send_operator_text(
+                integration_row=integration_row,
+                runtime=runtime,
+                operator_wa_id=row.wa_id,
+                body=body,
+            )
+            return {"status": "session_expired"}
+
+        code = extract_booking_code_from_text(action_text)
+        if not code:
+            stripped = (action_text or "").strip()
+            code = stripped if stripped else None
+        if not code:
+            _send_operator_text(
+                integration_row=integration_row,
+                runtime=runtime,
+                operator_wa_id=row.wa_id,
+                body="Pošaljite #rezervacije ili Booking broj.",
+            )
+            return {"status": "awaiting_reservation_pick", "reason": "no_code"}
+
+        reservation = find_reservation_by_booking_code(tenant_id=row.tenant_id, code=code)
+        if reservation is None:
+            _send_operator_text(
+                integration_row=integration_row,
+                runtime=runtime,
+                operator_wa_id=row.wa_id,
+                body="Nisam pronašao rezervaciju s tim brojem.",
+            )
+            return {"status": "reservation_not_found", "code": code}
+
+        job = session.job
+        _rematch_operator_job_for_reservation(job, reservation)
+        job.refresh_from_db()
+
+        auto_matches = _auto_matches_from_job(job)
+        if not auto_matches:
+            body = (
+                f"Na #{reservation.pk} ne mogu mapirati sve osobe s dokumenta.\n\n"
+                f"{build_operator_reservation_pick_message(job)}"
+            )[:1024]
+            session.last_activity_at = timezone.now()
+            session.save(update_fields=["last_activity_at", "updated_at"])
+            _send_operator_text(
+                integration_row=integration_row,
+                runtime=runtime,
+                operator_wa_id=row.wa_id,
+                body=body,
+            )
+            return {"status": "pick_rematch_failed", "job_id": job.pk}
+
+        session.status = WhatsAppOperatorSessionStatus.PROCESSING
+        session.save(update_fields=["status", "updated_at"])
+
+    return _continue_operator_apply_and_checkin(
+        session=session,
+        job=job,
+        row=row,
+        integration_row=integration_row,
+        runtime=runtime,
+    )
+
+
+def _request_operator_checkin(
+    *,
+    row: WhatsAppMessage,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+) -> dict:
+    with transaction.atomic():
+        _pg_advisory_xact_lock_operator(row.tenant_id, row.wa_id)
+        session = _get_active_collect_session(
+            tenant_id=row.tenant_id,
+            operator_wa_id=row.wa_id,
+            for_update=True,
+        )
+        if session is None:
+            body = _blocked_finalize_message(
+                tenant_id=row.tenant_id,
+                operator_wa_id=row.wa_id,
+            )
+            _send_operator_text(
+                integration_row=integration_row,
+                runtime=runtime,
+                operator_wa_id=row.wa_id,
+                body=body,
+            )
+            return {"status": "no_session"}
+
+        if session.status == WhatsAppOperatorSessionStatus.AWAITING_CONFIRM:
+            _send_operator_docs_confirm_prompt(
+                integration_row=integration_row,
+                runtime=runtime,
+                operator_wa_id=row.wa_id,
+            )
+            return {"status": "awaiting_confirm", "session_id": session.pk}
+
+        job = session.job
+        if job.images.count() == 0:
+            _send_operator_text(
+                integration_row=integration_row,
+                runtime=runtime,
+                operator_wa_id=row.wa_id,
+                body="Nema slika u sesiji. Pošaljite fotografije dokumenta pa check-in.",
+            )
+            return {"status": "no_images"}
+
+        session.status = WhatsAppOperatorSessionStatus.AWAITING_CONFIRM
+        session.last_activity_at = timezone.now()
+        session.save(update_fields=["status", "last_activity_at", "updated_at"])
+
+    _send_operator_docs_confirm_prompt(
+        integration_row=integration_row,
+        runtime=runtime,
+        operator_wa_id=row.wa_id,
+    )
+    return {"status": "awaiting_confirm", "session_id": session.pk}
+
+
+def _decline_operator_docs_confirm(
+    *,
+    row: WhatsAppMessage,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+) -> dict:
+    with transaction.atomic():
+        _pg_advisory_xact_lock_operator(row.tenant_id, row.wa_id)
+        session = _get_active_collect_session(
+            tenant_id=row.tenant_id,
+            operator_wa_id=row.wa_id,
+            for_update=True,
+        )
+        if session is None or session.status != WhatsAppOperatorSessionStatus.AWAITING_CONFIRM:
+            return {"status": "skipped", "reason": "not_awaiting_confirm"}
+
+        session.status = WhatsAppOperatorSessionStatus.COLLECTING
+        session.last_activity_at = timezone.now()
+        session.save(update_fields=["status", "last_activity_at", "updated_at"])
+
+    _send_operator_text(
+        integration_row=integration_row,
+        runtime=runtime,
+        operator_wa_id=row.wa_id,
+        body="Pošaljite još slike, zatim ponovo Check-in.",
+    )
+    return {"status": "collecting", "session_id": session.pk}
+
+
+def _finalize_operator_checkin(
+    *,
+    row: WhatsAppMessage,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+) -> dict:
+    with transaction.atomic():
+        _pg_advisory_xact_lock_operator(row.tenant_id, row.wa_id)
+        session = (
+            _get_operator_session_queryset(
+                tenant_id=row.tenant_id,
+                operator_wa_id=row.wa_id,
+                statuses=frozenset({WhatsAppOperatorSessionStatus.AWAITING_CONFIRM}),
+                for_update=True,
+            ).first()
+        )
+        if session is None:
+            processing_or_done = _get_operator_session_queryset(
+                tenant_id=row.tenant_id,
+                operator_wa_id=row.wa_id,
+                statuses=frozenset(
+                    {
+                        WhatsAppOperatorSessionStatus.PROCESSING,
+                        WhatsAppOperatorSessionStatus.DONE,
+                    }
+                ),
+                for_update=False,
+            ).first()
+            if processing_or_done is not None:
+                if processing_or_done.status == WhatsAppOperatorSessionStatus.PROCESSING:
+                    body = "Check-in je u tijeku, pričekajte…"
+                else:
+                    body = "Check-in za ovu seriju je već obavljen."
+                _send_operator_text(
+                    integration_row=integration_row,
+                    runtime=runtime,
+                    operator_wa_id=row.wa_id,
+                    body=body,
+                )
+                return {
+                    "status": "blocked",
+                    "reason": processing_or_done.status,
+                }
+
+            body = _blocked_finalize_message(
+                tenant_id=row.tenant_id,
+                operator_wa_id=row.wa_id,
+            )
+            _send_operator_text(
+                integration_row=integration_row,
+                runtime=runtime,
+                operator_wa_id=row.wa_id,
+                body=body,
+            )
+            return {"status": "no_session"}
+
+        if _session_expired(session):
+            _mark_session_failed(session)
+            body = (
+                f"Sesija istekla ({SESSION_TTL_HOURS_LABEL}). "
+                "Pošaljite slike ponovo."
+            )
+            _send_operator_text(
+                integration_row=integration_row,
+                runtime=runtime,
+                operator_wa_id=row.wa_id,
+                body=body,
+            )
+            return {"status": "session_expired"}
+
+        job = session.job
+        if job.images.count() == 0:
+            _send_operator_text(
+                integration_row=integration_row,
+                runtime=runtime,
+                operator_wa_id=row.wa_id,
+                body="Nema slika u sesiji. Pošaljite fotografije dokumenta pa check-in.",
+            )
+            return {"status": "no_images"}
+
+        session.status = WhatsAppOperatorSessionStatus.PROCESSING
+        session.save(update_fields=["status", "updated_at"])
+
+    process_document_intake_job(job.pk)
+    job.refresh_from_db()
+
+    if job.status == DocumentIntakeJobStatus.FAILED:
+        session.status = WhatsAppOperatorSessionStatus.FAILED
+        session.save(update_fields=["status", "updated_at"])
+        detail = (job.error_message or "OCR nije uspio.").strip()
+        _send_operator_text(
+            integration_row=integration_row,
+            runtime=runtime,
+            operator_wa_id=row.wa_id,
+            body=f"Check-in nije uspio.\n{detail}",
+        )
+        return {"status": "ocr_failed", "job_id": job.pk}
+
+    auto_matches = _auto_matches_from_job(job)
+    reservation_ids = _reservation_ids_from_auto_matches(auto_matches)
+
+    if not auto_matches or len(reservation_ids) != 1:
+        return _enter_awaiting_reservation_pick(
+            session=session,
+            job=job,
+            integration_row=integration_row,
+            runtime=runtime,
+            operator_wa_id=row.wa_id,
+        )
+
+    return _continue_operator_apply_and_checkin(
+        session=session,
+        job=job,
+        row=row,
+        integration_row=integration_row,
+        runtime=runtime,
     )
 
 
@@ -535,8 +1177,66 @@ def handle_operator_inbound(
             runtime=runtime,
         )
 
-    if is_operator_checkin_trigger(button_id=button_id, text=action_text):
+    pick_session = _get_awaiting_res_pick_session(
+        tenant_id=row.tenant_id,
+        operator_wa_id=row.wa_id,
+    )
+    if pick_session is not None:
+        if is_operator_docs_all_no_reply(button_id=button_id, text=action_text):
+            with transaction.atomic():
+                _pg_advisory_xact_lock_operator(row.tenant_id, row.wa_id)
+                session = _get_awaiting_res_pick_session(
+                    tenant_id=row.tenant_id,
+                    operator_wa_id=row.wa_id,
+                    for_update=True,
+                )
+                if session is not None:
+                    session.status = WhatsAppOperatorSessionStatus.COLLECTING
+                    session.last_activity_at = timezone.now()
+                    session.save(update_fields=["status", "last_activity_at", "updated_at"])
+                    job = session.job
+                    job.reservation_id = None
+                    job.save(update_fields=["reservation_id", "updated_at"])
+            _send_operator_text(
+                integration_row=integration_row,
+                runtime=runtime,
+                operator_wa_id=row.wa_id,
+                body="Pošaljite još slike, zatim ponovo Check-in.",
+            )
+            return {"status": "collecting", "session_id": pick_session.pk}
+        if is_operator_checkin_trigger(button_id=button_id, text=action_text) or is_operator_docs_all_yes_reply(
+            button_id=button_id, text=action_text
+        ):
+            _send_operator_text(
+                integration_row=integration_row,
+                runtime=runtime,
+                operator_wa_id=row.wa_id,
+                body="Pošaljite #rezervacije ili Booking broj.",
+            )
+            return {"status": "awaiting_reservation_pick"}
+        return _handle_operator_reservation_pick(
+            row=row,
+            integration_row=integration_row,
+            runtime=runtime,
+            action_text=action_text,
+        )
+
+    if is_operator_docs_all_no_reply(button_id=button_id, text=action_text):
+        return _decline_operator_docs_confirm(
+            row=row,
+            integration_row=integration_row,
+            runtime=runtime,
+        )
+
+    if is_operator_docs_all_yes_reply(button_id=button_id, text=action_text):
         return _finalize_operator_checkin(
+            row=row,
+            integration_row=integration_row,
+            runtime=runtime,
+        )
+
+    if is_operator_checkin_trigger(button_id=button_id, text=action_text):
+        return _request_operator_checkin(
             row=row,
             integration_row=integration_row,
             runtime=runtime,

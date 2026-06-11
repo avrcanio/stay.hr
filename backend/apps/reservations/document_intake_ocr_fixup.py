@@ -87,6 +87,139 @@ def _image_meta_at(images: list, index: Any) -> dict | None:
     return item if isinstance(item, dict) else None
 
 
+_NAME_TOKEN_RE = re.compile(r"^[A-Za-zÀ-žÄÖÜẞ][A-Za-zÀ-žÄÖÜẞ'\-]{1,39}$")
+_FIELD_LABEL_MARKERS = frozenset(
+    {
+        "VORNAMEN",
+        "GIVEN NAMES",
+        "GEBURTSNAME",
+        "NAME AT BIRTH",
+        "NOM DE NAISSANCE",
+        "PERSONALAUSWEIS",
+        "BUNDESREPUBLIK",
+        "DEUTSCH",
+    }
+)
+
+
+def _looks_like_name_token(line: str) -> bool:
+    token = (line or "").strip()
+    if not token or not _NAME_TOKEN_RE.match(token):
+        return False
+    upper = token.upper()
+    return not any(marker in upper for marker in _FIELD_LABEL_MARKERS)
+
+
+def _surname_from_mrz_lines(mrz_lines: list | None) -> str | None:
+    """Extract surname from TD1 / German ID MRZ name line (last line with letters)."""
+    if not isinstance(mrz_lines, list):
+        return None
+    for line in reversed(mrz_lines):
+        cleaned = re.sub(r"\s+", "", str(line or "").upper())
+        if not cleaned or cleaned[0].isdigit() or cleaned.startswith("IDD"):
+            continue
+        match = re.match(r"^([A-ZÀ-žÄÖÜẞ][A-ZÀ-žÄÖÜẞ'\-]*)(?:<<|<)", cleaned)
+        if match:
+            surname = match.group(1).strip()
+            if len(surname) >= 2:
+                return surname
+        if "<<" in cleaned:
+            before = cleaned.split("<<", 1)[0]
+            if before and len(before) >= 2 and before.isalpha():
+                return before
+    return None
+
+
+def _collect_mrz_lines_for_person(person: dict, images: list[dict]) -> list[str]:
+    lines: list[str] = []
+    raw = person.get("mrz_lines") or []
+    if isinstance(raw, list):
+        lines.extend(str(line) for line in raw if str(line).strip())
+    for key in ("back_image_index", "front_image_index"):
+        meta = _image_meta_at(images, person.get(key))
+        if meta is None:
+            continue
+        img_lines = meta.get("mrz_lines") or []
+        if isinstance(img_lines, list):
+            lines.extend(str(line) for line in img_lines if str(line).strip())
+    return lines
+
+
+def _surname_from_german_id_front_ocr(text: str) -> str | None:
+    """Field [a] surname on German Personalausweis (not Geburtsname [b])."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    upper = raw.upper()
+    if "PERSONALAUSWEIS" not in upper and "BUNDESREPUBLIK DEUTSCHLAND" not in upper:
+        return None
+
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+
+    for index, line in enumerate(lines):
+        if re.search(r"\[a\].*(NAME/SURNAME|NAZWA/NOM)", line, re.IGNORECASE):
+            for candidate_line in lines[index + 1 : index + 4]:
+                if _looks_like_name_token(candidate_line):
+                    return candidate_line
+            break
+
+    start = 0
+    for index, line in enumerate(lines):
+        if "PERSONALAUSWEIS" in line.upper():
+            start = index + 1
+            break
+
+    surname_candidates: list[str] = []
+    for line in lines[start:]:
+        lowered = line.lower()
+        if re.match(r"\[b\]", line, re.IGNORECASE) or "geburtsname" in lowered:
+            break
+        if re.match(r"vornamen|given names|prénoms", line, re.IGNORECASE):
+            break
+        if _looks_like_name_token(line):
+            surname_candidates.append(line)
+
+    if surname_candidates:
+        return surname_candidates[0]
+    return None
+
+
+def _normalize_surname_token(value: str) -> str:
+    from apps.reservations.booking_xls_import import _normalize_guest_name_key
+
+    return _normalize_guest_name_key(value)
+
+
+def _correct_person_surnames(person: dict, images: list[dict]) -> None:
+    """Fix German ID OCR that used Geburtsname or given-name line as surname."""
+    current = str(person.get("surnames") or "").strip()
+    mrz_surname = _surname_from_mrz_lines(_collect_mrz_lines_for_person(person, images))
+
+    front_meta = _image_meta_at(images, person.get("front_image_index"))
+    front_text = str((front_meta or {}).get("ocr_text") or "")
+    german_surname = _surname_from_german_id_front_ocr(front_text)
+
+    preferred = mrz_surname or german_surname
+    if not preferred:
+        return
+
+    if not current:
+        person["surnames"] = preferred
+        return
+
+    current_key = _normalize_surname_token(current)
+    preferred_key = _normalize_surname_token(preferred)
+    if current_key == preferred_key:
+        return
+
+    # MRZ / field [a] wins over birth name or misread given-name line.
+    if mrz_surname and _normalize_surname_token(mrz_surname) == preferred_key:
+        person["surnames"] = mrz_surname
+        return
+    if german_surname and _normalize_surname_token(german_surname) == preferred_key:
+        person["surnames"] = german_surname
+
+
 def _reconcile_person_image_indices(person: dict, images: list[dict]) -> None:
     """Align front_image_index / back_image_index with corrected images[].side."""
     front_idx = person.get("front_image_index")
@@ -127,6 +260,7 @@ def fixup_document_ocr_result(ocr_result: dict) -> dict:
 
     for person in persons:
         _reconcile_person_image_indices(person, images)
+        _correct_person_surnames(person, images)
 
     ocr_result["images"] = images
     ocr_result["persons"] = persons

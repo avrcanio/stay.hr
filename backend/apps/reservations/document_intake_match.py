@@ -124,6 +124,105 @@ def _booker_name_keys(reservation: Reservation) -> set[str]:
     return keys
 
 
+def _booker_surname_tokens(reservation: Reservation) -> set[str]:
+    booker = _normalize_guest_name_key(reservation.booker_name or "")
+    parts = booker.split()
+    if len(parts) >= 2:
+        return {parts[-1]}
+    return set()
+
+
+def _booker_first_name_key(reservation: Reservation) -> str:
+    booker = (reservation.booker_name or "").strip()
+    parts = booker.split()
+    if not parts:
+        return ""
+    return _normalize_guest_name_key(parts[0])
+
+
+def _person_first_name_key(person: dict) -> str:
+    return _normalize_guest_name_key(
+        _first_given_name(str(person.get("given_names") or ""))
+    )
+
+
+def _levenshtein(left: str, right: str) -> int:
+    if left == right:
+        return 0
+    if not left:
+        return len(right)
+    if not right:
+        return len(left)
+    prev = list(range(len(right) + 1))
+    for i, left_char in enumerate(left, start=1):
+        current = [i]
+        for j, right_char in enumerate(right, start=1):
+            cost = 0 if left_char == right_char else 1
+            current.append(
+                min(
+                    current[-1] + 1,
+                    prev[j] + 1,
+                    prev[j - 1] + cost,
+                )
+            )
+        prev = current
+    return prev[-1]
+
+
+def _surname_keys_compatible(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    min_len = 5
+    if len(left) >= min_len and len(right) >= min_len:
+        return _levenshtein(left, right) <= 1
+    return False
+
+
+def _name_token_sets_overlap(left_keys: set[str], right_keys: set[str]) -> bool:
+    if left_keys & right_keys:
+        return True
+    for left in left_keys:
+        for right in right_keys:
+            if _surname_keys_compatible(left, right):
+                return True
+    return False
+
+
+def _booker_person_overlap(
+    reservation: Reservation,
+    keys: set[str],
+    person_surnames: set[str],
+) -> bool:
+    booker_keys = _booker_name_keys(reservation)
+    booker_surnames = _booker_surname_tokens(reservation)
+    if booker_keys & keys or booker_keys & person_surnames:
+        return True
+    if _name_token_sets_overlap(booker_surnames, person_surnames):
+        return True
+    if _name_token_sets_overlap(booker_keys, person_surnames):
+        return True
+    if _name_token_sets_overlap(booker_surnames, keys):
+        return True
+    return False
+
+
+def _unfilled_slot_allowed_for_person(
+    reservation: Reservation,
+    person: dict,
+    keys: set[str],
+    person_surnames: set[str],
+) -> bool:
+    if not person_surnames:
+        return True
+    if _booker_person_overlap(reservation, keys, person_surnames):
+        return True
+    booker_first = _booker_first_name_key(reservation)
+    person_first = _person_first_name_key(person)
+    return bool(booker_first and person_first and booker_first == person_first)
+
+
 def active_reservations_for_intake(tenant_id: int) -> list[Reservation]:
     today = timezone.now().astimezone(ZAGREB).date()
     window_start = today - timedelta(days=3)
@@ -165,17 +264,18 @@ def _fuzzy_guest_match(
     reservation: Reservation,
     keys: set[str],
     *,
+    person_surnames: set[str] | None = None,
     exclude: set[int] | None = None,
 ) -> Guest | None:
     blocked = exclude or set()
+    person_surnames = person_surnames or set()
     for guest in reservation.guests.all():
         if guest.pk in blocked:
             continue
         if _guest_name_matches(guest, keys):
             return guest
 
-    booker_keys = _booker_name_keys(reservation)
-    if booker_keys & keys:
+    if _booker_person_overlap(reservation, keys, person_surnames):
         for guest in reservation.guests.all():
             if guest.pk in blocked:
                 continue
@@ -327,6 +427,7 @@ def match_persons_to_guests(
         )
     else:
         reservations = active_reservations_for_intake(tenant_id)
+    scoped_single_reservation = len(reservations) == 1
     results: list[dict] = []
     assigned_guest_ids: set[int] = set()
 
@@ -348,7 +449,12 @@ def match_persons_to_guests(
                 if guest:
                     match_type = "document_number"
             if keys:
-                guest = _fuzzy_guest_match(reservation, keys, exclude=assigned_guest_ids)
+                guest = _fuzzy_guest_match(
+                    reservation,
+                    keys,
+                    person_surnames=person_surnames,
+                    exclude=assigned_guest_ids,
+                )
                 if guest:
                     match_type = "name"
             if guest is None:
@@ -359,10 +465,17 @@ def match_persons_to_guests(
             if guest is None:
                 continue
 
-            if match_type == "unfilled_slot" and person_surnames:
-                booker_keys = _booker_name_keys(reservation)
-                if not (booker_keys & keys) and not (booker_keys & person_surnames):
-                    continue
+            if (
+                match_type == "unfilled_slot"
+                and not scoped_single_reservation
+                and not _unfilled_slot_allowed_for_person(
+                    reservation,
+                    person,
+                    keys,
+                    person_surnames,
+                )
+            ):
+                continue
 
             candidates.append(
                 {

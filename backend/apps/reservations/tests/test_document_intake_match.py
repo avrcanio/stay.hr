@@ -111,3 +111,24 @@ class DocumentIntakeMatchTests(TestCase):
         self.assertTrue(spouse["auto_apply"])
         self.assertEqual(spouse["reservation_id"], target.pk)
         self.assertNotEqual(spouse["guest_id"], francois["guest_id"])
+
+    def test_hengeland_on_document_matches_engeland_booker(self):
+        today = timezone.now().date()
+        target = self._reservation(pk_suffix=138, booker="Jasmin Engeland", check_in=today)
+        self._reservation(pk_suffix=70, booker="Other Guest", check_in=today)
+
+        persons = [
+            {"given_names": "Jasmin", "surnames": "Hengeland"},
+            {"given_names": "Ingo Uwe Günter", "surnames": "Hengeland"},
+        ]
+        matches = match_persons_to_guests(tenant_id=self.tenant.pk, persons=persons)
+
+        self.assertEqual(len(matches), 2)
+        jasmin = matches[0]
+        self.assertTrue(jasmin["auto_apply"])
+        self.assertEqual(jasmin["reservation_id"], target.pk)
+
+        ingo = matches[1]
+        self.assertTrue(ingo["auto_apply"])
+        self.assertEqual(ingo["reservation_id"], target.pk)
+        self.assertNotEqual(ingo["guest_id"], jasmin["guest_id"])

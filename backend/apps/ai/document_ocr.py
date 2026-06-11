@@ -23,6 +23,9 @@ Rules:
 - Do NOT assume photo order. Pair front/back of the same person by MRZ surname/given names on the back.
 - Extract MRZ lines when visible (passport biodata or ID card back lower third).
 - For EU national ID cards: front has portrait and name; back has MRZ.
+- German Personalausweis: field [a] Name/Surname is the current surname (surnames).
+  Field [b] Geburtsname/Name at birth is NOT the surname — never put birth name in surnames.
+  Prefer MRZ surname (line before << or first <) when visible on the back.
 - For passports: biodata page is both front and passport side.
 - face_bbox: normalized 0-1 coordinates (x, y, w, h) of the portrait photo on the front/biodata page.
   Measure from the actual image. Use null if no portrait is visible. Do NOT copy example values.

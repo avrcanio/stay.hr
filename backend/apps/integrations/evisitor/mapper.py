@@ -18,6 +18,22 @@ def _format_yyyymmdd(value: date | None) -> str:
     return value.strftime("%Y%m%d")
 
 
+def _extract_city_of_residence(normalized_address: str) -> str:
+    """Pick eVisitor city; HR osobna often lists naselje first, then Grad <city>."""
+    raw = (normalized_address or "").strip()
+    if not raw:
+        return ""
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    for part in parts:
+        lowered = part.lower()
+        if lowered.startswith("grad "):
+            city = part[5:].strip()
+            return city or part
+    if parts:
+        return parts[0][:64]
+    return raw[:64]
+
+
 def _map_gender(sex: str) -> str:
     raw = (sex or "").strip().lower()
     if raw in {"m", "male", "muški", "muski", "muskarac", "muškarac"}:
@@ -81,12 +97,8 @@ def build_check_in_payload(
     if guest.document_country_iso3:
         country_of_residence = guest.document_country_iso3.strip().upper()[:3]
 
-    city_of_residence = ""
     normalized_address = normalize_residence_address(guest.address or "")
-    if normalized_address and "," in normalized_address:
-        city_of_residence = normalized_address.split(",")[0].strip()
-    elif normalized_address:
-        city_of_residence = normalized_address.strip()[:64]
+    city_of_residence = _extract_city_of_residence(normalized_address)
 
     if errors:
         raise EvisitorValidationError(

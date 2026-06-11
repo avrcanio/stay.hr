@@ -70,6 +70,8 @@ class WhatsAppGuestAutocheckinTests(TestCase):
     def test_extract_booking_code(self):
         self.assertEqual(extract_booking_code_from_text("BCOM-777"), "BCOM-777")
         self.assertEqual(extract_booking_code_from_text("Kod je 1234567890"), "1234567890")
+        self.assertEqual(extract_booking_code_from_text("Booking: 5193574002"), "5193574002")
+        self.assertEqual(extract_booking_code_from_text("5193 574 002"), "5193574002")
         self.assertIsNone(extract_booking_code_from_text("bok"))
 
     def test_find_reservation_by_booking_code(self):
@@ -151,6 +153,78 @@ class WhatsAppGuestAutocheckinTests(TestCase):
         mock_send.assert_called_once()
         buttons = mock_send.call_args.kwargs["buttons"]
         self.assertEqual(buttons[0][0], GUEST_AUTO_CHECKIN_BUTTON_ID)
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
+    def test_wrong_booking_code_sends_not_found(self, mock_send):
+        mock_send.return_value = {"messages": [{"id": "wamid.out.notfound"}]}
+        WhatsAppGuestAutocheckinSession.objects.create(
+            tenant=self.tenant,
+            wa_id="385915412198",
+            status="awaiting_booking_code",
+        )
+        inbound = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            wamid="wamid.in.wrongcode",
+            wa_id="385915412198",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="WRONG-CODE-999",
+            raw_payload={"type": "text", "text": {"body": "WRONG-CODE-999"}},
+        )
+
+        result = handle_guest_autocheckin_inbound(
+            row=inbound,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text="WRONG-CODE-999",
+            reservation=None,
+        )
+
+        self.assertEqual(result["status"], "sent")
+        body = mock_send.call_args.kwargs["body"]
+        self.assertIn("Ne prepoznajem", body)
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.property_local_now")
+    def test_alt_phone_code_match_before_checkin_auto_reply_off(self, mock_now, mock_send):
+        mock_now.return_value = datetime(2026, 6, 6, 9, 0, tzinfo=ZAGREB)
+        mock_send.return_value = {"messages": [{"id": "wamid.out.early"}]}
+        runtime = WhatsAppRuntimeConfig.from_integration_dict(
+            {
+                **self.integration.get_config_dict(),
+                "auto_reply": False,
+            }
+        )
+        inbound = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            wamid="wamid.in.altphone",
+            wa_id="385915412198",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="BCOM-777",
+            raw_payload={"type": "text", "text": {"body": "BCOM-777"}},
+        )
+
+        result = handle_guest_autocheckin_inbound(
+            row=inbound,
+            integration_row=self.integration,
+            runtime=runtime,
+            action_text="BCOM-777",
+            reservation=None,
+        )
+
+        self.assertEqual(result["status"], "sent")
+        inbound.refresh_from_db()
+        self.assertEqual(inbound.reservation_id, self.reservation.pk)
+        body = mock_send.call_args.kwargs["body"]
+        self.assertIn("BCOM-777", body)
+        self.assertIn("dan dolaska", body.lower())
 
     def _tiny_jpeg(self) -> bytes:
         buf = BytesIO()
@@ -242,10 +316,12 @@ class WhatsAppGuestAutocheckinTests(TestCase):
         self.assertIn("dolasku", body.lower())
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.property_local_now")
-    def test_complete_documents_no_keywords_skips_prompt(self, mock_now, mock_interactive):
+    def test_complete_documents_no_keywords_sends_ack(self, mock_now, mock_interactive, mock_send):
         mock_now.return_value = datetime(2026, 6, 7, 9, 0, tzinfo=ZAGREB)
+        mock_send.return_value = {"messages": [{"id": "wamid.out.docs"}]}
         self._guest_with_complete_documents()
         inbound = WhatsAppMessage.objects.create(
             tenant=self.tenant,
@@ -268,14 +344,16 @@ class WhatsAppGuestAutocheckinTests(TestCase):
             reservation=self.reservation,
         )
 
-        self.assertEqual(result["status"], "skipped")
-        self.assertEqual(result["reason"], "documents_complete")
+        self.assertEqual(result["status"], "sent")
         mock_interactive.assert_not_called()
+        mock_send.assert_called_once()
+        self.assertIn("dokumenti", mock_send.call_args.kwargs["body"].lower())
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch(
         "apps.integrations.whatsapp.whatsapp_post_checkin_reply.send_whatsapp_entrance_image_from_asset"
     )
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
     @patch("apps.communications.guest_message_send.send_text_message")
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
     @patch("apps.core.timezone.property_local_now")
@@ -283,11 +361,13 @@ class WhatsAppGuestAutocheckinTests(TestCase):
         self,
         mock_now,
         mock_interactive,
-        mock_text,
+        mock_post_text,
+        mock_ack_text,
         mock_entrance,
     ):
         mock_now.return_value = datetime(2026, 6, 7, 18, 0, tzinfo=ZAGREB)
-        mock_text.return_value = {"messages": [{"id": "wamid.out.post"}]}
+        mock_post_text.return_value = {"messages": [{"id": "wamid.out.post"}]}
+        mock_ack_text.return_value = {"messages": [{"id": "wamid.out.ack"}]}
         mock_entrance.return_value = WhatsAppMessage.objects.create(
             tenant=self.tenant,
             integration=self.integration,
@@ -324,10 +404,11 @@ class WhatsAppGuestAutocheckinTests(TestCase):
             if idx == 0:
                 self.assertEqual(result["status"], "post_checkin_reply_sent")
             else:
-                self.assertEqual(result["status"], "skipped")
-                self.assertEqual(result["reason"], "documents_complete")
+                self.assertEqual(result["status"], "sent")
+                self.assertIn("dokumenti", mock_ack_text.call_args.kwargs["body"].lower())
 
-        mock_text.assert_called_once()
+        mock_post_text.assert_called_once()
+        mock_ack_text.assert_called_once()
         mock_entrance.assert_called_once()
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})

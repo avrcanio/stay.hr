@@ -119,6 +119,29 @@ DOCUMENTS_BATCH_CONFIRM_NO = {
     "fr": "Non",
 }
 
+OPERATOR_DOCUMENTS_CONFIRM = {
+    "hr": (
+        "Primili smo fotografije. Jeste li unijeli sve potrebne slike dokumenta "
+        "(sve strane ID-a za sve goste)?"
+    ),
+    "en": (
+        "We received your photos. Have you uploaded all required document photos "
+        "(all ID sides for all guests)?"
+    ),
+    "de": (
+        "Wir haben Ihre Fotos erhalten. Haben Sie alle erforderlichen Dokumentenfotos "
+        "(alle Ausweisseiten für alle Gäste) hochgeladen?"
+    ),
+    "es": (
+        "Hemos recibido sus fotos. ¿Ha subido todas las fotos de documentos necesarias "
+        "(todas las caras del ID para todos los huéspedes)?"
+    ),
+    "fr": (
+        "Nous avons reçu vos photos. Avez-vous envoyé toutes les photos de documents requises "
+        "(toutes les faces d’identité pour tous les clients) ?"
+    ),
+}
+
 CHECKIN_PARTIAL_DOCUMENTS = {
     "hr": (
         "Primili smo dokumente — hvala!\n\n"
@@ -404,26 +427,35 @@ AUTOCHECKIN_WHATSAPP_INTRO_TAIL = {
     "hr": (
         "Ako check-in obavite preko linka, nećete dobiti zasebnu WhatsApp pozivnicu "
         "(utility poruku).\n\n"
+        "Ako pišete s drugog telefona na WhatsAppu, pošaljite booking kod s potvrde.\n\n"
         "Rezervacija: {booking_code}"
     ),
     "en": (
         "If you check in via the link, you will not receive a separate WhatsApp invitation "
         "(utility message).\n\n"
+        "If you message us from a different phone on WhatsApp, send the booking code from "
+        "your confirmation.\n\n"
         "Booking: {booking_code}"
     ),
     "de": (
         "Wenn Sie den Check-in über den Link abschließen, erhalten Sie keine separate "
         "WhatsApp-Einladung (Utility-Nachricht).\n\n"
+        "Wenn Sie von einer anderen Nummer auf WhatsApp schreiben, senden Sie die "
+        "Buchungsnummer aus der Bestätigung.\n\n"
         "Buchung: {booking_code}"
     ),
     "es": (
         "Si completa el check-in mediante el enlace, no recibirá una invitación "
         "WhatsApp aparte (mensaje utility).\n\n"
+        "Si escribe desde otro teléfono en WhatsApp, envíe el código de reserva de la "
+        "confirmación.\n\n"
         "Reserva: {booking_code}"
     ),
     "fr": (
         "Si vous terminez via le lien, vous ne recevrez pas d’invitation WhatsApp "
         "séparée (message utility).\n\n"
+        "Si vous écrivez depuis un autre numéro sur WhatsApp, envoyez le code de "
+        "réservation de la confirmation.\n\n"
         "Réservation : {booking_code}"
     ),
 }
@@ -530,6 +562,7 @@ DEFAULT_TEXTS: dict[str, dict[str, str]] = {
     "documents_batch_confirm": DOCUMENTS_BATCH_CONFIRM,
     "documents_batch_confirm_yes": DOCUMENTS_BATCH_CONFIRM_YES,
     "documents_batch_confirm_no": DOCUMENTS_BATCH_CONFIRM_NO,
+    "operator_documents_confirm": OPERATOR_DOCUMENTS_CONFIRM,
     "checkin_partial_documents": CHECKIN_PARTIAL_DOCUMENTS,
     "missing_id_sides_intro": MISSING_ID_SIDES_INTRO,
     "missing_id_side_line": MISSING_ID_SIDE_LINE,

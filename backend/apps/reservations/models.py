@@ -508,6 +508,8 @@ class WhatsAppDocumentBatchSession(TenantScopedModel):
 
 class WhatsAppOperatorSessionStatus(models.TextChoices):
     COLLECTING = "collecting", "Collecting"
+    AWAITING_CONFIRM = "awaiting_confirm", "Awaiting confirm"
+    AWAITING_RES_PICK = "awaiting_res_pick", "Awaiting reservation pick"
     PROCESSING = "processing", "Processing"
     DONE = "done", "Done"
     FAILED = "failed", "Failed"
@@ -523,7 +525,7 @@ class WhatsAppOperatorSession(TenantScopedModel):
         related_name="whatsapp_operator_sessions",
     )
     status = models.CharField(
-        max_length=16,
+        max_length=24,
         choices=WhatsAppOperatorSessionStatus.choices,
         default=WhatsAppOperatorSessionStatus.COLLECTING,
     )
