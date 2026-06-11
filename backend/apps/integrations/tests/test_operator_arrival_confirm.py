@@ -1,0 +1,250 @@
+from datetime import date, datetime, timedelta
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
+
+from django.test import TestCase, override_settings
+
+from apps.integrations.models import IntegrationConfig, WhatsAppMessage
+from apps.integrations.tests.test_whatsapp_webhook import TEST_FERNET_KEY
+from apps.integrations.whatsapp.operator_arrival_confirm import (
+    OPERATOR_ARRIVED_NO_PREFIX,
+    OPERATOR_ARRIVED_YES_PREFIX,
+    handle_operator_arrival_confirm_inbound,
+    operator_arrived_no_button_id,
+    operator_arrived_yes_button_id,
+    schedule_arrival_confirm_prompt,
+    send_arrival_confirm_prompt,
+)
+from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
+from apps.properties.models import Property
+from apps.reservations.models import (
+    Reservation,
+    ReservationUnit,
+    WhatsAppArrivalConfirmSession,
+    WhatsAppArrivalConfirmSessionStatus,
+    WhatsAppArrivalConfirmTrigger,
+)
+from apps.tenants.models import Tenant, TenantReceptionSettings
+
+ZAGREB = ZoneInfo("Europe/Zagreb")
+
+
+@override_settings(
+    STAY_INTEGRATION_FERNET_KEY=TEST_FERNET_KEY,
+    CELERY_TASK_ALWAYS_EAGER=True,
+    CELERY_TASK_EAGER_PROPAGATES=True,
+)
+class OperatorArrivalConfirmTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(slug="uzorita", name="Uzorita", default_language="hr")
+        TenantReceptionSettings.objects.create(
+            tenant=self.tenant,
+            whatsapp_operator_phones=[{"name": "Toni", "phone": "+385998388513"}],
+        )
+        self.property = Property.objects.create(
+            tenant=self.tenant,
+            name="Uzorita",
+            slug="uzorita",
+            whatsapp_autocheckin_enabled=True,
+            timezone="Europe/Zagreb",
+        )
+        self.integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.WHATSAPP,
+            routing_key="1068791909660300",
+            is_active=True,
+        )
+        self.integration.set_config_dict(
+            {
+                "provider": "360dialog",
+                "phone_number_id": "1068791909660300",
+                "access_token": "d360-test",
+                "api_base_url": "https://waba-v2.360dialog.io",
+            }
+        )
+        self.integration.save()
+        self.runtime = WhatsAppRuntimeConfig.from_integration_dict(self.integration.get_config_dict())
+        self.operator_wa_id = "385998388513"
+        self._inbound_wamid_counter = 0
+        self.reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            booker_name="Ana Anić",
+            booking_code="BCOM-181",
+            check_in=date(2026, 6, 7),
+            check_out=date(2026, 6, 9),
+            status=Reservation.Status.EXPECTED,
+            guest_stated_arrival_text="~ 18-19",
+            guest_stated_arrival_at=datetime(2026, 6, 7, 19, 0, tzinfo=ZAGREB),
+        )
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            sort_order=0,
+            room_name="A1",
+        )
+
+    def _operator_row(self, *, button_id: str = "", body: str = "") -> WhatsAppMessage:
+        self._inbound_wamid_counter += 1
+        payload = {"type": "text", "text": {"body": body}}
+        message_type = "text"
+        if button_id:
+            message_type = "interactive"
+            payload = {
+                "type": "interactive",
+                "interactive": {
+                    "type": "button_reply",
+                    "button_reply": {"id": button_id, "title": body or "Da"},
+                },
+            }
+        return WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid=f"wamid.in.arrival.{self._inbound_wamid_counter}",
+            wa_id=self.operator_wa_id,
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type=message_type,
+            body=body,
+            raw_payload=payload,
+        )
+
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm.send_interactive_button_message")
+    def test_send_prompt_to_all_operators(self, mock_send):
+        mock_send.return_value = {"messages": [{"id": "wamid.prompt.1"}]}
+
+        result = send_arrival_confirm_prompt(
+            self.reservation,
+            trigger=WhatsAppArrivalConfirmTrigger.GUEST_DEADLINE_PLUS_30,
+            integration_row=self.integration,
+            runtime=self.runtime,
+        )
+
+        self.assertEqual(result["status"], "prompted")
+        mock_send.assert_called_once()
+        call_kwargs = mock_send.call_args.kwargs
+        self.assertIn(str(self.reservation.pk), call_kwargs["body"])
+        buttons = call_kwargs["buttons"]
+        self.assertEqual(buttons[0][0], operator_arrived_yes_button_id(self.reservation.pk))
+        self.assertEqual(buttons[1][0], operator_arrived_no_button_id(self.reservation.pk))
+        session = WhatsAppArrivalConfirmSession.objects.get(reservation=self.reservation)
+        self.assertEqual(session.status, WhatsAppArrivalConfirmSessionStatus.AWAITING_ARRIVED)
+
+    @patch("apps.reservations.reservation_checkin_complete.perform_arrival_confirmed_checkin")
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm.send_interactive_button_message")
+    def test_yes_then_time_triggers_checkin(self, mock_send, mock_checkin):
+        mock_send.return_value = {"messages": [{"id": "wamid.prompt.1"}]}
+        mock_checkin.return_value = {"status": "completed"}
+        send_arrival_confirm_prompt(
+            self.reservation,
+            trigger=WhatsAppArrivalConfirmTrigger.NIGHTLY_23H,
+            integration_row=self.integration,
+            runtime=self.runtime,
+        )
+
+        yes_row = self._operator_row(
+            button_id=operator_arrived_yes_button_id(self.reservation.pk),
+            body="Da",
+        )
+        yes_result = handle_operator_arrival_confirm_inbound(
+            row=yes_row,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text="Da",
+            button_id=operator_arrived_yes_button_id(self.reservation.pk),
+        )
+        self.assertEqual(yes_result["status"], "awaiting_time")
+
+        time_row = self._operator_row(body="19:30")
+        time_result = handle_operator_arrival_confirm_inbound(
+            row=time_row,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text="19:30",
+            button_id="",
+        )
+        self.assertEqual(time_result["status"], "completed")
+        mock_checkin.assert_called_once()
+        session = WhatsAppArrivalConfirmSession.objects.get(reservation=self.reservation)
+        self.assertEqual(session.status, WhatsAppArrivalConfirmSessionStatus.DONE)
+
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm.send_interactive_button_message")
+    def test_no_keeps_expected(self, mock_send):
+        mock_send.return_value = {"messages": [{"id": "wamid.prompt.1"}]}
+        send_arrival_confirm_prompt(
+            self.reservation,
+            trigger=WhatsAppArrivalConfirmTrigger.GUEST_DEADLINE_PLUS_30,
+            integration_row=self.integration,
+            runtime=self.runtime,
+        )
+
+        no_row = self._operator_row(
+            button_id=operator_arrived_no_button_id(self.reservation.pk),
+            body="Ne",
+        )
+        result = handle_operator_arrival_confirm_inbound(
+            row=no_row,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text="Ne",
+            button_id=operator_arrived_no_button_id(self.reservation.pk),
+        )
+        self.assertEqual(result["status"], "declined")
+        self.reservation.refresh_from_db()
+        self.assertEqual(self.reservation.status, Reservation.Status.EXPECTED)
+        session = WhatsAppArrivalConfirmSession.objects.get(reservation=self.reservation)
+        self.assertEqual(session.status, WhatsAppArrivalConfirmSessionStatus.DECLINED)
+
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm.arrival_confirm_guest_deadline_elapsed.apply_async")
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm.property_local_now")
+    def test_schedule_timer_at_guest_deadline_plus_30(self, mock_now, mock_apply):
+        mock_now.return_value = datetime(2026, 6, 7, 17, 0, tzinfo=ZAGREB)
+        run_at = datetime(2026, 6, 7, 19, 30, tzinfo=ZAGREB)
+        schedule_arrival_confirm_prompt(
+            self.reservation,
+            trigger=WhatsAppArrivalConfirmTrigger.GUEST_DEADLINE_PLUS_30,
+            run_at=run_at,
+        )
+        mock_apply.assert_called_once()
+        self.assertEqual(mock_apply.call_args.kwargs["countdown"], 9000)
+
+    @patch("apps.integrations.whatsapp.apply_reply.is_document_checkin_complete", return_value=True)
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm.property_local_now")
+    def test_nightly_prompt_runs_at_23h_property_local(self, mock_now, mock_docs_complete):
+        from apps.integrations.whatsapp.operator_arrival_confirm import send_nightly_arrival_confirm_prompts
+
+        mock_now.return_value = datetime(2026, 6, 7, 23, 5, tzinfo=ZAGREB)
+        with patch(
+            "apps.integrations.whatsapp.operator_arrival_confirm.send_arrival_confirm_prompt",
+            return_value={"status": "prompted"},
+        ) as mock_prompt:
+            result = send_nightly_arrival_confirm_prompts()
+        self.assertEqual(result["prompted"], 1)
+        mock_prompt.assert_called_once()
+
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm.send_interactive_button_message")
+    def test_double_operator_gets_already_handled(self, mock_send):
+        mock_send.return_value = {"messages": [{"id": "wamid.prompt.1"}]}
+        send_arrival_confirm_prompt(
+            self.reservation,
+            trigger=WhatsAppArrivalConfirmTrigger.NIGHTLY_23H,
+            integration_row=self.integration,
+            runtime=self.runtime,
+        )
+        session = WhatsAppArrivalConfirmSession.objects.get(reservation=self.reservation)
+        session.status = WhatsAppArrivalConfirmSessionStatus.DONE
+        session.save(update_fields=["status", "updated_at"])
+
+        row = self._operator_row(
+            button_id=operator_arrived_yes_button_id(self.reservation.pk),
+            body="Da",
+        )
+        result = handle_operator_arrival_confirm_inbound(
+            row=row,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text="Da",
+            button_id=operator_arrived_yes_button_id(self.reservation.pk),
+        )
+        self.assertEqual(result["status"], "already_handled")

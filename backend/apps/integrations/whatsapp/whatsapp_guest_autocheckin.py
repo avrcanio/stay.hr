@@ -465,9 +465,12 @@ def _handle_matched_reservation(
 ) -> dict:
     from apps.communications.whatsapp_autocheckin_tasks import mark_autocheckin_engaged
     from apps.integrations.whatsapp.apply_reply import (
+        is_document_checkin_complete,
         is_guest_checkin_acknowledged,
         is_whatsapp_autocheckin_waived,
     )
+    from apps.integrations.whatsapp.guest_docs_awaiting_arrival import docs_awaiting_arrival_already_sent
+    from apps.integrations.whatsapp.operator_arrival_confirm import maybe_handle_guest_arrival_time_inbound
     from apps.integrations.whatsapp.reply import build_greeting
     from apps.integrations.whatsapp.whatsapp_post_checkin_reply import (
         arrival_thanks_sent_today,
@@ -492,6 +495,27 @@ def _handle_matched_reservation(
             reservation=reservation,
             body=body,
         )
+
+    if (
+        reservation.status == Reservation.Status.EXPECTED
+        and is_document_checkin_complete(reservation)
+    ):
+        arrival_result = maybe_handle_guest_arrival_time_inbound(
+            row=row,
+            reservation=reservation,
+            action_text=action_text,
+        )
+        if arrival_result is not None:
+            return arrival_result
+        if docs_awaiting_arrival_already_sent(reservation):
+            body = _text_for_lang(_BOOKING_DOCS_ALREADY_RECEIVED, lang)
+            return _send_whatsapp_text(
+                integration_row=integration_row,
+                runtime=runtime,
+                row=row,
+                reservation=reservation,
+                body=body,
+            )
 
     if is_guest_checkin_acknowledged(reservation):
         if (

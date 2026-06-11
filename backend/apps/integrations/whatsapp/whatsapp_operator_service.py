@@ -12,11 +12,16 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.communications.guest_compose import (
+    HINT_ASK_ARRIVAL_TIME,
+    HINT_CHECKIN_COMPLETE_SUPPLEMENT,
     HINT_OPERATOR_CHECKIN_COMPLETE,
-    render_checkin_partial_documents_message,
-    render_missing_id_sides_message,
+    render_ask_arrival_time_message,
+    render_checkin_complete_supplement_message,
+    render_entrance_image_caption,
     render_operator_checkin_complete_message,
 )
+from apps.communications.guest_message_send import send_whatsapp_entrance_image_from_asset
+from apps.communications.models import GuestMessageChannel, GuestMessageDraft, GuestMessageIntent
 from apps.communications.guest_compose_defaults import (
     DOCUMENTS_BATCH_CONFIRM_NO,
     DOCUMENTS_BATCH_CONFIRM_YES,
@@ -32,7 +37,6 @@ from apps.communications.models import (
     GuestOutboundMessageStatus,
 )
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
-from apps.integrations.whatsapp.apply_reply import is_document_checkin_complete
 from apps.integrations.whatsapp.client import (
     WhatsAppApiError,
     extract_outbound_wamid,
@@ -54,9 +58,7 @@ from apps.integrations.whatsapp.reservation_lookup import (
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 from apps.integrations.whatsapp.whatsapp_operator import operator_name_for_wa_id
 from apps.reservations.document_intake_match import match_persons_to_guests
-from apps.reservations.document_intake_service import apply_document_intake_job, process_document_intake_job
 from apps.reservations.guest_slots import ensure_guest_slots_for_intake
-from apps.reservations.document_intake_sides import find_missing_id_sides
 from apps.reservations.models import (
     DocumentIntakeImage,
     DocumentIntakeJob,
@@ -494,12 +496,77 @@ def _operator_checkin_complete_already_sent(reservation_id: int) -> bool:
     ).exists()
 
 
+def _send_checkin_complete_entrance_image(
+    reservation: Reservation,
+    *,
+    hint: str = HINT_OPERATOR_CHECKIN_COMPLETE,
+) -> dict:
+    caption = render_entrance_image_caption(reservation)
+    lang = (reservation.property.tenant.default_language or "en")[:2]
+    image_draft = GuestMessageDraft.objects.create(
+        tenant_id=reservation.tenant_id,
+        reservation=reservation,
+        intent=GuestMessageIntent.REPLY,
+        hint=hint,
+        llm_body_text=caption,
+        final_body_text=caption,
+        language=lang,
+        channel=GuestMessageChannel.WHATSAPP,
+    )
+    try:
+        send_whatsapp_entrance_image_from_asset(
+            reservation=reservation,
+            draft=image_draft,
+            caption=caption,
+            api_application=None,
+        )
+        return {"status": "sent"}
+    except ValueError as exc:
+        logger.warning(
+            "Check-in complete entrance image failed reservation_id=%s: %s",
+            reservation.pk,
+            exc,
+        )
+        return {"status": "failed", "detail": str(exc)}
+
+
+def send_whatsapp_ask_arrival_time(reservation: Reservation) -> dict:
+    """Short message asking when the guest expects to arrive."""
+    body = render_ask_arrival_time_message(reservation)
+    from apps.integrations.whatsapp.evisitor_reply import _send_reservation_whatsapp_text
+
+    return _send_reservation_whatsapp_text(
+        reservation=reservation,
+        body=body,
+        hint=HINT_ASK_ARRIVAL_TIME,
+    )
+
+
+def send_whatsapp_checkin_arrival_supplement(reservation: Reservation) -> dict:
+    """One-off follow-up: check-in time, entrance, parking, entrance photo (no WiFi)."""
+    body = render_checkin_complete_supplement_message(reservation)
+    from apps.integrations.whatsapp.evisitor_reply import _send_reservation_whatsapp_text
+
+    wa_result = _send_reservation_whatsapp_text(
+        reservation=reservation,
+        body=body,
+        hint=HINT_CHECKIN_COMPLETE_SUPPLEMENT,
+    )
+    if wa_result.get("status") != "sent":
+        return wa_result
+    entrance_image = _send_checkin_complete_entrance_image(
+        reservation,
+        hint=HINT_CHECKIN_COMPLETE_SUPPLEMENT,
+    )
+    return {**wa_result, "entrance_image": entrance_image}
+
+
 def notify_guest_operator_checkin_complete(
     reservation: Reservation,
     *,
     guest_notify_mode: GuestNotifyMode = "default",
 ) -> dict:
-    """Send operator check-in complete to guest (WA-first, email fallback by default)."""
+    """Send complete check-in message to guest after WA autocheck-in or operator finalize."""
     if guest_notify_mode == "skip":
         return {"channel": "none", "status": "skipped", "reason": "guest_notify_skipped"}
 
@@ -526,7 +593,8 @@ def notify_guest_operator_checkin_complete(
         hint=HINT_OPERATOR_CHECKIN_COMPLETE,
     )
     if wa_result.get("status") == "sent":
-        return {"channel": "whatsapp", **wa_result}
+        entrance_image = _send_checkin_complete_entrance_image(reservation)
+        return {"channel": "whatsapp", **wa_result, "entrance_image": entrance_image}
 
     email_result = _send_guest_operator_checkin_email(reservation)
     if email_result.get("sent"):
@@ -781,9 +849,17 @@ def _continue_operator_apply_and_checkin(
     integration_row: IntegrationConfig,
     runtime: WhatsAppRuntimeConfig,
 ) -> dict:
-    auto_matches = _auto_matches_from_job(job)
-    reservation_ids = _reservation_ids_from_auto_matches(auto_matches)
-    if not auto_matches or len(reservation_ids) != 1:
+    from apps.integrations.whatsapp.document_intake_finalize import finalize_document_intake_job
+
+    result = finalize_document_intake_job(
+        job,
+        channel="operator",
+        wa_id=row.wa_id,
+        integration_row=integration_row,
+        runtime=runtime,
+        session=session,
+    )
+    if result.get("status") == "ambiguous_reservation":
         return _enter_awaiting_reservation_pick(
             session=session,
             job=job,
@@ -791,69 +867,7 @@ def _continue_operator_apply_and_checkin(
             runtime=runtime,
             operator_wa_id=row.wa_id,
         )
-
-    reservation_id = next(iter(reservation_ids))
-    job.reservation_id = reservation_id
-    job.save(update_fields=["reservation_id", "updated_at"])
-
-    try:
-        applied = apply_document_intake_job(job.pk)
-    except Exception as exc:
-        logger.warning("Operator apply failed job_id=%s: %s", job.pk, exc)
-        session.status = WhatsAppOperatorSessionStatus.FAILED
-        session.save(update_fields=["status", "updated_at"])
-        _send_operator_text(
-            integration_row=integration_row,
-            runtime=runtime,
-            operator_wa_id=row.wa_id,
-            body=f"Apply nije uspio: {exc}",
-        )
-        return {"status": "apply_failed", "job_id": job.pk}
-
-    if not applied:
-        session.status = WhatsAppOperatorSessionStatus.FAILED
-        session.save(update_fields=["status", "updated_at"])
-        _send_operator_text(
-            integration_row=integration_row,
-            runtime=runtime,
-            operator_wa_id=row.wa_id,
-            body="Apply nije primijenio podatke gosta.",
-        )
-        return {"status": "nothing_applied", "job_id": job.pk}
-
-    reservation = Reservation.objects.select_related("property", "tenant").get(pk=reservation_id)
-    reservation.refresh_from_db()
-
-    if not is_document_checkin_complete(reservation):
-        missing_sides = find_missing_id_sides(reservation)
-        if missing_sides:
-            body = render_missing_id_sides_message(reservation, missing_sides)
-        else:
-            body = render_checkin_partial_documents_message(reservation)
-
-        session.status = WhatsAppOperatorSessionStatus.COLLECTING
-        session.last_activity_at = timezone.now()
-        session.save(update_fields=["status", "last_activity_at", "updated_at"])
-        _send_operator_text(
-            integration_row=integration_row,
-            runtime=runtime,
-            operator_wa_id=row.wa_id,
-            body=body,
-            reservation=reservation,
-        )
-        return {"status": "incomplete_documents", "job_id": job.pk}
-
-    from apps.integrations.whatsapp.operator_job_complete import complete_operator_checkin_after_apply
-
-    return complete_operator_checkin_after_apply(
-        job=job,
-        reservation=reservation,
-        operator_wa_id=row.wa_id,
-        applied=applied,
-        integration_row=integration_row,
-        runtime=runtime,
-        session=session,
-    )
+    return result
 
 
 def _get_awaiting_res_pick_session(
@@ -985,12 +999,9 @@ def _request_operator_checkin(
             return {"status": "no_session"}
 
         if session.status == WhatsAppOperatorSessionStatus.AWAITING_CONFIRM:
-            _send_operator_docs_confirm_prompt(
-                integration_row=integration_row,
-                runtime=runtime,
-                operator_wa_id=row.wa_id,
-            )
-            return {"status": "awaiting_confirm", "session_id": session.pk}
+            awaiting_finalize = True
+        else:
+            awaiting_finalize = False
 
         job = session.job
         if job.images.count() == 0:
@@ -1002,9 +1013,17 @@ def _request_operator_checkin(
             )
             return {"status": "no_images"}
 
-        session.status = WhatsAppOperatorSessionStatus.AWAITING_CONFIRM
-        session.last_activity_at = timezone.now()
-        session.save(update_fields=["status", "last_activity_at", "updated_at"])
+        if not awaiting_finalize:
+            session.status = WhatsAppOperatorSessionStatus.AWAITING_CONFIRM
+            session.last_activity_at = timezone.now()
+            session.save(update_fields=["status", "last_activity_at", "updated_at"])
+
+    if awaiting_finalize:
+        return _finalize_operator_checkin(
+            row=row,
+            integration_row=integration_row,
+            runtime=runtime,
+        )
 
     _send_operator_docs_confirm_prompt(
         integration_row=integration_row,
@@ -1126,33 +1145,6 @@ def _finalize_operator_checkin(
         session.status = WhatsAppOperatorSessionStatus.PROCESSING
         session.save(update_fields=["status", "updated_at"])
 
-    process_document_intake_job(job.pk)
-    job.refresh_from_db()
-
-    if job.status == DocumentIntakeJobStatus.FAILED:
-        session.status = WhatsAppOperatorSessionStatus.FAILED
-        session.save(update_fields=["status", "updated_at"])
-        detail = (job.error_message or "OCR nije uspio.").strip()
-        _send_operator_text(
-            integration_row=integration_row,
-            runtime=runtime,
-            operator_wa_id=row.wa_id,
-            body=f"Check-in nije uspio.\n{detail}",
-        )
-        return {"status": "ocr_failed", "job_id": job.pk}
-
-    auto_matches = _auto_matches_from_job(job)
-    reservation_ids = _reservation_ids_from_auto_matches(auto_matches)
-
-    if not auto_matches or len(reservation_ids) != 1:
-        return _enter_awaiting_reservation_pick(
-            session=session,
-            job=job,
-            integration_row=integration_row,
-            runtime=runtime,
-            operator_wa_id=row.wa_id,
-        )
-
     return _continue_operator_apply_and_checkin(
         session=session,
         job=job,
@@ -1170,6 +1162,19 @@ def handle_operator_inbound(
     action_text: str,
     button_id: str = "",
 ) -> dict:
+    from apps.integrations.whatsapp.operator_arrival_confirm import handle_operator_arrival_confirm_inbound
+
+    if row.message_type not in _MEDIA_MESSAGE_TYPES:
+        arrival_result = handle_operator_arrival_confirm_inbound(
+            row=row,
+            integration_row=integration_row,
+            runtime=runtime,
+            action_text=action_text,
+            button_id=button_id,
+        )
+        if arrival_result is not None:
+            return arrival_result
+
     if row.message_type in _MEDIA_MESSAGE_TYPES:
         return _collect_operator_image(
             row=row,

@@ -34,12 +34,15 @@ logger = logging.getLogger(__name__)
 
 HINT_CHECKIN_READY = "checkin ready"
 HINT_OPERATOR_CHECKIN_COMPLETE = "operator checkin complete"
+HINT_CHECKIN_COMPLETE_SUPPLEMENT = "checkin complete supplement"
+HINT_ASK_ARRIVAL_TIME = "ask arrival time"
 HINT_AUTOCHECKIN_WHATSAPP_INTRO = "whatsapp autocheckin intro"
 HINT_EVISITOR_REGISTERED = "evisitor registered"
 HINT_ID_MISSING_SIDES = "id missing sides"
 HINT_POST_CHECKIN_AUTO_REPLY = "post_checkin_auto_reply"
 HINT_AUTOCHECKIN_WAIVED = "autocheckin waived"
 HINT_AUTOCHECKIN_ARRIVAL_THANKS = "autocheckin arrival thanks"
+HINT_DOCS_AWAITING_ARRIVAL = "docs awaiting arrival"
 
 FOOTER = "Managed by stay.hr — https://stay.hr/"
 
@@ -103,9 +106,11 @@ from apps.communications.guest_compose_defaults import (
     MAPS_LINK,
     MISSING_ID_SIDE_LABEL_NATIONAL_BACK,
     MISSING_ID_SIDE_LABEL_NATIONAL_FRONT,
+    MISSING_GUEST_DOCUMENT_LINE,
     MISSING_ID_SIDE_LABEL_PASSPORT,
     MISSING_ID_SIDE_LINE,
     MISSING_ID_SIDES_INTRO,
+    UNMATCHED_PERSON_LINE,
     OPERATOR_CHECKIN_COMPLETE_BODY,
     PARKING_TEXTS,
     POST_CHECKIN_ARRIVAL_THANKS,
@@ -146,15 +151,17 @@ def _message_lines_before_signoff(
     context: dict,
     *,
     body_lines: list[str],
+    include_wifi: bool = True,
 ) -> str:
     """Body lines, optional WiFi block, sign-off, property name, footer."""
     lang = context["language"]
     lines = list(body_lines)
-    wifi = _wifi_section(reservation, lang)
-    if wifi:
-        if lines and lines[-1] != "":
-            lines.append("")
-        lines.append(wifi)
+    if include_wifi:
+        wifi = _wifi_section(reservation, lang)
+        if wifi:
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.append(wifi)
     lines.extend(
         [
             "",
@@ -423,16 +430,78 @@ def render_entrance_image_caption(reservation: Reservation) -> str:
     return _property_guest_text(reservation, "entrance_image_caption", lang)
 
 
+def _checkin_arrival_detail_lines(reservation: Reservation, context: dict) -> list[str]:
+    lang = context["language"]
+    checkin_line = _property_guest_text(
+        reservation,
+        "checkin_line",
+        lang,
+        check_in=context["check_in_date"],
+        check_in_time=context["check_in_time"],
+    )
+    entrance = _property_guest_text(reservation, "entrance", lang)
+    parking = _property_guest_text(reservation, "parking", lang)
+    return [checkin_line, "", entrance, "", parking]
+
+
+def _checkin_ask_arrival_line(reservation: Reservation, lang: str) -> str:
+    return _property_guest_text(reservation, "checkin_complete_ask_arrival", lang)
+
+
 def _render_operator_checkin_complete_fallback(reservation: Reservation, context: dict) -> str:
     lang = context["language"]
     body = _property_guest_text(reservation, "operator_checkin_complete", lang)
-    return _message_lines_before_signoff(reservation, context, body_lines=[body])
+    ask_arrival = _checkin_ask_arrival_line(reservation, lang)
+    return _message_lines_before_signoff(
+        reservation,
+        context,
+        body_lines=[body, "", *_checkin_arrival_detail_lines(reservation, context), "", ask_arrival],
+    )
 
 
 def render_operator_checkin_complete_message(reservation: Reservation) -> str:
-    """Email after reception staff completes on-site check-in via WhatsApp operator flow."""
+    """Complete WA/email after guest or operator WhatsApp check-in (check-in time, entrance, parking, WiFi)."""
     context = build_compose_context(reservation)
     return _render_operator_checkin_complete_fallback(reservation, context)
+
+
+def render_docs_awaiting_arrival_message(reservation: Reservation) -> str:
+    """After guest docs apply on arrival day — saved docs, entrance/parking/WiFi, ask arrival (no check-in yet)."""
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    body = _property_guest_text(reservation, "docs_awaiting_arrival", lang)
+    ask_arrival = _checkin_ask_arrival_line(reservation, lang)
+    return _message_lines_before_signoff(
+        reservation,
+        context,
+        body_lines=[body, "", *_checkin_arrival_detail_lines(reservation, context), "", ask_arrival],
+    )
+
+
+def render_checkin_complete_supplement_message(reservation: Reservation) -> str:
+    """Follow-up with arrival details only (no WiFi duplicate)."""
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    intro = _property_guest_text(reservation, "checkin_complete_supplement_intro", lang)
+    return _message_lines_before_signoff(
+        reservation,
+        context,
+        body_lines=[intro, "", *_checkin_arrival_detail_lines(reservation, context)],
+        include_wifi=False,
+    )
+
+
+def render_ask_arrival_time_message(reservation: Reservation) -> str:
+    """Short follow-up asking for expected arrival time."""
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    ask_arrival = _checkin_ask_arrival_line(reservation, lang)
+    return _message_lines_before_signoff(
+        reservation,
+        context,
+        body_lines=[ask_arrival],
+        include_wifi=False,
+    )
 
 
 def autocheckin_wa_me_prefill(language: str, reservation: Reservation | None = None) -> str:
@@ -680,6 +749,43 @@ def _render_missing_id_sides_fallback(reservation: Reservation, context: dict, g
 def render_missing_id_sides_message(reservation: Reservation, gaps: list[MissingIdSide]) -> str:
     context = build_compose_context(reservation)
     return _render_missing_id_sides_fallback(reservation, context, gaps)
+
+
+def render_document_intake_incomplete_message(
+    reservation: Reservation,
+    completeness,
+) -> str:
+    """Concrete follow-up: missing guest slots, ID sides, or unmatched OCR persons."""
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    line_items: list[str] = [
+        _property_guest_text(reservation, "missing_id_sides_intro", lang),
+        "",
+    ]
+
+    guest_line = _property_guest_text(reservation, "missing_guest_document_line", lang)
+    for gap in completeness.missing_guests:
+        line_items.append(guest_line.format(name=gap.guest_name))
+
+    side_line_template = _property_guest_text(reservation, "missing_id_side_line", lang)
+    for gap in completeness.missing_sides:
+        side_label = _missing_id_side_label(reservation=reservation, lang=lang, gap=gap)
+        line_items.append(side_line_template.format(name=gap.guest_name, side_label=side_label))
+
+    unmatched_line = _property_guest_text(reservation, "unmatched_person_line", lang)
+    for person in completeness.unmatched_persons:
+        line_items.append(unmatched_line.format(name=person.display_name))
+
+    line_items.extend(
+        [
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
+    return "\n".join(line_items)
 
 
 def _render_checkin_automation_failed_fallback(reservation: Reservation, context: dict) -> str:

@@ -7,13 +7,6 @@ from typing import Any
 
 from apps.integrations.whatsapp.whatsapp_operator_service import GuestNotifyMode
 
-from apps.integrations.evisitor.eligibility import guest_requires_evisitor
-from apps.integrations.evisitor.exceptions import (
-    EvisitorApiError,
-    EvisitorConfigError,
-    EvisitorValidationError,
-)
-from apps.integrations.evisitor.service import submit_guest_checkin
 from apps.integrations.evisitor.summary import evisitor_summary_for_reservation
 from apps.integrations.models import IntegrationConfig
 from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
@@ -23,7 +16,6 @@ from apps.integrations.whatsapp.whatsapp_operator_service import (
     _send_operator_text,
     notify_guest_operator_checkin_complete,
 )
-from apps.reservations.checkin import CheckInBlockedError, validate_reservation_check_in
 from apps.reservations.document_intake_match import match_persons_to_guests
 from apps.reservations.document_intake_service import apply_document_intake_job, process_document_intake_job
 from apps.reservations.models import (
@@ -33,6 +25,10 @@ from apps.reservations.models import (
     Reservation,
     WhatsAppOperatorSession,
     WhatsAppOperatorSessionStatus,
+)
+from apps.reservations.reservation_checkin_complete import (
+    mark_reservation_checked_in,
+    submit_evisitor_for_reservation,
 )
 
 logger = logging.getLogger(__name__)
@@ -123,82 +119,6 @@ def _build_selections_for_reservation(
     return selections
 
 
-def _mark_reservation_checked_in(reservation: Reservation) -> dict:
-    if reservation.status == Reservation.Status.CHECKED_IN:
-        return {"status": "already_checked_in"}
-
-    tenant = reservation.tenant
-    try:
-        validate_reservation_check_in(reservation, tenant=tenant)
-    except CheckInBlockedError as exc:
-        return {"status": "blocked", "code": exc.code, "message": exc.message}
-
-    old_status = reservation.status
-    reservation.status = Reservation.Status.CHECKED_IN
-    reservation.save(update_fields=["status", "updated_at"])
-
-    from apps.core.tasks import notify_reservation_status_changed
-
-    notify_reservation_status_changed.delay(
-        reservation.pk,
-        old_status,
-        reservation.status,
-    )
-    return {"status": "checked_in", "old_status": old_status}
-
-
-def _submit_evisitor_for_reservation(reservation: Reservation) -> list[dict]:
-    results: list[dict] = []
-    guests = list(reservation.guests.all())
-    for guest in guests:
-        if not guest_requires_evisitor(guest, reference_date=reservation.check_in):
-            results.append(
-                {
-                    "guest_id": guest.pk,
-                    "guest_name": guest.name or f"{guest.first_name} {guest.last_name}".strip(),
-                    "status": "not_required",
-                }
-            )
-            continue
-        try:
-            submission = submit_guest_checkin(guest)
-            results.append(
-                {
-                    "guest_id": guest.pk,
-                    "guest_name": guest.name or f"{guest.first_name} {guest.last_name}".strip(),
-                    "status": submission.status,
-                    "registration_id": str(submission.registration_id),
-                }
-            )
-        except EvisitorValidationError as exc:
-            results.append(
-                {
-                    "guest_id": guest.pk,
-                    "guest_name": guest.name or f"{guest.first_name} {guest.last_name}".strip(),
-                    "status": "validation_failed",
-                    "message": str(exc),
-                    "field_errors": exc.field_errors or {},
-                }
-            )
-        except EvisitorConfigError as exc:
-            results.append(
-                {
-                    "guest_id": guest.pk,
-                    "status": "config_error",
-                    "message": str(exc),
-                }
-            )
-        except EvisitorApiError as exc:
-            results.append(
-                {
-                    "guest_id": guest.pk,
-                    "status": "api_error",
-                    "message": str(exc),
-                }
-            )
-    return results
-
-
 def _format_operator_success_message(
     *,
     reservation: Reservation,
@@ -278,9 +198,10 @@ def complete_operator_checkin_after_apply(
     runtime: WhatsAppRuntimeConfig | None = None,
     session: WhatsAppOperatorSession | None = None,
     guest_notify_mode: GuestNotifyMode = "default",
+    time_stay_from: str | None = None,
 ) -> dict:
     """Check-in status, eVisitor, guest notify (WA-first), Toni confirmation."""
-    checkin_result = _mark_reservation_checked_in(reservation)
+    checkin_result = mark_reservation_checked_in(reservation)
     if checkin_result.get("status") == "blocked":
         message = checkin_result.get("message") or "Check-in nije moguć."
         body = f"Check-in nije moguć.\n{message}"
@@ -302,7 +223,7 @@ def complete_operator_checkin_after_apply(
         }
 
     reservation.refresh_from_db()
-    evisitor_results = _submit_evisitor_for_reservation(reservation)
+    evisitor_results = submit_evisitor_for_reservation(reservation, time_stay_from=time_stay_from)
     reservation.refresh_from_db()
 
     guest_notify = notify_guest_operator_checkin_complete(
@@ -374,7 +295,6 @@ def complete_operator_document_job(
     persons = (job.ocr_result or {}).get("persons") or []
     if not isinstance(persons, list):
         persons = []
-    from apps.reservations.document_intake_match import match_persons_to_guests
     from apps.reservations.guest_slots import ensure_guest_slots_for_intake
 
     ensure_guest_slots_for_intake(
@@ -417,7 +337,7 @@ def complete_operator_document_job(
     job.reservation_id = reservation.pk
     job.save(update_fields=["reservation_id", "updated_at"])
 
-    applied = apply_document_intake_job(job.pk, selections=selections)
+    applied = apply_document_intake_job(job.pk, selections=selections, whatsapp_reply=False)
     if not applied:
         raise ValueError(f"Apply did not update any guests for job #{job.pk}")
 

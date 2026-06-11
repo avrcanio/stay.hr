@@ -200,8 +200,10 @@ class WhatsAppApplyReplyTests(TestCase):
         text = render_operator_checkin_complete_message(self.reservation)
         self.assertIn("Check-in je obavljen", text)
         self.assertIn("ugodan boravak", text)
-        self.assertNotIn("vrijeme dolaska", text)
-        self.assertNotIn("kad stignete", text)
+        self.assertIn("Check-in:", text)
+        self.assertIn("Restaurant Uzorita", text)
+        self.assertIn("Parkiranje", text)
+        self.assertIn("dolazak", text.lower())
 
     def test_render_operator_checkin_complete_de(self):
         reservation = Reservation.objects.create(
@@ -218,8 +220,11 @@ class WhatsAppApplyReplyTests(TestCase):
         text = render_operator_checkin_complete_message(reservation)
         self.assertIn("Check-in ist abgeschlossen", text)
         self.assertIn("angenehmen Aufenthalt", text)
-        self.assertNotIn("Ankunftszeit", text)
-        self.assertNotIn("beim Check-in vor Ort geht es schnell", text)
+        self.assertIn("Check-in:", text)
+        self.assertIn("Restaurant Uzorita", text)
+        self.assertIn("nächsten Nachricht", text)
+        self.assertIn("Parken", text)
+        self.assertIn("Ankunft", text)
 
     @patch.dict("os.environ", {"WHATSAPP_DOCUMENT_APPLY_REPLY": "true", "D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.apply_reply.send_text_message")
@@ -260,3 +265,16 @@ class WhatsAppApplyReplyTests(TestCase):
         body = mock_send.call_args.kwargs["body"]
         self.assertIn("Automatski check-in nije uspio", body)
         self.assertIn("vrijeme dolaska", body)
+
+    def test_is_guest_checkin_acknowledged_requires_checked_in_or_reception_draft(self):
+        from apps.integrations.whatsapp.apply_reply import is_guest_checkin_acknowledged
+
+        with patch(
+            "apps.integrations.whatsapp.apply_reply.is_document_checkin_complete",
+            return_value=True,
+        ):
+            self.assertFalse(is_guest_checkin_acknowledged(self.reservation))
+
+        self.reservation.status = Reservation.Status.CHECKED_IN
+        self.reservation.save(update_fields=["status", "updated_at"])
+        self.assertTrue(is_guest_checkin_acknowledged(self.reservation))

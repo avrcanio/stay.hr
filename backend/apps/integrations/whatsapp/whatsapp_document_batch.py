@@ -4,11 +4,12 @@ import logging
 import mimetypes
 import re
 import uuid
+import zlib
 
 from celery import shared_task
 from django.core.cache import cache
 from django.core.files.base import ContentFile
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.communications.guest_compose import (
@@ -29,7 +30,6 @@ from apps.integrations.whatsapp.media_download import (
     fetch_whatsapp_media,
 )
 from apps.integrations.whatsapp.reservation_lookup import find_reservation_for_wa_id
-from apps.reservations.document_intake_service import apply_document_intake_job, process_document_intake_job
 from apps.reservations.models import (
     DocumentIntakeImage,
     DocumentIntakeJob,
@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 QUIET_SECONDS = 10
 AFTER_NO_SECONDS = 30
 CONFIRM_TIMEOUT_SECONDS = 120
+DUPLICATE_PROMPT_GUARD_SECONDS = 30
 _TIMER_CACHE_PREFIX = "wa-doc-timer"
 _TIMER_CACHE_TTL = 3600
 
@@ -140,6 +141,13 @@ def _cancel_confirm_timers(session_id: int) -> None:
     _revoke_scheduled(session_id, "after-no")
 
 
+def _pg_advisory_xact_lock_guest_batch(tenant_id: int, reservation_id: int) -> None:
+    """Serialize guest document collect/finalize per tenant+reservation."""
+    key = zlib.crc32(f"wa-guest-batch:{tenant_id}:{reservation_id}".encode()) & 0x7FFFFFFF
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [key])
+
+
 def _get_active_session(*, reservation_id: int, for_update: bool = False):
     qs = WhatsAppDocumentBatchSession.objects.select_related(
         "job",
@@ -232,6 +240,14 @@ def _send_batch_confirm_prompt(session: WhatsAppDocumentBatchSession) -> dict:
 
 
 def _prompt_and_await_confirm(session: WhatsAppDocumentBatchSession) -> dict:
+    if (
+        session.prompt_count
+        and session.prompt_count > 0
+        and session.prompt_sent_at is not None
+        and (timezone.now() - session.prompt_sent_at).total_seconds() < DUPLICATE_PROMPT_GUARD_SECONDS
+    ):
+        return {"status": "skipped", "reason": "duplicate_prompt_guard"}
+
     send_result = _send_batch_confirm_prompt(session)
     now = timezone.now()
     session.status = WhatsAppDocumentBatchStatus.AWAITING_CONFIRM
@@ -260,58 +276,43 @@ def _run_finalize(session: WhatsAppDocumentBatchSession) -> dict:
     ):
         return {"status": "already_finalized", "session_id": session.pk}
 
-    job = session.job
+    reservation = session.reservation
+    integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+    if integration_row is None or runtime is None:
+        return {"status": "skipped", "reason": "no_integration"}
+
     session.status = WhatsAppDocumentBatchStatus.PROCESSING
     session.save(update_fields=["status", "updated_at"])
 
-    process_document_intake_job(job.pk)
-    job.refresh_from_db()
+    from apps.integrations.whatsapp.document_intake_finalize import finalize_document_intake_job
 
-    apply_result: dict = {"status": "skipped", "reason": "not_ready"}
-    if job.status == DocumentIntakeJobStatus.FAILED:
-        from apps.integrations.whatsapp.apply_reply import (
-            maybe_send_checkin_automation_failed_whatsapp_reply,
-        )
-
-        apply_result = maybe_send_checkin_automation_failed_whatsapp_reply(job)
-    elif job.status == DocumentIntakeJobStatus.DONE and any(
-        isinstance(m, dict) and m.get("auto_apply") and m.get("guest_id") for m in (job.matches or [])
-    ):
-        try:
-            applied = apply_document_intake_job(job.pk)
-            if applied:
-                apply_result = {"status": "applied", "guest_ids": [a.get("guest_id") for a in applied]}
-            else:
-                from apps.integrations.whatsapp.apply_reply import (
-                    maybe_send_checkin_automation_failed_whatsapp_reply,
-                )
-
-                apply_result = maybe_send_checkin_automation_failed_whatsapp_reply(job)
-        except Exception as exc:
-            logger.warning("WhatsApp batch auto-apply failed job_id=%s: %s", job.pk, exc)
-            apply_result = {"status": "apply_failed", "detail": str(exc)[:200]}
-            from apps.integrations.whatsapp.apply_reply import (
-                maybe_send_checkin_automation_failed_whatsapp_reply,
-            )
-
-            maybe_send_checkin_automation_failed_whatsapp_reply(job)
-
-    session.status = WhatsAppDocumentBatchStatus.DONE
-    session.save(update_fields=["status", "updated_at"])
-
-    from apps.core.tasks import notify_guest_message_inbound
-
-    notify_guest_message_inbound.delay(
-        session.reservation_id,
-        channel="whatsapp",
-        body_preview="Dokumenti primljeni — pregledaj OCR",
+    result = finalize_document_intake_job(
+        session.job,
+        channel="guest",
+        wa_id=session.wa_id,
+        integration_row=integration_row,
+        runtime=runtime,
+        session=session,
     )
+
+    finalize_status = result.get("status")
+    if finalize_status not in {"incomplete", "ocr_failed"}:
+        from apps.core.tasks import notify_guest_message_inbound
+
+        notify_guest_message_inbound.delay(
+            session.reservation_id,
+            channel="whatsapp",
+            body_preview="Dokumenti primljeni — pregledaj OCR",
+        )
+        if session.status != WhatsAppDocumentBatchStatus.DONE:
+            session.status = WhatsAppDocumentBatchStatus.DONE
+            session.save(update_fields=["status", "updated_at"])
 
     return {
         "status": "finalized",
         "session_id": session.pk,
-        "job_id": job.pk,
-        "apply": apply_result,
+        "job_id": session.job_id,
+        "finalize": result,
     }
 
 
@@ -353,6 +354,7 @@ def on_whatsapp_document_received(message_id: int) -> dict:
         return {"status": "skipped", "reason": "no_integration"}
 
     with transaction.atomic():
+        _pg_advisory_xact_lock_guest_batch(row.tenant_id, reservation.pk)
         session = _get_active_session(reservation_id=reservation.pk, for_update=True)
         if session is not None and _message_already_in_job(session.job, row.pk):
             return {"status": "duplicate", "session_id": session.pk, "job_id": session.job_id}
@@ -393,6 +395,7 @@ def on_whatsapp_document_received(message_id: int) -> dict:
     now = timezone.now()
 
     with transaction.atomic():
+        _pg_advisory_xact_lock_guest_batch(row.tenant_id, reservation.pk)
         session = _get_active_session(reservation_id=reservation.pk, for_update=True)
         if session is None:
             return {"status": "skipped", "reason": "no_session"}

@@ -166,6 +166,7 @@ def apply_document_intake_job(
     selections: list[dict[str, Any]] | None = None,
     device_id: str = "",
     request=None,
+    whatsapp_reply: bool = True,
 ) -> list[dict[str, Any]]:
     """Apply OCR results to guests. selections override auto matches.
 
@@ -255,9 +256,10 @@ def apply_document_intake_job(
         job.status = DocumentIntakeJobStatus.APPLIED
         job.save(update_fields=["applied_result", "status", "updated_at"])
 
-    from apps.integrations.whatsapp.apply_reply import maybe_send_document_apply_whatsapp_reply
+    if whatsapp_reply:
+        from apps.integrations.whatsapp.apply_reply import maybe_send_document_apply_whatsapp_reply
 
-    maybe_send_document_apply_whatsapp_reply(job, applied=applied)
+        maybe_send_document_apply_whatsapp_reply(job, applied=applied)
 
     return applied
 

@@ -48,6 +48,7 @@ def build_check_in_payload(
     *,
     config: EvisitorRuntimeConfig,
     registration_id: uuid.UUID | None = None,
+    time_stay_from: str | None = None,
 ) -> dict:
     reservation: Reservation = guest.reservation
     errors: dict[str, str] = {}
@@ -124,7 +125,7 @@ def build_check_in_payload(
         "DocumentType": document_type,
         "DocumentNumber": document_number[:16],
         "StayFrom": _format_yyyymmdd(reservation.check_in),
-        "TimeStayFrom": config.default_stay_time_from,
+        "TimeStayFrom": (time_stay_from or "").strip() or config.default_stay_time_from,
         "ForeseenStayUntil": _format_yyyymmdd(reservation.check_out),
         "TimeEstimatedStayUntil": config.default_stay_time_until,
         "ArrivalOrganisation": config.default_arrival_organisation,

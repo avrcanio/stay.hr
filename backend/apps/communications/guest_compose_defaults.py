@@ -205,6 +205,22 @@ MISSING_ID_SIDE_LABEL_PASSPORT = {
     "fr": "page d’identité du passeport",
 }
 
+MISSING_GUEST_DOCUMENT_LINE = {
+    "hr": "• {name} — nedostaje dokument",
+    "en": "• {name} — document missing",
+    "de": "• {name} — Dokument fehlt",
+    "es": "• {name} — falta el documento",
+    "fr": "• {name} — document manquant",
+}
+
+UNMATCHED_PERSON_LINE = {
+    "hr": "• {name} — nije mapirano na rezervaciju",
+    "en": "• {name} — not matched to reservation",
+    "de": "• {name} — nicht auf Reservierung zugeordnet",
+    "es": "• {name} — no asignado a la reserva",
+    "fr": "• {name} — non associé à la réservation",
+}
+
 AUTOCHECKIN_WAIVED_BODY = {
     "hr": (
         "Pozdrav {first_name},\n\n"
@@ -376,6 +392,22 @@ ENTRANCE_IMAGE_CAPTION = {
     "fr": "Entrée de l’hébergement",
 }
 
+CHECKIN_COMPLETE_SUPPLEMENT_INTRO = {
+    "hr": "Još nekoliko korisnih informacija za vaš boravak:",
+    "en": "A few more details for your stay:",
+    "de": "Noch einige wichtige Informationen zu Ihrem Aufenthalt:",
+    "es": "Algunos datos más para su estancia:",
+    "fr": "Quelques informations utiles pour votre séjour :",
+}
+
+CHECKIN_COMPLETE_ASK_ARRIVAL = {
+    "hr": "Javite nam, molimo, kada možemo očekivati vaš dolazak.",
+    "en": "Please let us know when we can expect your arrival.",
+    "de": "Wann können wir mit Ihrer Ankunft rechnen? Bitte teilen Sie uns Ihre ungefähre Ankunftszeit mit.",
+    "es": "¿Cuándo podemos esperar su llegada? Por favor, indíquenos su hora aproximada.",
+    "fr": "Quand pouvons-nous attendre votre arrivée ? Merci de nous indiquer votre heure approximative.",
+}
+
 OPERATOR_CHECKIN_COMPLETE_BODY = {
     "hr": (
         "Check-in je obavljen. Vaši podaci su spremljeni.\n\n"
@@ -396,6 +428,34 @@ OPERATOR_CHECKIN_COMPLETE_BODY = {
     "fr": (
         "Votre enregistrement est terminé. Vos données ont été enregistrées.\n\n"
         "Nous vous souhaitons un agréable séjour !"
+    ),
+}
+
+DOCS_AWAITING_ARRIVAL_BODY = {
+    "hr": (
+        "Hvala vam — dokumenti su spremljeni.\n\n"
+        "Check-in ćemo obaviti kad stignete. "
+        "U međuvremenu, evo informacija za ulaz i parkiranje."
+    ),
+    "en": (
+        "Thank you — your documents are saved.\n\n"
+        "We will complete check-in when you arrive. "
+        "In the meantime, here is how to find the entrance and parking."
+    ),
+    "de": (
+        "Vielen Dank — Ihre Dokumente sind gespeichert.\n\n"
+        "Den Check-in erledigen wir bei Ihrer Ankunft. "
+        "Hier finden Sie Eingang und Parken."
+    ),
+    "es": (
+        "Gracias — sus documentos están guardados.\n\n"
+        "Completaremos el check-in a su llegada. "
+        "Mientras tanto, aquí tiene la entrada y el aparcamiento."
+    ),
+    "fr": (
+        "Merci — vos documents sont enregistrés.\n\n"
+        "Nous finaliserons l’enregistrement à votre arrivée. "
+        "Voici l’entrée et le stationnement."
     ),
 }
 
@@ -569,6 +629,8 @@ DEFAULT_TEXTS: dict[str, dict[str, str]] = {
     "missing_id_side_label_national_front": MISSING_ID_SIDE_LABEL_NATIONAL_FRONT,
     "missing_id_side_label_national_back": MISSING_ID_SIDE_LABEL_NATIONAL_BACK,
     "missing_id_side_label_passport": MISSING_ID_SIDE_LABEL_PASSPORT,
+    "missing_guest_document_line": MISSING_GUEST_DOCUMENT_LINE,
+    "unmatched_person_line": UNMATCHED_PERSON_LINE,
     "autocheckin_waived": AUTOCHECKIN_WAIVED_BODY,
     "checkin_automation_failed": CHECKIN_AUTOMATION_FAILED,
     "checkin_ready": CHECKIN_READY_BODY,
@@ -578,6 +640,9 @@ DEFAULT_TEXTS: dict[str, dict[str, str]] = {
     "post_checkin_welcome_evening": POST_CHECKIN_WELCOME_EVENING,
     "entrance_image_caption": ENTRANCE_IMAGE_CAPTION,
     "operator_checkin_complete": OPERATOR_CHECKIN_COMPLETE_BODY,
+    "docs_awaiting_arrival": DOCS_AWAITING_ARRIVAL_BODY,
+    "checkin_complete_supplement_intro": CHECKIN_COMPLETE_SUPPLEMENT_INTRO,
+    "checkin_complete_ask_arrival": CHECKIN_COMPLETE_ASK_ARRIVAL,
     "autocheckin_whatsapp_intro_head": AUTOCHECKIN_WHATSAPP_INTRO_HEAD,
     "autocheckin_whatsapp_intro_tail": AUTOCHECKIN_WHATSAPP_INTRO_TAIL,
     "autocheckin_wa_me_prefill": AUTOCHECKIN_WA_ME_PREFILL,

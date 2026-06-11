@@ -17,7 +17,7 @@ from apps.integrations.whatsapp.whatsapp_guest_autocheckin import (
     handle_guest_autocheckin_inbound,
     is_guest_auto_checkin_button,
 )
-from apps.communications.guest_compose import HINT_CHECKIN_READY
+from apps.communications.guest_compose import HINT_CHECKIN_READY, HINT_DOCS_AWAITING_ARRIVAL
 from apps.communications.models import GuestMessageDraft, GuestMessageIntent
 from apps.properties.models import Property
 from apps.reservations.models import Guest, IdDocument, Reservation, WhatsAppGuestAutocheckinSession
@@ -38,6 +38,7 @@ class WhatsAppGuestAutocheckinTests(TestCase):
             slug="uzorita",
             whatsapp_autocheckin_enabled=True,
             whatsapp_autocheckin_time=time(8, 0),
+            timezone="Europe/Zagreb",
         )
         self.integration = IntegrationConfig.objects.create(
             tenant=self.tenant,
@@ -299,21 +300,21 @@ class WhatsAppGuestAutocheckinTests(TestCase):
             raw_payload={"type": "text", "text": {"body": "We need parking and arrive at 8 PM"}},
         )
 
-        result = handle_guest_autocheckin_inbound(
-            row=inbound,
-            integration_row=self.integration,
-            runtime=self.runtime,
-            action_text=inbound.body,
-            reservation=self.reservation,
-        )
+        with patch(
+            "apps.integrations.whatsapp.operator_arrival_confirm.schedule_arrival_confirm_prompt",
+            return_value={"status": "scheduled"},
+        ) as mock_schedule:
+            result = handle_guest_autocheckin_inbound(
+                row=inbound,
+                integration_row=self.integration,
+                runtime=self.runtime,
+                action_text=inbound.body,
+                reservation=self.reservation,
+            )
 
-        self.assertEqual(result["status"], "post_checkin_reply_sent")
+        self.assertEqual(result["status"], "guest_arrival_saved")
         mock_interactive.assert_not_called()
-        mock_text.assert_called_once()
-        mock_entrance.assert_called_once()
-        body = mock_text.call_args.kwargs["body"]
-        self.assertIn("parkir", body.lower())
-        self.assertIn("dolasku", body.lower())
+        mock_schedule.assert_called_once()
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
@@ -323,6 +324,16 @@ class WhatsAppGuestAutocheckinTests(TestCase):
         mock_now.return_value = datetime(2026, 6, 7, 9, 0, tzinfo=ZAGREB)
         mock_send.return_value = {"messages": [{"id": "wamid.out.docs"}]}
         self._guest_with_complete_documents()
+        GuestMessageDraft.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            intent=GuestMessageIntent.REPLY,
+            hint=HINT_DOCS_AWAITING_ARRIVAL,
+            llm_body_text="Docs saved",
+            final_body_text="Docs saved",
+            language="hr",
+            sent_at=timezone.now(),
+        )
         inbound = WhatsAppMessage.objects.create(
             tenant=self.tenant,
             integration=self.integration,
@@ -381,6 +392,8 @@ class WhatsAppGuestAutocheckinTests(TestCase):
             raw_payload={},
         )
         self._guest_with_complete_documents()
+        self.reservation.status = Reservation.Status.CHECKED_IN
+        self.reservation.save(update_fields=["status", "updated_at"])
         for idx in range(2):
             inbound = WhatsAppMessage.objects.create(
                 tenant=self.tenant,
@@ -509,3 +522,49 @@ class WhatsAppGuestAutocheckinTests(TestCase):
 
         self.assertEqual(result["status"], "autocheckin_prompt_sent")
         mock_interactive.assert_called_once()
+
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm.schedule_arrival_confirm_prompt")
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.integrations.whatsapp.whatsapp_post_checkin_reply.send_guest_message")
+    @patch("apps.core.timezone.property_local_now")
+    def test_expected_docs_complete_arrival_schedules_timer(
+        self,
+        mock_now,
+        mock_send_guest,
+        mock_schedule,
+    ):
+        mock_now.return_value = datetime(2026, 6, 7, 15, 0, tzinfo=ZAGREB)
+        mock_send_guest.return_value = None
+        mock_schedule.return_value = {"status": "scheduled", "countdown": 9000}
+        self._guest_with_complete_documents()
+        inbound = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.in.arrival.time",
+            wa_id="385922222222",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="Dolazimo oko 18:00...19:00",
+            raw_payload={
+                "type": "text",
+                "text": {"body": "Dolazimo oko 18:00...19:00"},
+            },
+        )
+
+        result = handle_guest_autocheckin_inbound(
+            row=inbound,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text=inbound.body,
+            reservation=self.reservation,
+        )
+
+        self.assertEqual(result["status"], "guest_arrival_saved")
+        mock_schedule.assert_called_once()
+        self.reservation.refresh_from_db()
+        self.assertEqual(
+            self.reservation.guest_stated_arrival_at,
+            datetime(2026, 6, 7, 19, 0, tzinfo=ZAGREB),
+        )

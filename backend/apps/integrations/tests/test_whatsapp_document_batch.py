@@ -129,8 +129,7 @@ class WhatsAppDocumentBatchTests(TestCase):
         self.assertEqual(session.status, WhatsAppDocumentBatchStatus.AWAITING_CONFIRM)
         self.assertEqual(session.prompt_count, 1)
 
-    @patch("apps.integrations.whatsapp.whatsapp_document_batch.apply_document_intake_job")
-    @patch("apps.integrations.whatsapp.whatsapp_document_batch.process_document_intake_job")
+    @patch("apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
@@ -141,22 +140,11 @@ class WhatsAppDocumentBatchTests(TestCase):
         mock_fetch,
         mock_schedule,
         mock_send,
-        mock_process,
-        mock_apply,
+        mock_finalize,
     ):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
         mock_send.return_value = {"messages": [{"id": "wamid.out.prompt"}]}
-
-        def _finish_ocr(job_id):
-            job = DocumentIntakeJob.objects.get(pk=job_id)
-            job.status = DocumentIntakeJobStatus.DONE
-            job.matches = [
-                {"auto_apply": True, "guest_id": 1, "person_index": 0, "reservation_id": self.reservation.pk}
-            ]
-            job.save(update_fields=["status", "matches", "updated_at"])
-
-        mock_process.side_effect = _finish_ocr
-        mock_apply.return_value = [{"guest_id": 1, "reservation_id": self.reservation.pk}]
+        mock_finalize.return_value = {"status": "docs_saved", "job_id": 1}
 
         message = self._image_message(pk_suffix="1", wamid="wamid.in.yes")
         on_whatsapp_document_received(message.pk)
@@ -186,8 +174,7 @@ class WhatsAppDocumentBatchTests(TestCase):
         result = handle_whatsapp_document_batch_reply(yes_message.pk)
 
         self.assertEqual(result["status"], "finalized")
-        mock_process.assert_called_once()
-        mock_apply.assert_called_once()
+        mock_finalize.assert_called_once()
         mock_notify.assert_called_once()
         session.refresh_from_db()
         self.assertEqual(session.status, WhatsAppDocumentBatchStatus.DONE)
@@ -195,9 +182,7 @@ class WhatsAppDocumentBatchTests(TestCase):
     @patch("apps.integrations.whatsapp.whatsapp_document_batch.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
-    @patch("apps.integrations.whatsapp.whatsapp_document_batch.apply_document_intake_job")
-    @patch("apps.integrations.whatsapp.whatsapp_document_batch.process_document_intake_job")
-    def test_no_then_quiet_reprompts(self, mock_process, mock_apply, mock_fetch, mock_schedule, mock_send):
+    def test_no_then_quiet_reprompts(self, mock_fetch, mock_schedule, mock_send):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
         mock_send.return_value = {"messages": [{"id": "wamid.out.prompt"}]}
 
@@ -257,8 +242,7 @@ class WhatsAppDocumentBatchTests(TestCase):
         self.assertEqual(session.status, WhatsAppDocumentBatchStatus.COLLECTING)
         self.assertEqual(session.job.images.count(), 2)
 
-    @patch("apps.integrations.whatsapp.whatsapp_document_batch.apply_document_intake_job")
-    @patch("apps.integrations.whatsapp.whatsapp_document_batch.process_document_intake_job")
+    @patch("apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
     @patch("apps.core.tasks.notify_guest_message_inbound.delay")
@@ -267,10 +251,10 @@ class WhatsAppDocumentBatchTests(TestCase):
         mock_notify,
         mock_fetch,
         mock_schedule,
-        mock_process,
-        mock_apply,
+        mock_finalize,
     ):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
+        mock_finalize.return_value = {"status": "docs_saved"}
         message = self._image_message(pk_suffix="1", wamid="wamid.in.timeout")
         on_whatsapp_document_received(message.pk)
         session = WhatsAppDocumentBatchSession.objects.get(reservation=self.reservation)
@@ -281,10 +265,26 @@ class WhatsAppDocumentBatchTests(TestCase):
         result = document_batch_confirm_timeout(session.pk)
 
         self.assertEqual(result["status"], "finalized")
-        mock_process.assert_called_once()
-        session.refresh_from_db()
-        self.assertEqual(session.status, WhatsAppDocumentBatchStatus.DONE)
+        mock_finalize.assert_called_once()
         mock_notify.assert_called_once()
+
+    @patch("apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
+    def test_finalize_incomplete_skips_notify(self, mock_fetch, mock_schedule, mock_finalize):
+        mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
+        mock_finalize.return_value = {"status": "incomplete"}
+        message = self._image_message(pk_suffix="incomplete", wamid="wamid.in.incomplete")
+        on_whatsapp_document_received(message.pk)
+        session = WhatsAppDocumentBatchSession.objects.get(reservation=self.reservation)
+        session.status = WhatsAppDocumentBatchStatus.AWAITING_CONFIRM
+        session.save(update_fields=["status", "updated_at"])
+
+        with patch("apps.core.tasks.notify_guest_message_inbound.delay") as mock_notify:
+            result = finalize_whatsapp_document_batch(session.pk)
+            self.assertEqual(result["status"], "finalized")
+            mock_finalize.assert_called_once()
+            mock_notify.assert_not_called()
 
     @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")

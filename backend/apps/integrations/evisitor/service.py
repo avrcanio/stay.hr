@@ -33,7 +33,12 @@ def _resolve_for_guest(guest: Guest):
     return resolve_evisitor_config(guest.tenant, guest.reservation.property)
 
 
-def submit_guest_checkin(guest: Guest, *, force_retry: bool = False) -> EvisitorSubmission:
+def submit_guest_checkin(
+    guest: Guest,
+    *,
+    force_retry: bool = False,
+    time_stay_from: str | None = None,
+) -> EvisitorSubmission:
     config = _resolve_for_guest(guest)
     guest = Guest.objects.select_related("reservation").get(pk=guest.pk)
 
@@ -58,7 +63,12 @@ def submit_guest_checkin(guest: Guest, *, force_retry: bool = False) -> Evisitor
     elif guest.evisitor_registration_id and guest.evisitor_status == EvisitorGuestStatus.SENT:
         registration_id = guest.evisitor_registration_id
 
-    payload = build_check_in_payload(guest, config=config, registration_id=registration_id)
+    payload = build_check_in_payload(
+        guest,
+        config=config,
+        registration_id=registration_id,
+        time_stay_from=time_stay_from,
+    )
     masked = mask_payload_for_log(payload)
 
     submission = EvisitorSubmission.objects.create(

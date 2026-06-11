@@ -5,9 +5,12 @@ import uuid
 
 from celery import shared_task
 from django.core.cache import cache
+from django.utils import timezone
 
 from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
-from apps.integrations.whatsapp.whatsapp_operator_service import _send_operator_checkin_prompt
+from apps.integrations.whatsapp.whatsapp_operator_service import (
+    _send_operator_docs_confirm_prompt,
+)
 from apps.reservations.models import WhatsAppOperatorSession, WhatsAppOperatorSessionStatus
 
 logger = logging.getLogger(__name__)
@@ -33,6 +36,9 @@ def send_operator_collect_prompt_for_session(session_id: int) -> dict:
     if session is None:
         return {"status": "missing"}
 
+    if session.status != WhatsAppOperatorSessionStatus.COLLECTING:
+        return {"status": "skipped", "reason": "not_collecting"}
+
     integration_row, runtime = get_active_whatsapp_integration(session.tenant)
     if integration_row is None or runtime is None:
         return {"status": "skipped", "reason": "no_integration"}
@@ -41,12 +47,15 @@ def send_operator_collect_prompt_for_session(session_id: int) -> dict:
     if image_count == 0:
         return {"status": "skipped", "reason": "no_images"}
 
-    return _send_operator_checkin_prompt(
+    send_result = _send_operator_docs_confirm_prompt(
         integration_row=integration_row,
         runtime=runtime,
         operator_wa_id=session.operator_wa_id,
-        image_count=image_count,
     )
+    session.status = WhatsAppOperatorSessionStatus.AWAITING_CONFIRM
+    session.last_activity_at = timezone.now()
+    session.save(update_fields=["status", "last_activity_at", "updated_at"])
+    return {"status": "prompted", "send": send_result}
 
 
 def _timer_cache_key(session_id: int, suffix: str) -> str:

@@ -22,7 +22,7 @@ from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 from apps.reservations.models import Reservation
 
 _ARRIVAL_PATTERN = re.compile(
-    r"\b(arrive|arrival|arriving|dolaz|dolaska|stignu|check.?in|reception|recepction|"
+    r"\b(arrive|arrival|arriving|dolaz\w*|dolaska|stignu|check.?in|reception|recepction|"
     r"evening|večer|vecer|noc|night|pm|p\.m\.|\d{1,2}\s*(?:pm|h))\b",
     re.IGNORECASE,
 )

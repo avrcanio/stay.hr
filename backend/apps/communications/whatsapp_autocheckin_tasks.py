@@ -42,7 +42,12 @@ from apps.integrations.whatsapp.welcome_template import (
     welcome_template_name,
 )
 from apps.properties.models import Property
-from apps.reservations.models import Reservation
+from apps.reservations.models import (
+    DocumentIntakeJob,
+    DocumentIntakeJobSource,
+    DocumentIntakeJobStatus,
+    Reservation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -373,6 +378,55 @@ def maybe_send_immediate_autocheckin_welcome(reservation_id: int) -> dict:
         return {"status": "skipped", "reason": "not_eligible", "reservation_id": reservation_id}
 
     return send_welcome_template_for_reservation(reservation)
+
+
+def iter_deferred_guest_document_checkin_reservations(
+    *,
+    property_id: int | None = None,
+    on_date: date | None = None,
+) -> list[Reservation]:
+    from apps.integrations.whatsapp.apply_reply import (
+        is_document_checkin_complete,
+        is_whatsapp_autocheckin_waived,
+    )
+
+    props = Property.objects.filter(whatsapp_autocheckin_enabled=True)
+    if property_id is not None:
+        props = props.filter(pk=property_id)
+
+    reservations: list[Reservation] = []
+    for prop in props.select_related("tenant"):
+        now = property_local_now(prop)
+        target_date = on_date or now.date()
+        qs = (
+            Reservation.objects.filter(
+                tenant_id=prop.tenant_id,
+                property=prop,
+                check_in=target_date,
+                status=Reservation.Status.EXPECTED,
+            )
+            .select_related("property", "tenant")
+            .prefetch_related("guests")
+        )
+        for reservation in qs:
+            if is_whatsapp_autocheckin_waived(reservation):
+                continue
+            if not is_document_checkin_complete(reservation):
+                continue
+            reservations.append(reservation)
+    return reservations
+
+
+@shared_task
+def run_deferred_guest_document_checkins() -> dict:
+    """Deprecated: guest WA check-in requires Toni arrival confirmation."""
+    return {
+        "status": "deprecated",
+        "completed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "failed": 0,
+    }
 
 
 @shared_task

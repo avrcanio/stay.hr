@@ -38,6 +38,7 @@ class GuestComposeWifiTests(TestCase):
         text = render_operator_checkin_complete_message(self.reservation)
         self.assertIn("Uzoritarooms", text)
         self.assertIn("77777777", text)
+        self.assertIn("Restaurant Uzorita", text)
 
     def test_evisitor_registered_includes_wifi(self):
         text = render_evisitor_registered_message(self.reservation)

@@ -79,6 +79,8 @@ class Reservation(TenantScopedModel):
     whatsapp_autocheckin_intro_email_sent_at = models.DateTimeField(null=True, blank=True)
     whatsapp_autocheckin_engaged_at = models.DateTimeField(null=True, blank=True)
     whatsapp_autocheckin_waived_at = models.DateTimeField(null=True, blank=True)
+    guest_stated_arrival_at = models.DateTimeField(null=True, blank=True)
+    guest_stated_arrival_text = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -548,6 +550,69 @@ class WhatsAppOperatorSession(TenantScopedModel):
 
 class WhatsAppGuestAutocheckinSessionStatus(models.TextChoices):
     AWAITING_BOOKING_CODE = "awaiting_booking_code", "Awaiting booking code"
+
+
+class WhatsAppArrivalConfirmSessionStatus(models.TextChoices):
+    AWAITING_ARRIVED = "awaiting_arrived", "Awaiting arrived"
+    AWAITING_TIME = "awaiting_time", "Awaiting time"
+    DONE = "done", "Done"
+    DECLINED = "declined", "Declined"
+
+
+class WhatsAppArrivalConfirmTrigger(models.TextChoices):
+    GUEST_DEADLINE_PLUS_30 = "guest_deadline_plus_30", "Guest deadline +30"
+    NIGHTLY_23H = "nightly_23h", "Nightly 23h"
+
+
+class WhatsAppArrivalConfirmSession(TenantScopedModel):
+    """Toni arrival gate: operator confirms guest arrival before check-in + eVisitor."""
+
+    reservation = models.ForeignKey(
+        Reservation,
+        on_delete=models.CASCADE,
+        related_name="whatsapp_arrival_confirm_sessions",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=WhatsAppArrivalConfirmSessionStatus.choices,
+        default=WhatsAppArrivalConfirmSessionStatus.AWAITING_ARRIVED,
+    )
+    trigger = models.CharField(
+        max_length=24,
+        choices=WhatsAppArrivalConfirmTrigger.choices,
+    )
+    guest_stated_arrival_text = models.CharField(max_length=255, blank=True)
+    guest_stated_arrival_at = models.DateTimeField(null=True, blank=True)
+    prompted_at = models.DateTimeField(null=True, blank=True)
+    responded_operator_wa_id = models.CharField(max_length=32, blank=True)
+    confirmed_arrival_at = models.DateTimeField(null=True, blank=True)
+    celery_task_id = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+        indexes = [
+            models.Index(fields=["reservation", "status"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reservation"],
+                condition=models.Q(
+                    status__in=(
+                        WhatsAppArrivalConfirmSessionStatus.AWAITING_ARRIVED,
+                        WhatsAppArrivalConfirmSessionStatus.AWAITING_TIME,
+                    )
+                ),
+                name="reservations_arrival_confirm_one_active_per_reservation",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"WhatsAppArrivalConfirmSession #{self.pk} "
+            f"reservation={self.reservation_id} status={self.status}"
+        )
 
 
 class WhatsAppGuestAutocheckinSession(TenantScopedModel):

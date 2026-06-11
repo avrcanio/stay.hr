@@ -107,8 +107,8 @@ def waive_whatsapp_autocheckin(reservation: Reservation) -> None:
 
 
 def is_guest_checkin_acknowledged(reservation: Reservation) -> bool:
-    """Docs complete in DB, or reception already acknowledged check-in today."""
-    if is_document_checkin_complete(reservation):
+    """Checked-in in DB, or reception already sent check-in complete today."""
+    if reservation.status == Reservation.Status.CHECKED_IN:
         return True
     return checkin_ready_draft_sent_today(reservation)
 

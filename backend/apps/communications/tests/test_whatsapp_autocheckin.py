@@ -21,7 +21,7 @@ from apps.integrations.tests.test_whatsapp_webhook import TEST_FERNET_KEY
 from apps.integrations.whatsapp.welcome_template import build_welcome_template_parameters
 from apps.properties.models import Property
 from apps.reservations.booking_lifecycle import confirm_web_booking
-from apps.reservations.models import Reservation
+from apps.reservations.models import Guest, Reservation
 from apps.tenants.models import Tenant
 
 TEST_D360_KEY = "test-d360-key"
@@ -349,6 +349,15 @@ class WhatsAppImmediateAutocheckinTests(TestCase):
 
         self.assertEqual(result["status"], "already_sent")
         mock_send.assert_not_called()
+
+    @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")
+    def test_deferred_guest_document_checkin_is_deprecated(self, mock_now):
+        from apps.communications.whatsapp_autocheckin_tasks import run_deferred_guest_document_checkins
+
+        mock_now.return_value = datetime(2026, 6, 7, 12, 30, tzinfo=ZAGREB)
+        result = run_deferred_guest_document_checkins()
+        self.assertEqual(result["status"], "deprecated")
+        self.assertEqual(result["completed"], 0)
 
     @patch("apps.communications.whatsapp_autocheckin_tasks.maybe_send_immediate_autocheckin_welcome")
     @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")

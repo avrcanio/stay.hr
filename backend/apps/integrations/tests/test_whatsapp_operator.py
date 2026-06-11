@@ -239,10 +239,8 @@ class WhatsAppOperatorTests(TestCase):
         mock_send.assert_not_called()
         mock_schedule_quiet.assert_called_once()
 
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.is_document_checkin_complete", return_value=True)
-    @patch("apps.integrations.whatsapp.operator_job_complete.complete_operator_checkin_after_apply")
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.apply_document_intake_job")
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.process_document_intake_job")
+    @patch("apps.integrations.whatsapp.whatsapp_operator_batch.schedule_operator_quiet_timer")
+    @patch("apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.fetch_whatsapp_media")
@@ -251,56 +249,39 @@ class WhatsAppOperatorTests(TestCase):
         mock_fetch,
         mock_interactive,
         mock_send,
-        mock_process,
-        mock_apply,
-        mock_finalize_after_apply,
-        mock_checkin_complete,
+        mock_finalize_job,
+        mock_schedule_quiet,
     ):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
         mock_interactive.side_effect = lambda **kwargs: self._next_interactive_wamid()
         mock_send.return_value = {"messages": [{"id": "wamid.out.success"}]}
-        mock_apply.return_value = [{"guest_name": "Robert Siebinger"}]
 
-        def _finalize_side_effect(**kwargs):
+        def _finalize_side_effect(job, **kwargs):
             session = kwargs.get("session")
+            job.reservation_id = self.target_reservation.pk
+            job.save(update_fields=["reservation_id", "updated_at"])
             if session is not None:
                 session.status = WhatsAppOperatorSessionStatus.DONE
                 session.save(update_fields=["status", "updated_at"])
             return {
                 "status": "completed",
-                "job_id": kwargs["job"].pk,
+                "job_id": job.pk,
                 "reservation_id": self.target_reservation.pk,
                 "guest_notify": {"channel": "whatsapp", "status": "sent"},
             }
 
-        mock_finalize_after_apply.side_effect = _finalize_side_effect
+        mock_finalize_job.side_effect = _finalize_side_effect
 
         self._send_operator_image("wamid.in.op.image.1")
 
         session = WhatsAppOperatorSession.objects.get(operator_wa_id=self.operator_wa_id)
         job = session.job
 
-        def _set_matches(job_id):
-            DocumentIntakeJob.objects.filter(pk=job_id).update(
-                status=DocumentIntakeJobStatus.DONE,
-                matches=[
-                    {
-                        "auto_apply": True,
-                        "guest_id": 1,
-                        "reservation_id": self.target_reservation.pk,
-                        "reservation_label": self.target_reservation.booking_code,
-                        "guest_name": "Robert Siebinger",
-                    }
-                ],
-            )
-
-        mock_process.side_effect = _set_matches
-
         confirm_result = self._send_operator_checkin("wamid.in.op.checkin")
         self.assertEqual(confirm_result["status"], "awaiting_confirm")
         session.refresh_from_db()
         self.assertEqual(session.status, WhatsAppOperatorSessionStatus.AWAITING_CONFIRM)
-        mock_process.assert_not_called()
+        mock_finalize_job.assert_not_called()
 
         confirm_call = mock_interactive.call_args_list[-1]
         self.assertEqual(
@@ -312,16 +293,12 @@ class WhatsAppOperatorTests(TestCase):
         self.assertEqual(result["status"], "completed")
         session.refresh_from_db()
         self.assertEqual(session.status, WhatsAppOperatorSessionStatus.DONE)
-        mock_process.assert_called_once_with(job.pk)
-        mock_apply.assert_called_once_with(job.pk)
-        mock_finalize_after_apply.assert_called_once()
+        mock_finalize_job.assert_called_once()
         job.refresh_from_db()
         self.assertEqual(job.reservation_id, self.target_reservation.pk)
 
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.is_document_checkin_complete", return_value=True)
-    @patch("apps.integrations.whatsapp.operator_job_complete.complete_operator_checkin_after_apply")
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.apply_document_intake_job")
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.process_document_intake_job")
+    @patch("apps.integrations.whatsapp.whatsapp_operator_batch.schedule_operator_quiet_timer")
+    @patch("apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.fetch_whatsapp_media")
@@ -330,16 +307,13 @@ class WhatsAppOperatorTests(TestCase):
         mock_fetch,
         mock_interactive,
         mock_send,
-        mock_process,
-        mock_apply,
-        mock_finalize_after_apply,
-        mock_checkin_complete,
+        mock_finalize_job,
+        mock_schedule_quiet,
     ):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
         mock_interactive.side_effect = lambda **kwargs: self._next_interactive_wamid()
         mock_send.return_value = {"messages": [{"id": "wamid.out.success"}]}
-        mock_apply.return_value = [{"guest_name": "Robert Siebinger"}]
-        mock_finalize_after_apply.return_value = {
+        mock_finalize_job.return_value = {
             "status": "completed",
             "job_id": 1,
             "reservation_id": self.target_reservation.pk,
@@ -349,22 +323,6 @@ class WhatsAppOperatorTests(TestCase):
 
         session = WhatsAppOperatorSession.objects.get(operator_wa_id=self.operator_wa_id)
         job = session.job
-
-        def _set_matches(job_id):
-            DocumentIntakeJob.objects.filter(pk=job_id).update(
-                status=DocumentIntakeJobStatus.DONE,
-                matches=[
-                    {
-                        "auto_apply": True,
-                        "guest_id": 1,
-                        "reservation_id": self.target_reservation.pk,
-                        "reservation_label": self.target_reservation.booking_code,
-                        "guest_name": "Robert Siebinger",
-                    }
-                ],
-            )
-
-        mock_process.side_effect = _set_matches
 
         checkin_message = WhatsAppMessage.objects.create(
             tenant=self.tenant,
@@ -396,9 +354,9 @@ class WhatsAppOperatorTests(TestCase):
 
         result = self._send_operator_docs_yes("wamid.in.op.confirm.btn.yes")
         self.assertEqual(result["status"], "completed")
-        mock_process.assert_called_once_with(job.pk)
-        mock_apply.assert_called_once_with(job.pk)
+        mock_finalize_job.assert_called_once()
 
+    @patch("apps.integrations.whatsapp.whatsapp_operator_batch.schedule_operator_quiet_timer")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.fetch_whatsapp_media")
@@ -407,6 +365,7 @@ class WhatsAppOperatorTests(TestCase):
         mock_fetch,
         mock_interactive,
         mock_send,
+        mock_schedule_quiet,
     ):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
         mock_interactive.side_effect = lambda **kwargs: self._next_interactive_wamid()
@@ -449,6 +408,7 @@ class WhatsAppOperatorTests(TestCase):
         mock_send.assert_called()
         self.assertIn("Pošaljite još slike", mock_send.call_args.kwargs["body"])
 
+    @patch("apps.integrations.whatsapp.whatsapp_operator_batch.schedule_operator_quiet_timer")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.fetch_whatsapp_media")
@@ -457,6 +417,7 @@ class WhatsAppOperatorTests(TestCase):
         mock_fetch,
         mock_interactive,
         mock_send,
+        mock_schedule_quiet,
     ):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
         mock_interactive.side_effect = lambda **kwargs: self._next_interactive_wamid()
@@ -500,11 +461,8 @@ class WhatsAppOperatorTests(TestCase):
         self.assertEqual(result["status"], "blocked")
         self.assertIn("u tijeku", mock_send.call_args.kwargs["body"])
 
-    @patch("apps.integrations.whatsapp.operator_job_complete.complete_operator_checkin_after_apply")
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.is_document_checkin_complete", return_value=False)
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.find_missing_id_sides")
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.apply_document_intake_job")
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.process_document_intake_job")
+    @patch("apps.integrations.whatsapp.whatsapp_operator_batch.schedule_operator_quiet_timer")
+    @patch("apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.fetch_whatsapp_media")
@@ -513,47 +471,30 @@ class WhatsAppOperatorTests(TestCase):
         mock_fetch,
         mock_interactive,
         mock_send,
-        mock_process,
-        mock_apply,
-        mock_missing_sides,
-        mock_checkin_complete,
-        mock_finalize_after_apply,
+        mock_finalize_job,
+        mock_schedule_quiet,
     ):
-        from apps.reservations.document_intake_sides import MissingIdSide
-
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
         mock_interactive.side_effect = lambda **kwargs: self._next_interactive_wamid()
         mock_send.return_value = {"messages": [{"id": "wamid.out.text"}]}
-        mock_apply.return_value = [{"guest_name": "Robert Siebinger"}]
-        mock_missing_sides.return_value = [
-            MissingIdSide(guest_id=1, guest_name="Robert", side="back", is_passport=False)
-        ]
+
+        def _incomplete(job, **kwargs):
+            session = kwargs.get("session")
+            if session is not None:
+                session.status = WhatsAppOperatorSessionStatus.COLLECTING
+                session.save(update_fields=["status", "updated_at"])
+            return {"status": "incomplete", "job_id": job.pk}
+
+        mock_finalize_job.side_effect = _incomplete
 
         self._send_operator_image("wamid.in.op.image.incomplete.1")
         session = WhatsAppOperatorSession.objects.get(operator_wa_id=self.operator_wa_id)
-        job = session.job
-
-        def _set_matches(job_id):
-            DocumentIntakeJob.objects.filter(pk=job_id).update(
-                status=DocumentIntakeJobStatus.DONE,
-                matches=[
-                    {
-                        "auto_apply": True,
-                        "guest_id": 1,
-                        "reservation_id": self.target_reservation.pk,
-                        "reservation_label": self.target_reservation.booking_code,
-                        "guest_name": "Robert Siebinger",
-                    }
-                ],
-            )
-
-        mock_process.side_effect = _set_matches
 
         self._send_operator_checkin("wamid.in.op.checkin.incomplete")
         result = self._send_operator_docs_yes("wamid.in.op.confirm.incomplete.yes")
 
-        self.assertEqual(result["status"], "incomplete_documents")
-        mock_finalize_after_apply.assert_not_called()
+        self.assertEqual(result["status"], "incomplete")
+        mock_finalize_job.assert_called_once()
         session.refresh_from_db()
         self.assertEqual(session.status, WhatsAppOperatorSessionStatus.COLLECTING)
 
@@ -664,9 +605,14 @@ class WhatsAppOperatorTests(TestCase):
         from apps.integrations.whatsapp.whatsapp_operator_batch import operator_collect_quiet_elapsed
 
         result = operator_collect_quiet_elapsed(session.pk)
-        self.assertEqual(result["status"], "sent")
+        self.assertEqual(result["status"], "prompted")
         mock_send.assert_called_once()
-        self.assertIn("1 slika", mock_send.call_args.kwargs["body"])
+        self.assertEqual(
+            mock_send.call_args.kwargs["buttons"],
+            [(OPERATOR_DOCS_ALL_YES_ID, "Da"), (OPERATOR_DOCS_ALL_NO_ID, "Ne")],
+        )
+        session.refresh_from_db()
+        self.assertEqual(session.status, WhatsAppOperatorSessionStatus.AWAITING_CONFIRM)
 
     @patch("apps.integrations.whatsapp.whatsapp_operator_service._send_guest_operator_checkin_email")
     @patch("apps.integrations.whatsapp.evisitor_reply._send_reservation_whatsapp_text")
@@ -857,20 +803,15 @@ class OperatorReservationPickFlowTests(TestCase):
             last_activity_at=timezone.now(),
         )
 
-    @patch("apps.integrations.whatsapp.operator_job_complete.complete_operator_checkin_after_apply")
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.is_document_checkin_complete", return_value=True)
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.apply_document_intake_job")
+    @patch("apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
     def test_reservation_pick_reply_applies(
         self,
         mock_send,
-        mock_apply,
-        mock_checkin_complete,
-        mock_finalize,
+        mock_finalize_job,
     ):
         mock_send.return_value = {"messages": [{"id": "wamid.out.pick"}]}
-        mock_apply.return_value = [{"guest_name": "Jasmin Hengeland"}]
-        mock_finalize.return_value = {"status": "done"}
+        mock_finalize_job.return_value = {"status": "completed"}
 
         session = self._pick_session_with_job()
         message = WhatsAppMessage.objects.create(
@@ -891,11 +832,8 @@ class OperatorReservationPickFlowTests(TestCase):
             action_text=str(self.reservation.pk),
         )
 
-        self.assertEqual(result["status"], "done")
-        mock_apply.assert_called_once()
-        mock_finalize.assert_called_once()
-        session.job.refresh_from_db()
-        self.assertEqual(session.job.reservation_id, self.reservation.pk)
+        self.assertEqual(result["status"], "completed")
+        mock_finalize_job.assert_called_once()
 
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
     def test_reservation_pick_invalid_code(self, mock_send):
@@ -966,7 +904,7 @@ class OperatorReservationPickFlowTests(TestCase):
             button_id=OPERATOR_DOCS_ALL_YES_ID,
         )
 
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.process_document_intake_job")
+    @patch("apps.integrations.whatsapp.document_intake_finalize.process_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.fetch_whatsapp_media")
