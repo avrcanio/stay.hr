@@ -309,6 +309,8 @@ docker compose build django && docker compose up -d django celery-worker
 | **2026-07-01 – 2026-08-31** | R1, R2 | 99 € | **113,00 €** |
 | Ostatak godine | postojeći `RatePlanDay` | npr. 89–129 € | nepromijenjeno |
 
+**Izuzetak — 4. 8. 2026.:** samo taj dan **sezonska baza × 4** (**452 €** R1/R2 = 113×4, **588 €** R3/R6 = 147×4). **5. 8.** = standardna sezona (**113 / 147 €**, isto kao 6. 8.). Audit: [uzorita-pricing-surge-2026-08-04-05.md](../operations/uzorita-pricing-surge-2026-08-04-05.md).
+
 **stay.hr pohranjuje cijenu za 1 odraslog.** Channex push šalje **punu cijenu** (normal) na primary occupancy = max odrasli; Booking prikazuje smanjenja za manje gostiju.
 
 **OBP (Channex + Booking, reduction model):**

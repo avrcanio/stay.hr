@@ -110,9 +110,12 @@ class OperatorArrivalConfirmTests(TestCase):
             raw_payload=payload,
         )
 
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm._notify_arrival_confirm_push")
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm._operator_session_open", return_value=True)
     @patch("apps.integrations.whatsapp.operator_arrival_confirm.send_interactive_button_message")
-    def test_send_prompt_to_all_operators(self, mock_send):
+    def test_send_prompt_to_all_operators(self, mock_send, mock_session, mock_push):
         mock_send.return_value = {"messages": [{"id": "wamid.prompt.1"}]}
+        mock_push.return_value = {"sent": 1}
 
         result = send_arrival_confirm_prompt(
             self.reservation,
@@ -131,11 +134,16 @@ class OperatorArrivalConfirmTests(TestCase):
         session = WhatsAppArrivalConfirmSession.objects.get(reservation=self.reservation)
         self.assertEqual(session.status, WhatsAppArrivalConfirmSessionStatus.AWAITING_ARRIVED)
 
+    @patch("apps.integrations.whatsapp.client.send_text_message")
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm._notify_arrival_confirm_push")
     @patch("apps.reservations.reservation_checkin_complete.perform_arrival_confirmed_checkin")
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm._operator_session_open", return_value=True)
     @patch("apps.integrations.whatsapp.operator_arrival_confirm.send_interactive_button_message")
-    def test_yes_then_time_triggers_checkin(self, mock_send, mock_checkin):
+    def test_yes_then_time_triggers_checkin(self, mock_send, mock_session, mock_checkin, mock_push, mock_text):
         mock_send.return_value = {"messages": [{"id": "wamid.prompt.1"}]}
         mock_checkin.return_value = {"status": "completed"}
+        mock_push.return_value = {"sent": 1}
+        mock_text.return_value = {"messages": [{"id": "wamid.op.text.1"}]}
         send_arrival_confirm_prompt(
             self.reservation,
             trigger=WhatsAppArrivalConfirmTrigger.NIGHTLY_23H,
@@ -169,9 +177,14 @@ class OperatorArrivalConfirmTests(TestCase):
         session = WhatsAppArrivalConfirmSession.objects.get(reservation=self.reservation)
         self.assertEqual(session.status, WhatsAppArrivalConfirmSessionStatus.DONE)
 
+    @patch("apps.integrations.whatsapp.client.send_text_message")
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm._notify_arrival_confirm_push")
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm._operator_session_open", return_value=True)
     @patch("apps.integrations.whatsapp.operator_arrival_confirm.send_interactive_button_message")
-    def test_no_keeps_expected(self, mock_send):
+    def test_no_keeps_expected(self, mock_send, mock_session, mock_push, mock_text):
         mock_send.return_value = {"messages": [{"id": "wamid.prompt.1"}]}
+        mock_push.return_value = {"sent": 1}
+        mock_text.return_value = {"messages": [{"id": "wamid.op.text.2"}]}
         send_arrival_confirm_prompt(
             self.reservation,
             trigger=WhatsAppArrivalConfirmTrigger.GUEST_DEADLINE_PLUS_30,
@@ -223,9 +236,32 @@ class OperatorArrivalConfirmTests(TestCase):
         self.assertEqual(result["prompted"], 1)
         mock_prompt.assert_called_once()
 
+    @patch("apps.integrations.whatsapp.client.send_template_message")
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm._notify_arrival_confirm_push")
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm._operator_session_open", return_value=False)
+    def test_send_prompt_uses_template_when_session_closed(self, mock_session, mock_push, mock_template):
+        mock_push.return_value = {"sent": 1}
+        mock_template.return_value = {"messages": [{"id": "wamid.template.1"}]}
+
+        result = send_arrival_confirm_prompt(
+            self.reservation,
+            trigger=WhatsAppArrivalConfirmTrigger.GUEST_DEADLINE_PLUS_30,
+            integration_row=self.integration,
+            runtime=self.runtime,
+        )
+
+        self.assertEqual(result["status"], "prompted")
+        mock_template.assert_called_once()
+        self.assertEqual(result["operators"][0]["channel"], "template")
+
+    @patch("apps.integrations.whatsapp.client.send_text_message")
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm._notify_arrival_confirm_push")
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm._operator_session_open", return_value=True)
     @patch("apps.integrations.whatsapp.operator_arrival_confirm.send_interactive_button_message")
-    def test_double_operator_gets_already_handled(self, mock_send):
+    def test_double_operator_gets_already_handled(self, mock_send, mock_session, mock_push, mock_text):
         mock_send.return_value = {"messages": [{"id": "wamid.prompt.1"}]}
+        mock_push.return_value = {"sent": 1}
+        mock_text.return_value = {"messages": [{"id": "wamid.op.text.3"}]}
         send_arrival_confirm_prompt(
             self.reservation,
             trigger=WhatsAppArrivalConfirmTrigger.NIGHTLY_23H,

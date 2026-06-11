@@ -155,6 +155,208 @@ def _build_arrival_confirm_prompt_body(reservation: Reservation) -> str:
     return "\n".join(lines)
 
 
+def _build_arrival_confirm_text_body(reservation: Reservation) -> str:
+    """Plain-text prompt when interactive buttons may not deliver (outside 24h session)."""
+    return (
+        f"{_build_arrival_confirm_prompt_body(reservation)}\n\n"
+        "Odgovorite tekstom: Da ili Ne"
+    )
+
+
+def _operator_session_open(tenant_id: int, operator_wa_id: str) -> bool:
+    """WhatsApp interactive/session messages need inbound from operator within 24h."""
+    last_inbound = (
+        WhatsAppMessage.objects.filter(
+            tenant_id=tenant_id,
+            wa_id=operator_wa_id,
+            direction=WhatsAppMessage.Direction.INBOUND,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if last_inbound is None:
+        return False
+    return last_inbound.created_at >= timezone.now() - timedelta(hours=24)
+
+
+def _notify_arrival_confirm_push(reservation: Reservation) -> dict:
+    """Hospira reception push — works outside WhatsApp 24h customer-care window."""
+    from apps.core.notifications import send_tenant_reception_push
+    from apps.core.push_payload import reception_push_data
+
+    room = _room_name_for_reservation(reservation) or "—"
+    plan = format_guest_stated_arrival_for_operator(reservation) or "—"
+    body = f"#{reservation.pk} {room} · {reservation.booker_name} · dolazak: {plan}"
+    message_ids = send_tenant_reception_push(
+        tenant_id=reservation.tenant_id,
+        title="Potvrda dolaska",
+        body=body,
+        data=reception_push_data(
+            event_type="arrival.confirm",
+            reservation_id=reservation.pk,
+            summary="Potvrdite dolazak gostiju (Da/Ne)",
+        ),
+    )
+    return {"sent": len(message_ids)}
+
+
+def _send_interactive_arrival_prompt(
+    *,
+    reservation: Reservation,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+    operator_wa_id: str,
+) -> dict:
+    interactive_body = _build_arrival_confirm_prompt_body(reservation)
+    yes_id = operator_arrived_yes_button_id(reservation.pk)
+    no_id = operator_arrived_no_button_id(reservation.pk)
+    try:
+        response = send_interactive_button_message(
+            phone_number_id=runtime.phone_number_id,
+            access_token=runtime.access_token,
+            to_wa_id=operator_wa_id,
+            body=interactive_body,
+            buttons=[
+                (yes_id, OPERATOR_ARRIVED_YES_LABEL),
+                (no_id, OPERATOR_ARRIVED_NO_LABEL),
+            ],
+            provider=runtime.provider,
+            api_base_url=runtime.api_base_url,
+        )
+    except WhatsAppApiError as exc:
+        logger.warning(
+            "Arrival confirm interactive failed reservation_id=%s wa_id=%s: %s",
+            reservation.pk,
+            operator_wa_id,
+            exc,
+        )
+        return {"status": "send_failed", "channel": "interactive", "detail": str(exc)}
+
+    outbound_wamid = extract_outbound_wamid(response)
+    if outbound_wamid:
+        WhatsAppMessage.objects.create(
+            tenant_id=reservation.tenant_id,
+            integration=integration_row,
+            reservation=reservation,
+            wamid=outbound_wamid,
+            wa_id=operator_wa_id,
+            phone_number_id=runtime.phone_number_id,
+            direction=WhatsAppMessage.Direction.OUTBOUND,
+            message_type="interactive",
+            body=interactive_body,
+            raw_payload=response,
+        )
+    return {
+        "wa_id": operator_wa_id,
+        "status": "sent",
+        "channel": "interactive",
+        "outbound_wamid": outbound_wamid,
+    }
+
+
+def _send_operator_template_reengagement(
+    *,
+    reservation: Reservation,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+    operator: dict[str, str],
+    operator_wa_id: str,
+) -> dict:
+    """Approved template delivers outside 24h; opens session when operator replies."""
+    from apps.integrations.whatsapp.client import send_template_message
+    from apps.integrations.whatsapp.welcome_template import (
+        build_welcome_template_parameters,
+        welcome_header_image_url,
+        welcome_template_name,
+    )
+
+    config = integration_row.get_config_dict()
+    lang, params = build_welcome_template_parameters(reservation)
+    operator_name = (operator.get("name") or "").strip()
+    if operator_name:
+        params[0] = operator_name.split()[0]
+    template_name = welcome_template_name(config=config, lang=lang)
+    try:
+        response = send_template_message(
+            phone_number_id=runtime.phone_number_id,
+            access_token=runtime.access_token,
+            to_wa_id=operator_wa_id,
+            template_name=template_name,
+            language_code=lang,
+            body_parameters=params,
+            header_image_url=welcome_header_image_url(config),
+            provider=runtime.provider,
+            api_base_url=runtime.api_base_url,
+        )
+    except WhatsAppApiError as exc:
+        logger.warning(
+            "Arrival confirm template reengagement failed reservation_id=%s wa_id=%s: %s",
+            reservation.pk,
+            operator_wa_id,
+            exc,
+        )
+        return {"status": "send_failed", "channel": "template", "detail": str(exc)}
+
+    outbound_wamid = extract_outbound_wamid(response)
+    if outbound_wamid:
+        WhatsAppMessage.objects.create(
+            tenant_id=reservation.tenant_id,
+            integration=integration_row,
+            reservation=reservation,
+            wamid=outbound_wamid,
+            wa_id=operator_wa_id,
+            phone_number_id=runtime.phone_number_id,
+            direction=WhatsAppMessage.Direction.OUTBOUND,
+            message_type="template",
+            body=f"template:{template_name}",
+            raw_payload=response,
+        )
+    return {
+        "wa_id": operator_wa_id,
+        "status": "sent",
+        "channel": "template",
+        "outbound_wamid": outbound_wamid,
+        "wa_session_closed": True,
+    }
+
+
+def _resend_arrival_prompts_after_operator_inbound(
+    *,
+    tenant_id: int,
+    operator_wa_id: str,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+) -> dict | None:
+    if not _operator_session_open(tenant_id, operator_wa_id):
+        return None
+
+    sessions = (
+        WhatsAppArrivalConfirmSession.objects.filter(
+            tenant_id=tenant_id,
+            status=WhatsAppArrivalConfirmSessionStatus.AWAITING_ARRIVED,
+        )
+        .select_related("reservation", "reservation__property", "reservation__tenant")
+        .order_by("-prompted_at", "-id")
+    )
+    resent: list[dict] = []
+    for session in sessions:
+        reservation = session.reservation
+        if _should_skip_arrival_prompt(reservation):
+            continue
+        result = _send_interactive_arrival_prompt(
+            reservation=reservation,
+            integration_row=integration_row,
+            runtime=runtime,
+            operator_wa_id=operator_wa_id,
+        )
+        if result.get("status") == "sent":
+            resent.append({"reservation_id": reservation.pk, **result})
+
+    if not resent:
+        return None
+    return {"status": "arrival_prompt_resent", "operators": resent}
+
+
 def send_arrival_confirm_prompt(
     reservation: Reservation,
     *,
@@ -179,9 +381,7 @@ def send_arrival_confirm_prompt(
     if not operators:
         return {"status": "skipped", "reason": "no_operators"}
 
-    body = _build_arrival_confirm_prompt_body(reservation)
-    yes_id = operator_arrived_yes_button_id(reservation.pk)
-    no_id = operator_arrived_no_button_id(reservation.pk)
+    push_result = _notify_arrival_confirm_push(reservation)
     send_results: list[dict] = []
 
     from apps.integrations.whatsapp.phone import normalize_phone
@@ -190,47 +390,30 @@ def send_arrival_confirm_prompt(
         operator_wa_id = normalize_phone(operator["phone"])
         if not operator_wa_id:
             continue
-        try:
-            response = send_interactive_button_message(
-                phone_number_id=runtime.phone_number_id,
-                access_token=runtime.access_token,
-                to_wa_id=operator_wa_id,
-                body=body,
-                buttons=[
-                    (yes_id, OPERATOR_ARRIVED_YES_LABEL),
-                    (no_id, OPERATOR_ARRIVED_NO_LABEL),
-                ],
-                provider=runtime.provider,
-                api_base_url=runtime.api_base_url,
-            )
-        except WhatsAppApiError as exc:
-            logger.warning(
-                "Arrival confirm prompt failed reservation_id=%s wa_id=%s: %s",
-                reservation.pk,
-                operator_wa_id,
-                exc,
-            )
-            send_results.append({"wa_id": operator_wa_id, "status": "send_failed", "detail": str(exc)})
-            continue
 
-        outbound_wamid = extract_outbound_wamid(response)
-        if outbound_wamid:
-            WhatsAppMessage.objects.create(
-                tenant_id=reservation.tenant_id,
-                integration=integration_row,
-                reservation=reservation,
-                wamid=outbound_wamid,
-                wa_id=operator_wa_id,
-                phone_number_id=runtime.phone_number_id,
-                direction=WhatsAppMessage.Direction.OUTBOUND,
-                message_type="interactive",
-                body=body,
-                raw_payload=response,
+        if _operator_session_open(reservation.tenant_id, operator_wa_id):
+            send_results.append(
+                _send_interactive_arrival_prompt(
+                    reservation=reservation,
+                    integration_row=integration_row,
+                    runtime=runtime,
+                    operator_wa_id=operator_wa_id,
+                )
             )
-        send_results.append({"wa_id": operator_wa_id, "status": "sent", "outbound_wamid": outbound_wamid})
+        else:
+            send_results.append(
+                _send_operator_template_reengagement(
+                    reservation=reservation,
+                    integration_row=integration_row,
+                    runtime=runtime,
+                    operator=operator,
+                    operator_wa_id=operator_wa_id,
+                )
+            )
 
-    if not any(item.get("status") == "sent" for item in send_results):
-        return {"status": "send_failed", "operators": send_results}
+    wa_sent = any(item.get("status") == "sent" for item in send_results)
+    if not wa_sent and push_result.get("sent", 0) == 0:
+        return {"status": "send_failed", "operators": send_results, "push": push_result}
 
     now = timezone.now()
     session = (
@@ -272,7 +455,12 @@ def send_arrival_confirm_prompt(
             ]
         )
 
-    return {"status": "prompted", "session_id": session.pk, "operators": send_results}
+    return {
+        "status": "prompted",
+        "session_id": session.pk,
+        "operators": send_results,
+        "push": push_result,
+    }
 
 
 def schedule_arrival_confirm_prompt(
@@ -493,6 +681,15 @@ def handle_operator_arrival_confirm_inbound(
                 reservation=reservation,
             )
             return {"status": "awaiting_time", "session_id": session.pk}
+
+    resent = _resend_arrival_prompts_after_operator_inbound(
+        tenant_id=row.tenant_id,
+        operator_wa_id=row.wa_id,
+        integration_row=integration_row,
+        runtime=runtime,
+    )
+    if resent is not None:
+        return resent
 
     session = _get_session_for_operator_response(
         tenant_id=row.tenant_id,
