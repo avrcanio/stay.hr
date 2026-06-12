@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from celery import shared_task
 from django.core.cache import cache
@@ -121,12 +121,75 @@ def _should_skip_arrival_prompt(reservation: Reservation) -> str | None:
 
     if reservation.status in {
         Reservation.Status.CHECKED_IN,
+        Reservation.Status.CHECKED_OUT,
         Reservation.Status.CANCELED,
     }:
         return reservation.status
     if is_whatsapp_autocheckin_waived(reservation):
         return "waived"
     return None
+
+
+def _close_obsolete_arrival_sessions(*, tenant_id: int | None = None, reservation_id: int | None = None) -> int:
+    """Close open arrival sessions when reservation is no longer expected."""
+    terminal_reservation_statuses = {
+        Reservation.Status.CHECKED_IN,
+        Reservation.Status.CHECKED_OUT,
+        Reservation.Status.CANCELED,
+    }
+    open_statuses = {
+        WhatsAppArrivalConfirmSessionStatus.AWAITING_ARRIVED,
+        WhatsAppArrivalConfirmSessionStatus.AWAITING_TIME,
+    }
+    qs = WhatsAppArrivalConfirmSession.objects.filter(status__in=open_statuses).select_related(
+        "reservation"
+    )
+    if tenant_id is not None:
+        qs = qs.filter(tenant_id=tenant_id)
+    if reservation_id is not None:
+        qs = qs.filter(reservation_id=reservation_id)
+
+    closed = 0
+    for session in qs:
+        if session.reservation.status not in terminal_reservation_statuses:
+            continue
+        session.status = WhatsAppArrivalConfirmSessionStatus.DONE
+        session.save(update_fields=["status", "updated_at"])
+        closed += 1
+    return closed
+
+
+def _default_confirmed_arrival_at(reservation: Reservation) -> datetime:
+    if reservation.guest_stated_arrival_at is not None:
+        return reservation.guest_stated_arrival_at
+    return property_local_now(reservation.property)
+
+
+def _finish_arrival_checkin(
+    *,
+    session: WhatsAppArrivalConfirmSession,
+    confirmed_at: datetime,
+    operator_wa_id: str,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+) -> dict:
+    from apps.reservations.reservation_checkin_complete import perform_arrival_confirmed_checkin
+
+    reservation = session.reservation
+    time_stay_from = confirmed_at.astimezone(_property_tz(reservation)).strftime("%H:%M")
+    outcome = perform_arrival_confirmed_checkin(
+        reservation,
+        time_stay_from=time_stay_from,
+        operator_wa_id=operator_wa_id,
+        confirmed_arrival_at=confirmed_at,
+        integration_row=integration_row,
+        runtime=runtime,
+    )
+    if outcome.get("status") in {"completed", "already_checked_in"}:
+        session.status = WhatsAppArrivalConfirmSessionStatus.DONE
+        session.confirmed_arrival_at = confirmed_at
+        session.save(update_fields=["status", "confirmed_arrival_at", "updated_at"])
+    return outcome
 
 
 def _awaiting_arrived_prompt_exists_today(
@@ -320,43 +383,6 @@ def _send_operator_template_reengagement(
     }
 
 
-def _resend_arrival_prompts_after_operator_inbound(
-    *,
-    tenant_id: int,
-    operator_wa_id: str,
-    integration_row: IntegrationConfig,
-    runtime: WhatsAppRuntimeConfig,
-) -> dict | None:
-    if not _operator_session_open(tenant_id, operator_wa_id):
-        return None
-
-    sessions = (
-        WhatsAppArrivalConfirmSession.objects.filter(
-            tenant_id=tenant_id,
-            status=WhatsAppArrivalConfirmSessionStatus.AWAITING_ARRIVED,
-        )
-        .select_related("reservation", "reservation__property", "reservation__tenant")
-        .order_by("-prompted_at", "-id")
-    )
-    resent: list[dict] = []
-    for session in sessions:
-        reservation = session.reservation
-        if _should_skip_arrival_prompt(reservation):
-            continue
-        result = _send_interactive_arrival_prompt(
-            reservation=reservation,
-            integration_row=integration_row,
-            runtime=runtime,
-            operator_wa_id=operator_wa_id,
-        )
-        if result.get("status") == "sent":
-            resent.append({"reservation_id": reservation.pk, **result})
-
-    if not resent:
-        return None
-    return {"status": "arrival_prompt_resent", "operators": resent}
-
-
 def send_arrival_confirm_prompt(
     reservation: Reservation,
     *,
@@ -365,6 +391,7 @@ def send_arrival_confirm_prompt(
     runtime: WhatsAppRuntimeConfig | None = None,
 ) -> dict:
     reservation = Reservation.objects.select_related("property", "tenant").get(pk=reservation.pk)
+    _close_obsolete_arrival_sessions(reservation_id=reservation.pk)
     skip = _should_skip_arrival_prompt(reservation)
     if skip:
         return {"status": "skipped", "reason": skip}
@@ -571,11 +598,15 @@ def send_nightly_arrival_confirm_prompts() -> dict:
             check_in=target_date,
             status=Reservation.Status.EXPECTED,
         ).select_related("property", "tenant")
+        _close_obsolete_arrival_sessions(tenant_id=prop.tenant_id)
         for reservation in qs:
             if is_whatsapp_autocheckin_waived(reservation):
                 result["skipped"] += 1
                 continue
             if not is_document_checkin_complete(reservation):
+                result["skipped"] += 1
+                continue
+            if _should_skip_arrival_prompt(reservation):
                 result["skipped"] += 1
                 continue
             outcome = send_arrival_confirm_prompt(
@@ -627,7 +658,6 @@ def handle_operator_arrival_confirm_inbound(
     button_id: str = "",
 ) -> dict | None:
     from apps.integrations.whatsapp.whatsapp_operator_service import _send_operator_text
-    from apps.reservations.reservation_checkin_complete import perform_arrival_confirmed_checkin
 
     answer, reservation_id = parse_operator_arrived_button(button_id)
 
@@ -666,30 +696,20 @@ def handle_operator_arrival_confirm_inbound(
                 )
                 return {"status": "declined", "session_id": session.pk}
 
-            session.status = WhatsAppArrivalConfirmSessionStatus.AWAITING_TIME
             session.responded_operator_wa_id = row.wa_id
-            session.save(update_fields=["status", "responded_operator_wa_id", "updated_at"])
-            guest_plan = format_guest_stated_arrival_for_operator(reservation)
-            prompt = "U koliko sati su došli? (npr. 19:30)"
-            if guest_plan:
-                prompt = f"{prompt}\n(Gost je javio: {guest_plan})"
-            _send_operator_text(
-                integration_row=integration_row,
-                runtime=runtime,
-                operator_wa_id=row.wa_id,
-                body=prompt,
-                reservation=reservation,
-            )
-            return {"status": "awaiting_time", "session_id": session.pk}
-
-    resent = _resend_arrival_prompts_after_operator_inbound(
-        tenant_id=row.tenant_id,
-        operator_wa_id=row.wa_id,
-        integration_row=integration_row,
-        runtime=runtime,
-    )
-    if resent is not None:
-        return resent
+            session.save(update_fields=["responded_operator_wa_id", "updated_at"])
+            confirmed_at = _default_confirmed_arrival_at(reservation)
+            with transaction.atomic():
+                _pg_advisory_xact_lock_reservation(reservation_id)
+                session.refresh_from_db()
+                outcome = _finish_arrival_checkin(
+                    session=session,
+                    confirmed_at=confirmed_at,
+                    operator_wa_id=row.wa_id,
+                    integration_row=integration_row,
+                    runtime=runtime,
+                )
+            return {**outcome, "session_id": session.pk}
 
     session = _get_session_for_operator_response(
         tenant_id=row.tenant_id,
@@ -697,44 +717,38 @@ def handle_operator_arrival_confirm_inbound(
         operator_wa_id=row.wa_id,
         status=WhatsAppArrivalConfirmSessionStatus.AWAITING_TIME,
     )
-    if session is None:
-        return None
-
-    parsed = parse_operator_confirmed_arrival_time(action_text, session.reservation)
-    if parsed is None:
-        _send_operator_text(
-            integration_row=integration_row,
-            runtime=runtime,
-            operator_wa_id=row.wa_id,
-            body="Nisam razumio vrijeme. Molim format HH:MM (npr. 19:30).",
-            reservation=session.reservation,
-        )
-        return {"status": "time_parse_failed", "session_id": session.pk}
-
-    with transaction.atomic():
-        _pg_advisory_xact_lock_reservation(session.reservation_id)
-        session.refresh_from_db()
-        if session.status != WhatsAppArrivalConfirmSessionStatus.AWAITING_TIME:
+    if session is not None:
+        parsed = parse_operator_confirmed_arrival_time(action_text, session.reservation)
+        if parsed is None:
             _send_operator_text(
                 integration_row=integration_row,
                 runtime=runtime,
                 operator_wa_id=row.wa_id,
-                body=_already_handled_message(session.reservation),
+                body="Nisam razumio vrijeme. Molim format HH:MM (npr. 19:30).",
                 reservation=session.reservation,
             )
-            return {"status": "already_handled", "session_id": session.pk}
+            return {"status": "time_parse_failed", "session_id": session.pk}
 
-        time_stay_from = parsed.astimezone(_property_tz(session.reservation)).strftime("%H:%M")
-        outcome = perform_arrival_confirmed_checkin(
-            session.reservation,
-            time_stay_from=time_stay_from,
-            operator_wa_id=row.wa_id,
-            confirmed_arrival_at=parsed,
-            integration_row=integration_row,
-            runtime=runtime,
-        )
-        if outcome.get("status") == "completed":
-            session.status = WhatsAppArrivalConfirmSessionStatus.DONE
-            session.confirmed_arrival_at = parsed
-            session.save(update_fields=["status", "confirmed_arrival_at", "updated_at"])
-        return outcome
+        with transaction.atomic():
+            _pg_advisory_xact_lock_reservation(session.reservation_id)
+            session.refresh_from_db()
+            if session.status != WhatsAppArrivalConfirmSessionStatus.AWAITING_TIME:
+                _send_operator_text(
+                    integration_row=integration_row,
+                    runtime=runtime,
+                    operator_wa_id=row.wa_id,
+                    body=_already_handled_message(session.reservation),
+                    reservation=session.reservation,
+                )
+                return {"status": "already_handled", "session_id": session.pk}
+
+            outcome = _finish_arrival_checkin(
+                session=session,
+                confirmed_at=parsed,
+                operator_wa_id=row.wa_id,
+                integration_row=integration_row,
+                runtime=runtime,
+            )
+            return {**outcome, "session_id": session.pk}
+
+    return None
