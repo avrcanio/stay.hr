@@ -46,6 +46,16 @@ class FaceCropHeuristicsTests(SimpleTestCase):
         best = _select_best_face(faces, image_w=w, image_h=h)
         self.assertEqual(best, (87, 1260, 235, 235))
 
+    def test_select_best_face_landscape_german_id(self):
+        """Large left portrait vs tiny right hologram false positive (res #817 Harun)."""
+        w, h = 2016, 980
+        faces = [
+            (1460, 275, 91, 91),  # hologram false positive
+            (443, 297, 475, 475),  # real left portrait (oversized for default max_side)
+        ]
+        best = _select_best_face(faces, image_w=w, image_h=h)
+        self.assertEqual(best, (443, 297, 475, 475))
+
     def test_rejects_list_placeholder_bbox(self):
         self.assertTrue(_is_placeholder_llm_bbox([0.1, 0.2, 0.3, 0.4]))
 

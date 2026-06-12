@@ -61,6 +61,15 @@ def _european_id_portrait_bbox(w: int, h: int) -> tuple[int, int, int, int]:
     return x1, y1, x2, y2
 
 
+def _max_face_side(*, image_w: int, image_h: int) -> int:
+    """Upper bound for Haar face box — landscape ID photos need a wider portrait strip."""
+    min_side = min(image_w, image_h)
+    max_side = int(min_side * 0.42)
+    if image_w > image_h * 1.25:
+        max_side = max(max_side, int(min_side * 0.52))
+    return max_side
+
+
 def _select_best_face(
     faces: list[tuple[int, int, int, int]],
     *,
@@ -72,7 +81,7 @@ def _select_best_face(
         return None
 
     min_side = int(min(image_w, image_h) * 0.08)
-    max_side = int(min(image_w, image_h) * 0.42)
+    max_side = _max_face_side(image_w=image_w, image_h=image_h)
     candidates: list[tuple[float, tuple[int, int, int, int]]] = []
 
     for x, y, fw, fh in faces:
@@ -128,6 +137,26 @@ def _select_best_face(
     return candidates[0][1]
 
 
+def _detect_faces_in_bgr(img) -> tuple[int, int, int, int] | None:
+    """Run Haar face detection on a BGR numpy array; return best box or None."""
+    import cv2
+
+    h, w = img.shape[:2]
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.equalizeHist(gray)
+
+    cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    cascade = cv2.CascadeClassifier(cascade_path)
+    faces_raw = cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.05,
+        minNeighbors=4,
+        minSize=(int(min(w, h) * 0.08), int(min(w, h) * 0.08)),
+    )
+    faces = [tuple(int(v) for v in face) for face in faces_raw]
+    return _select_best_face(faces, image_w=w, image_h=h)
+
+
 def detect_face_bbox_pixels(image_path: str) -> tuple[int, int, int, int] | None:
     """Detect face bounding box in pixel coordinates using OpenCV."""
     try:
@@ -140,23 +169,34 @@ def detect_face_bbox_pixels(image_path: str) -> tuple[int, int, int, int] | None
         img = cv2.imread(image_path)
         if img is None:
             return None
-        h, w = img.shape[:2]
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        gray = cv2.equalizeHist(gray)
-
-        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        cascade = cv2.CascadeClassifier(cascade_path)
-        faces_raw = cascade.detectMultiScale(
-            gray,
-            scaleFactor=1.05,
-            minNeighbors=4,
-            minSize=(int(min(w, h) * 0.08), int(min(w, h) * 0.08)),
-        )
-        faces = [tuple(int(v) for v in face) for face in faces_raw]
-        return _select_best_face(faces, image_w=w, image_h=h)
+        return _detect_faces_in_bgr(img)
     except Exception:
         logger.exception("opencv face detection failed", extra={"path": image_path})
         return None
+
+
+def _detect_face_with_portrait_rotation(
+    im: Image.Image,
+) -> tuple[tuple[int, int, int, int] | None, int]:
+    """Try face detection on image and ±90° rotations for sideways ID snapshots."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return None, 0
+
+    w, h = im.size
+    angles = (0,)
+    if h > w * 1.15:
+        angles = (0, 90, -90)
+
+    for angle in angles:
+        working = im if angle == 0 else im.rotate(angle, expand=True)
+        bgr = cv2.cvtColor(np.array(working.convert("RGB")), cv2.COLOR_RGB2BGR)
+        face_px = _detect_faces_in_bgr(bgr)
+        if face_px is not None:
+            return face_px, angle
+    return None, 0
 
 
 def _square_crop_around_face(
@@ -258,14 +298,15 @@ def crop_face_jpeg(
             crop: Image.Image | None = None
 
             bbox_dict = _coerce_bbox_dict(bbox)
-            face_px = detect_face_bbox_pixels(image_path)
+            face_px, rotate_angle = _detect_face_with_portrait_rotation(im)
+            working = im if rotate_angle == 0 else im.rotate(rotate_angle, expand=True)
             if face_px is not None:
                 x, y, fw, fh = face_px
-                crop = _square_crop_around_face(im, x=x, y=y, fw=fw, fh=fh)
+                crop = _square_crop_around_face(working, x=x, y=y, fw=fw, fh=fh)
             elif bbox_dict and not _is_placeholder_llm_bbox(bbox_dict):
-                crop = _crop_from_normalized_bbox(im, bbox_dict)
+                crop = _crop_from_normalized_bbox(working, bbox_dict)
             else:
-                crop = _crop_from_eu_fallback(im)
+                crop = _crop_from_eu_fallback(working)
 
             if crop is None:
                 return None
