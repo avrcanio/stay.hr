@@ -97,7 +97,7 @@
     "eyebrow": "Product",
     "heroTitle": "From online booking to check-in and invoicing",
     "heroSubtitle": "One system — three ways to work",
-    "heroIntro": "Stay.hr connects the guest booking web, reception web for the office, and the Hospira app for tablets at reception. Guests book online; reception sees the same stay on the timeline, room calendar, and app — with finances, messages, eVisitor, and statistics in one place.",
+    "heroIntro": "Stay.hr connects the guest booking web, reception web for the office, and the Hospira app for tablets at reception. It includes channel management — OTA sync via Channex integration. Guests book online or via channels; reception sees the same stay on the timeline, room calendar, and app.",
     "flowTitle": "How the system flows",
     "flowSteps": {
       "reservation": "Booking",
@@ -156,6 +156,21 @@
       "screenshotStatisticsMonthly": "Statistics — month comparison",
       "screenshotStatisticsAnnual": "Statistics — annual overview and guests by country"
     },
+    "channelManager": {
+      "title": "Channel management",
+      "intro": "Stay.hr is integrated with the Channex channel manager — syncing availability, rates, and reservations with OTA platforms. Channel bookings appear on the reception timeline, room calendar, and in the Hospira app.",
+      "bullet1": "Two-way sync of rates, restrictions, and availability to connected channels",
+      "bullet2": "Automatic import of reservations from OTA platforms (webhook and feed)",
+      "bullet3": "Guest messages and reviews from supported channels (e.g. Booking.com, Airbnb)",
+      "bullet4": "Reception calendar shows channel availability and stay bars",
+      "featuredTitle": "Most commonly used platforms",
+      "allTitle": "All channels supported by Channex",
+      "allCount": "{count} channels",
+      "expandAll": "Show all platforms",
+      "collapseAll": "Hide list",
+      "sourceNote": "List based on Channex documentation. Stay.hr uses the Channex API to connect properties to channels.",
+      "codeLabel": "Code"
+    },
     "compareTitle": "Reception web or Hospira app?",
     "compareFeature": "Feature",
     "compareWeb": "Reception web",
@@ -170,6 +185,7 @@
       "push": "Push notifications",
       "messages": "Messages and reviews",
       "statistics": "Statistics",
+      "channelManager": "Channel manager / OTA sync",
       "cardPayment": "Guest card payment"
     },
     "extensionsTitle": "Extensions on request",

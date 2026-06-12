@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { LanguageSwitcher } from "@/app/_components/LanguageSwitcher";
+import { ProductChannelManagerSection } from "@/app/_components/ProductChannelManagerSection";
 import { ProductScreenshotPlaceholder } from "@/app/_components/ProductScreenshotPlaceholder";
 import { StayLogo } from "@/app/_components/StayLogo";
 import { LEGAL_CONTACT } from "@/lib/legal-config";
@@ -28,7 +29,15 @@ export async function ProductPage() {
   const flowStepKeys = ["reservation", "checkIn", "evisitor", "invoice", "cardOptional"] as const;
 
   const compareRows: Array<{
-    key: "timeline" | "calendar" | "mrzNfc" | "push" | "messages" | "statistics" | "cardPayment";
+    key:
+      | "timeline"
+      | "calendar"
+      | "mrzNfc"
+      | "push"
+      | "messages"
+      | "statistics"
+      | "channelManager"
+      | "cardPayment";
     web: "yes" | "no" | "onRequest";
     hospira: "yes" | "no" | "onRequest";
   }> = [
@@ -38,6 +47,7 @@ export async function ProductPage() {
     { key: "push", web: "no", hospira: "yes" },
     { key: "messages", web: "yes", hospira: "yes" },
     { key: "statistics", web: "no", hospira: "yes" },
+    { key: "channelManager", web: "yes", hospira: "yes" },
     { key: "cardPayment", web: "no", hospira: "onRequest" },
   ];
 
@@ -198,6 +208,8 @@ export async function ProductPage() {
             )}
           </article>
         </section>
+
+        <ProductChannelManagerSection />
 
         <section className="card space-y-4 overflow-x-auto">
           <h2 className="text-lg font-semibold text-stay-navy">{t("compareTitle")}</h2>

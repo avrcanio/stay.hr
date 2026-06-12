@@ -38,3 +38,12 @@ Stranica `/product` na `stay.hr` prikazuje screenshotove iz `public/product/`. A
 ## Mapiranje u kodu
 
 ID-evi u `PRODUCT_SCREENSHOT_FILES` (`lib/product-screenshots.ts`) odgovaraju imenima datoteka iz tablice gore.
+
+## Channel manager sekcija
+
+Stranica `/product` uključuje sekciju **Upravljanje kanalima** — Stay.hr + Channex integracija.
+
+- UI: [`app/_components/ProductChannelManagerSection.tsx`](../app/_components/ProductChannelManagerSection.tsx)
+- Popis kanala: [`lib/channex-channels.ts`](../lib/channex-channels.ts) (519 kanala, deduplicirano po šifri)
+- Regeneracija popisa iz Channex docs: `node tool/gen-channex-channels.mjs`
+- Izvor: [Channex Channel Codes](https://docs.channex.io/api-v.1-documentation/channel-codes)

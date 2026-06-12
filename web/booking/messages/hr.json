@@ -97,7 +97,7 @@
     "eyebrow": "Proizvod",
     "heroTitle": "Od online rezervacije do check-ina i računa",
     "heroSubtitle": "Jedan sustav — tri načina rada",
-    "heroIntro": "Stay.hr povezuje booking web za goste, recepcijski web za ured i Hospira aplikaciju za tablet na recepciji. Gost rezervira online; recepcija vidi isti termin na timelineu, u kalendaru soba i u aplikaciji — s financijama, porukama, eVisitorom i statistikama na jednom mjestu.",
+    "heroIntro": "Stay.hr povezuje booking web za goste, recepcijski web za ured i Hospira aplikaciju za tablet na recepciji. Uključuje channel manager — sinkronizaciju s OTA platformama preko Channex integracije. Gost rezervira online ili preko kanala; recepcija vidi isti termin na timelineu, u kalendaru soba i u aplikaciji.",
     "flowTitle": "Kako sustav teče",
     "flowSteps": {
       "reservation": "Rezervacija",
@@ -156,6 +156,21 @@
       "screenshotStatisticsMonthly": "Statistike — usporedba mjeseci",
       "screenshotStatisticsAnnual": "Statistike — godišnji pregled i gosti po državama"
     },
+    "channelManager": {
+      "title": "Upravljanje kanalima (channel manager)",
+      "intro": "Stay.hr je integriran s Channex channel managerom — sinkronizira dostupnost, cijene i rezervacije s OTA platformama. Rezervacije s kanala stižu na timeline recepcije, u kalendar soba i u Hospira aplikaciju.",
+      "bullet1": "Dvosmjerna sinkronizacija cijena, restrikcija i dostupnosti prema povezanim kanalima",
+      "bullet2": "Automatski uvoz rezervacija s OTA platforma (webhook i feed)",
+      "bullet3": "Poruke gostu i recenzije s podržanih kanala (npr. Booking.com, Airbnb)",
+      "bullet4": "Kalendar recepcije prikazuje channel dostupnost i trake boravka",
+      "featuredTitle": "Najčešće korištene platforme",
+      "allTitle": "Svi kanali koje Channex podržava",
+      "allCount": "{count} kanala",
+      "expandAll": "Prikaži sve platforme",
+      "collapseAll": "Sakrij popis",
+      "sourceNote": "Popis prema Channex dokumentaciji. Stay.hr koristi Channex API za povezivanje objekta s kanalima.",
+      "codeLabel": "Šifra"
+    },
     "compareTitle": "Recepcija web ili Hospira?",
     "compareFeature": "Funkcija",
     "compareWeb": "Recepcija web",
@@ -170,6 +185,7 @@
       "push": "Push obavijesti",
       "messages": "Poruke i recenzije",
       "statistics": "Statistike",
+      "channelManager": "Channel manager / OTA sinkronizacija",
       "cardPayment": "Kartična naplata gosta"
     },
     "extensionsTitle": "Proširenja po zahtjevu",
