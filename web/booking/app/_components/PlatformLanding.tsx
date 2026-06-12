@@ -49,6 +49,11 @@ export async function PlatformLanding() {
           <p className="text-lg font-medium text-stay-navy">{t("brands")}</p>
           <p className="text-lg text-stay-navy/90">{t("tagline")}</p>
           <p className="text-sm leading-relaxed text-stay-muted">{t("intro")}</p>
+          <p className="flex flex-wrap gap-3 pt-1">
+            <Link href="/product" className="btn">
+              {t("productLink")}
+            </Link>
+          </p>
           <p className="text-sm">
             <a href={LEGAL_CONTACT.websiteUrl} className="font-medium text-stay-blue hover:underline">
               {LEGAL_CONTACT.websiteUrl}

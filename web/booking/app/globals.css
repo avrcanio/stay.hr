@@ -66,3 +66,39 @@ body {
 .badge-canceled {
   @apply bg-red-100 text-red-800;
 }
+
+.screenshot-placeholder {
+  @apply min-h-[140px] border border-dashed border-stay-border bg-slate-100/80;
+}
+
+.product-table {
+  @apply w-full border-collapse text-sm;
+}
+
+.product-table th,
+.product-table td {
+  @apply border border-stay-border px-3 py-2 text-left align-top;
+}
+
+.product-table th {
+  @apply bg-slate-50 font-semibold text-stay-navy;
+}
+
+@media (max-width: 640px) {
+  .product-table thead {
+    @apply sr-only;
+  }
+
+  .product-table tr {
+    @apply mb-4 block rounded-xl border border-stay-border bg-white p-3;
+  }
+
+  .product-table td {
+    @apply block border-0 px-0 py-1;
+  }
+
+  .product-table td::before {
+    content: attr(data-label);
+    @apply mr-2 font-semibold text-stay-navy;
+  }
+}
