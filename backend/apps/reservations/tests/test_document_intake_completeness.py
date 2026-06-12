@@ -141,3 +141,28 @@ class DocumentIntakeCompletenessTests(TestCase):
         self.assertFalse(result.is_complete)
         self.assertEqual(len(result.missing_sides), 1)
         self.assertEqual(result.missing_sides[0].side, "back")
+
+    def test_passport_back_index_only_is_complete(self):
+        self.reservation.adults_count = 1
+        self.reservation.save(update_fields=["adults_count"])
+        persons = [
+            {
+                "given_names": "MILE",
+                "surnames": "SUJIC",
+                "document_type": "passport",
+                "front_image_index": None,
+                "back_image_index": 0,
+            },
+        ]
+        matches = [
+            {
+                "person_index": 0,
+                "auto_apply": True,
+                "guest_id": self.primary.pk,
+                "reservation_id": self.reservation.pk,
+                "guest_name": "MILE SUJIC",
+            },
+        ]
+        result = self._evaluate(persons, matches, images=[_FakeImage(0)])
+        self.assertTrue(result.is_complete)
+        self.assertEqual(result.missing_sides, [])

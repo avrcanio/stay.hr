@@ -25,6 +25,7 @@ from apps.integrations.whatsapp.whatsapp_document_batch import (
     on_whatsapp_document_received,
 )
 from apps.integrations.whatsapp import operator_arrival_confirm  # noqa: F401 — register Celery beat tasks
+from apps.integrations.whatsapp import whatsapp_operator_batch  # noqa: F401 — register operator quiet timer task
 from apps.integrations.whatsapp.reply import build_greeting
 from apps.integrations.whatsapp.reservation_lookup import find_reservation_for_wa_id
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig

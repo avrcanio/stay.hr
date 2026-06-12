@@ -276,6 +276,8 @@ def _resolve_side_images(
     images: list,
     front_idx: Any,
     back_idx: Any,
+    *,
+    is_passport: bool = False,
 ) -> tuple[Any | None, Any | None, bool, bool]:
     """Map person image indices to front/back rows; honor detected_side on intake images."""
     front_img = _image_at_index(images, front_idx)
@@ -284,16 +286,21 @@ def _resolve_side_images(
     if front_img is not None and _intake_image_side(front_img) == "back" and back_img is None:
         back_img = front_img
         front_img = None
-    elif back_img is not None and _intake_image_side(back_img) == "front" and front_img is None:
+    elif back_img is not None and _intake_image_side(back_img) in {"front", "passport"} and front_img is None:
         front_img = back_img
         back_img = None
     elif (
         front_img is not None
         and back_img is not None
         and _intake_image_side(front_img) == "back"
-        and _intake_image_side(back_img) == "front"
+        and _intake_image_side(back_img) in {"front", "passport"}
     ):
         front_img, back_img = back_img, front_img
+
+    # Passport biodata is stored as front_photo; OCR often assigns the only image to back_index.
+    if is_passport and front_img is None and back_img is not None:
+        front_img = back_img
+        back_img = None
 
     applying_front = front_img is not None
     applying_back = back_img is not None
@@ -316,7 +323,7 @@ def _apply_person_to_guest(
     front_idx = person.get("front_image_index")
     back_idx = person.get("back_image_index")
     front_img, back_img, applying_front, applying_back = _resolve_side_images(
-        images, front_idx, back_idx,
+        images, front_idx, back_idx, is_passport=(tip == "passport"),
     )
 
     raw_payload = _build_scan_payload(person=person, device_id=device_id, tip=tip)

@@ -46,6 +46,32 @@ class DocumentIntakeOcrFixupTests(TestCase):
         self.assertEqual(person["back_image_index"], 0)
         self.assertEqual(fixed["images"][0]["side"], "back")
 
+    def test_fixup_passport_back_index_becomes_front(self):
+        ocr = {
+            "images": [
+                {
+                    "index": 0,
+                    "side": "back",
+                    "ocr_text": "PASSPORT",
+                    "mrz_lines": ["P<BIHSUJIC<MILE<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"],
+                }
+            ],
+            "persons": [
+                {
+                    "given_names": "MILE",
+                    "surnames": "SUJIC",
+                    "document_type": "passport",
+                    "document_number": "B4521395",
+                    "front_image_index": None,
+                    "back_image_index": 0,
+                }
+            ],
+        }
+        fixed = fixup_document_ocr_result(ocr)
+        person = fixed["persons"][0]
+        self.assertEqual(person["front_image_index"], 0)
+        self.assertIsNone(person["back_image_index"])
+
     def test_normalize_document_number_strips_spaces(self):
         self.assertEqual(normalize_document_number("DGN 767255"), "DGN767255")
 

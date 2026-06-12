@@ -57,7 +57,9 @@ def _missing_sides_for_person(
 
     front_idx = person.get("front_image_index")
     back_idx = person.get("back_image_index")
-    front_img, back_img, applying_front, applying_back = _resolve_side_images(images, front_idx, back_idx)
+    front_img, back_img, applying_front, applying_back = _resolve_side_images(
+        images, front_idx, back_idx, is_passport=is_passport,
+    )
 
     if is_passport:
         if front_img is None:

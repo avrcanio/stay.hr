@@ -243,6 +243,12 @@ def _reconcile_person_image_indices(person: dict, images: list[dict]) -> None:
             person["front_image_index"] = back_idx
             person["back_image_index"] = front_idx
 
+    doc_type = str(person.get("document_type") or "").lower()
+    if doc_type == "passport":
+        if person.get("front_image_index") is None and person.get("back_image_index") is not None:
+            person["front_image_index"] = person["back_image_index"]
+            person["back_image_index"] = None
+
 
 def fixup_document_ocr_result(ocr_result: dict) -> dict:
     """Correct misclassified sides and person image indices before match/apply."""
