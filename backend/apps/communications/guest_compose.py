@@ -18,6 +18,12 @@ from apps.ai.translate import translate_text, translation_available
 from apps.api.language import normalize_app_language
 from apps.billing.models import Invoice
 from apps.billing.services.payment import resolve_payment_method
+from apps.communications.guest_arrival_policy import (
+    after_hours_contact_phone,
+    format_time_hm,
+    is_after_hours_not_allowed,
+    is_late_arrival,
+)
 from apps.communications.guest_compose_language import (
     SUPPORTED_COMPOSE_LANGS,
     compose_language_for_reservation,
@@ -43,6 +49,7 @@ HINT_POST_CHECKIN_AUTO_REPLY = "post_checkin_auto_reply"
 HINT_AUTOCHECKIN_WAIVED = "autocheckin waived"
 HINT_AUTOCHECKIN_ARRIVAL_THANKS = "autocheckin arrival thanks"
 HINT_DOCS_AWAITING_ARRIVAL = "docs awaiting arrival"
+HINT_ARRIVAL_AUTO_REPLY = "arrival auto reply"
 
 FOOTER = "Managed by stay.hr — https://stay.hr/"
 
@@ -112,6 +119,11 @@ from apps.communications.guest_compose_defaults import (
     MISSING_ID_SIDES_INTRO,
     UNMATCHED_PERSON_LINE,
     OPERATOR_CHECKIN_COMPLETE_BODY,
+    ARRIVAL_LATE_CONTACT,
+    ARRIVAL_LATE_NOT_ALLOWED,
+    ARRIVAL_TIME_SAVED_THANKS,
+    ARRIVAL_WINDOW_FROM_ONLY,
+    ARRIVAL_WINDOW_INFO,
     PARKING_TEXTS,
     POST_CHECKIN_ARRIVAL_THANKS,
     POST_CHECKIN_PARKING,
@@ -853,6 +865,57 @@ def render_arrival_thanks_message(reservation: Reservation) -> str:
             FOOTER,
         ]
     )
+
+
+def _arrival_reply_footer(reservation: Reservation, lang: str) -> list[str]:
+    property_name = reservation.property.name
+    return ["", _text_for_lang(SIGN_OFF, lang), property_name, "", FOOTER]
+
+
+def _arrival_window_params(reservation: Reservation) -> dict[str, str]:
+    prop = reservation.property
+    earliest = format_time_hm(prop.check_in_time)
+    latest = format_time_hm(prop.check_in_latest_time)
+    return {
+        "check_in_time": earliest,
+        "check_in_latest_time": latest,
+        "contact_phone": after_hours_contact_phone(prop),
+    }
+
+
+def render_arrival_late_inquiry_message(reservation: Reservation) -> str:
+    """Reply when guest asks about late check-in without stating a time."""
+    lang = compose_language_for_reservation(reservation)
+    params = _arrival_window_params(reservation)
+    if params["check_in_latest_time"]:
+        body = _text_for_lang(ARRIVAL_WINDOW_INFO, lang).format(**params)
+    else:
+        body = _text_for_lang(ARRIVAL_WINDOW_FROM_ONLY, lang).format(**params)
+    ask = _property_guest_text(reservation, "checkin_complete_ask_arrival", lang)
+    return "\n".join([body, "", ask, *_arrival_reply_footer(reservation, lang)])
+
+
+def render_arrival_time_saved_message(
+    reservation: Reservation,
+    *,
+    stated_time: str,
+    parsed_late: bool,
+) -> str:
+    lang = compose_language_for_reservation(reservation)
+    params = {**_arrival_window_params(reservation), "stated_time": stated_time}
+    prop = reservation.property
+
+    if parsed_late and prop.check_in_latest_time:
+        if is_after_hours_not_allowed(prop):
+            body = _text_for_lang(ARRIVAL_LATE_NOT_ALLOWED, lang).format(**params)
+        else:
+            phone = params["contact_phone"] or "recepciju"
+            params["contact_phone"] = phone
+            body = _text_for_lang(ARRIVAL_LATE_CONTACT, lang).format(**params)
+    else:
+        body = _text_for_lang(ARRIVAL_TIME_SAVED_THANKS, lang).format(**params)
+
+    return "\n".join([body, *_arrival_reply_footer(reservation, lang)])
 
 
 def _system_prompt() -> str:

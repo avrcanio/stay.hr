@@ -211,6 +211,8 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
             "evisitor_summary",
             "check_in_allowed",
             "check_in_blocked_code",
+            "guest_stated_arrival_text",
+            "guest_stated_arrival_at",
             "invoice_summary",
         )
 
@@ -308,7 +310,14 @@ class ReservationUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Reservation
-        fields = ("status", "check_in", "check_out", "waived_fees")
+        fields = (
+            "status",
+            "check_in",
+            "check_out",
+            "waived_fees",
+            "guest_stated_arrival_text",
+            "guest_stated_arrival_at",
+        )
 
     def validate(self, attrs):
         instance = self.instance

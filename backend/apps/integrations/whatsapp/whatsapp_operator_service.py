@@ -1013,11 +1013,6 @@ def _request_operator_checkin(
             )
             return {"status": "no_images"}
 
-        if not awaiting_finalize:
-            session.status = WhatsAppOperatorSessionStatus.AWAITING_CONFIRM
-            session.last_activity_at = timezone.now()
-            session.save(update_fields=["status", "last_activity_at", "updated_at"])
-
     if awaiting_finalize:
         return _finalize_operator_checkin(
             row=row,
@@ -1025,12 +1020,9 @@ def _request_operator_checkin(
             runtime=runtime,
         )
 
-    _send_operator_docs_confirm_prompt(
-        integration_row=integration_row,
-        runtime=runtime,
-        operator_wa_id=row.wa_id,
-    )
-    return {"status": "awaiting_confirm", "session_id": session.pk}
+    from apps.integrations.whatsapp.whatsapp_operator_batch import send_operator_collect_prompt_for_session
+
+    return send_operator_collect_prompt_for_session(session.pk)
 
 
 def _decline_operator_docs_confirm(
@@ -1164,17 +1156,6 @@ def handle_operator_inbound(
 ) -> dict:
     from apps.integrations.whatsapp.operator_arrival_confirm import handle_operator_arrival_confirm_inbound
 
-    if row.message_type not in _MEDIA_MESSAGE_TYPES:
-        arrival_result = handle_operator_arrival_confirm_inbound(
-            row=row,
-            integration_row=integration_row,
-            runtime=runtime,
-            action_text=action_text,
-            button_id=button_id,
-        )
-        if arrival_result is not None:
-            return arrival_result
-
     if row.message_type in _MEDIA_MESSAGE_TYPES:
         return _collect_operator_image(
             row=row,
@@ -1239,6 +1220,16 @@ def handle_operator_inbound(
             integration_row=integration_row,
             runtime=runtime,
         )
+
+    arrival_result = handle_operator_arrival_confirm_inbound(
+        row=row,
+        integration_row=integration_row,
+        runtime=runtime,
+        action_text=action_text,
+        button_id=button_id,
+    )
+    if arrival_result is not None:
+        return arrival_result
 
     if is_operator_checkin_trigger(button_id=button_id, text=action_text):
         return _request_operator_checkin(

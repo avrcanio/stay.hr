@@ -1,7 +1,9 @@
+from datetime import time
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from apps.properties.models import Property
+from apps.properties.models import AfterHoursArrivalPolicy, Property
 from apps.properties.guest_info import normalize_guest_info
 from apps.properties.uzorita_guest_info import UZORITA_GUEST_INFO
 from apps.tenants.models import Tenant
@@ -49,7 +51,20 @@ class Command(BaseCommand):
             return
 
         prop.guest_info = normalized
-        prop.save(update_fields=["guest_info", "updated_at"])
+        prop.check_in_latest_time = time(22, 0)
+        prop.after_hours_arrival_policy = AfterHoursArrivalPolicy.CONTACT
+        prop.after_hours_contact_phone = "+385998388513"
+        prop.guest_arrival_auto_reply_enabled = True
+        prop.save(
+            update_fields=[
+                "guest_info",
+                "check_in_latest_time",
+                "after_hours_arrival_policy",
+                "after_hours_contact_phone",
+                "guest_arrival_auto_reply_enabled",
+                "updated_at",
+            ]
+        )
 
         self.stdout.write(
             self.style.SUCCESS(

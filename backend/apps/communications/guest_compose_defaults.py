@@ -408,6 +408,91 @@ CHECKIN_COMPLETE_ASK_ARRIVAL = {
     "fr": "Quand pouvons-nous attendre votre arrivée ? Merci de nous indiquer votre heure approximative.",
 }
 
+ARRIVAL_WINDOW_INFO = {
+    "hr": (
+        "Check-in je moguć od {check_in_time} do {check_in_latest_time}. "
+        "Molimo javite nam okvirno vrijeme dolaska."
+    ),
+    "en": (
+        "Check-in is available from {check_in_time} until {check_in_latest_time}. "
+        "Please let us know your approximate arrival time."
+    ),
+    "de": (
+        "Check-in ist von {check_in_time} bis {check_in_latest_time} möglich. "
+        "Bitte teilen Sie uns Ihre ungefähre Ankunftszeit mit."
+    ),
+    "es": (
+        "El check-in es posible de {check_in_time} a {check_in_latest_time}. "
+        "Por favor, indíquenos su hora aproximada de llegada."
+    ),
+    "fr": (
+        "L’enregistrement est possible de {check_in_time} à {check_in_latest_time}. "
+        "Merci de nous indiquer votre heure d’arrivée approximative."
+    ),
+}
+
+ARRIVAL_WINDOW_FROM_ONLY = {
+    "hr": "Check-in je moguć od {check_in_time}. Molimo javite nam okvirno vrijeme dolaska.",
+    "en": "Check-in is available from {check_in_time}. Please let us know your approximate arrival time.",
+    "de": "Check-in ist ab {check_in_time} möglich. Bitte teilen Sie uns Ihre Ankunftszeit mit.",
+    "es": "El check-in es posible a partir de las {check_in_time}. Indíquenos su hora de llegada.",
+    "fr": "L’enregistrement est possible à partir de {check_in_time}. Indiquez votre heure d’arrivée.",
+}
+
+ARRIVAL_TIME_SAVED_THANKS = {
+    "hr": "Hvala — zabilježili smo vaše vrijeme dolaska ({stated_time}).",
+    "en": "Thank you — we have noted your arrival time ({stated_time}).",
+    "de": "Vielen Dank — wir haben Ihre Ankunftszeit ({stated_time}) notiert.",
+    "es": "Gracias — hemos registrado su hora de llegada ({stated_time}).",
+    "fr": "Merci — nous avons noté votre heure d’arrivée ({stated_time}).",
+}
+
+ARRIVAL_LATE_CONTACT = {
+    "hr": (
+        "Hvala na obavijesti. Vaše vrijeme ({stated_time}) je nakon našeg redovnog prozora "
+        "({check_in_time}–{check_in_latest_time}). Molimo javite se na {contact_phone} prije dolaska."
+    ),
+    "en": (
+        "Thank you for letting us know. Your time ({stated_time}) is after our regular window "
+        "({check_in_time}–{check_in_latest_time}). Please call {contact_phone} before you arrive."
+    ),
+    "de": (
+        "Vielen Dank für die Info. Ihre Zeit ({stated_time}) liegt außerhalb unseres Fensters "
+        "({check_in_time}–{check_in_latest_time}). Bitte rufen Sie {contact_phone} vor der Ankunft an."
+    ),
+    "es": (
+        "Gracias por avisarnos. Su hora ({stated_time}) es después de nuestro horario "
+        "({check_in_time}–{check_in_latest_time}). Llame al {contact_phone} antes de llegar."
+    ),
+    "fr": (
+        "Merci pour l’information. Votre heure ({stated_time}) est après notre créneau "
+        "({check_in_time}–{check_in_latest_time}). Appelez le {contact_phone} avant d’arriver."
+    ),
+}
+
+ARRIVAL_LATE_NOT_ALLOWED = {
+    "hr": (
+        "Nažalost, ulaz nakon {check_in_latest_time} nije moguć. "
+        "Molimo planirajte dolazak do {check_in_latest_time} (check-in od {check_in_time})."
+    ),
+    "en": (
+        "Unfortunately, entry after {check_in_latest_time} is not possible. "
+        "Please plan to arrive by {check_in_latest_time} (check-in from {check_in_time})."
+    ),
+    "de": (
+        "Leider ist ein Zugang nach {check_in_latest_time} nicht möglich. "
+        "Bitte planen Sie die Ankunft bis {check_in_latest_time} (Check-in ab {check_in_time})."
+    ),
+    "es": (
+        "Lamentablemente, no es posible entrar después de las {check_in_latest_time}. "
+        "Planifique llegar antes de las {check_in_latest_time} (check-in desde {check_in_time})."
+    ),
+    "fr": (
+        "Malheureusement, l’accès après {check_in_latest_time} n’est pas possible. "
+        "Merci de prévoir votre arrivée avant {check_in_latest_time} (enregistrement dès {check_in_time})."
+    ),
+}
+
 OPERATOR_CHECKIN_COMPLETE_BODY = {
     "hr": (
         "Check-in je obavljen. Vaši podaci su spremljeni.\n\n"
@@ -643,6 +728,11 @@ DEFAULT_TEXTS: dict[str, dict[str, str]] = {
     "docs_awaiting_arrival": DOCS_AWAITING_ARRIVAL_BODY,
     "checkin_complete_supplement_intro": CHECKIN_COMPLETE_SUPPLEMENT_INTRO,
     "checkin_complete_ask_arrival": CHECKIN_COMPLETE_ASK_ARRIVAL,
+    "arrival_window_info": ARRIVAL_WINDOW_INFO,
+    "arrival_window_from_only": ARRIVAL_WINDOW_FROM_ONLY,
+    "arrival_time_saved_thanks": ARRIVAL_TIME_SAVED_THANKS,
+    "arrival_late_contact": ARRIVAL_LATE_CONTACT,
+    "arrival_late_not_allowed": ARRIVAL_LATE_NOT_ALLOWED,
     "autocheckin_whatsapp_intro_head": AUTOCHECKIN_WHATSAPP_INTRO_HEAD,
     "autocheckin_whatsapp_intro_tail": AUTOCHECKIN_WHATSAPP_INTRO_TAIL,
     "autocheckin_wa_me_prefill": AUTOCHECKIN_WA_ME_PREFILL,

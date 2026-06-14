@@ -517,17 +517,9 @@ def schedule_arrival_confirm_prompt(
 
 
 def save_guest_stated_arrival(reservation: Reservation, *, text: str) -> datetime | None:
-    parsed = parse_guest_stated_arrival(text, reservation)
-    reservation.guest_stated_arrival_text = (text or "")[:255]
-    reservation.guest_stated_arrival_at = parsed
-    reservation.save(
-        update_fields=[
-            "guest_stated_arrival_text",
-            "guest_stated_arrival_at",
-            "updated_at",
-        ]
-    )
-    return parsed
+    from apps.communications.guest_arrival_inbound import save_stated_arrival
+
+    return save_stated_arrival(reservation, text=text)
 
 
 def maybe_handle_guest_arrival_time_inbound(
@@ -536,31 +528,13 @@ def maybe_handle_guest_arrival_time_inbound(
     reservation: Reservation,
     action_text: str,
 ) -> dict | None:
-    from apps.integrations.whatsapp.apply_reply import is_document_checkin_complete
+    from apps.communications.guest_arrival_inbound import maybe_handle_guest_arrival_inbound
 
-    if reservation.status != Reservation.Status.EXPECTED:
-        return None
-    if not is_document_checkin_complete(reservation):
-        return None
-    if not guest_message_mentions_arrival(action_text):
-        return None
-
-    parsed = save_guest_stated_arrival(reservation, text=action_text)
-    thanks = send_arrival_thanks_only(row=row, reservation=reservation)
-    schedule_result = {"status": "skipped", "reason": "no_parsed_time"}
-    if parsed is not None:
-        run_at = parsed + timedelta(minutes=30)
-        schedule_result = schedule_arrival_confirm_prompt(
-            reservation,
-            trigger=WhatsAppArrivalConfirmTrigger.GUEST_DEADLINE_PLUS_30,
-            run_at=run_at,
-        )
-    return {
-        "status": "guest_arrival_saved",
-        "thanks": thanks,
-        "parsed_at": parsed.isoformat() if parsed else None,
-        "schedule": schedule_result,
-    }
+    return maybe_handle_guest_arrival_inbound(
+        reservation,
+        action_text,
+        channel="whatsapp",
+    )
 
 
 @shared_task
@@ -710,6 +684,16 @@ def handle_operator_arrival_confirm_inbound(
                     runtime=runtime,
                 )
             return {**outcome, "session_id": session.pk}
+
+    from apps.integrations.whatsapp.whatsapp_operator_service import (
+        is_operator_docs_all_no_reply,
+        is_operator_docs_all_yes_reply,
+    )
+
+    if is_operator_docs_all_yes_reply(button_id=button_id, text=action_text) or is_operator_docs_all_no_reply(
+        button_id=button_id, text=action_text
+    ):
+        return None
 
     session = _get_session_for_operator_response(
         tenant_id=row.tenant_id,

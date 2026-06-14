@@ -80,3 +80,81 @@ def compose_language_for_reservation(
     if prop_lang in SUPPORTED_COMPOSE_LANGS:
         return prop_lang
     return "en"
+
+
+def detect_message_language(text: str) -> str:
+    """Best-effort language from inbound guest message text."""
+    lowered = (text or "").lower()
+    if not lowered.strip():
+        return "en"
+
+    sk_markers = (
+        "ľ",
+        "ô",
+        "ŕ",
+        "veľk",
+        "izba",
+        "záchod",
+        "ďakuj",
+        "špinav",
+        "kúpeľ",
+        "ste ",
+        "sme ",
+        "prie",
+    )
+    if any(marker in lowered for marker in sk_markers):
+        return "sk"
+
+    de_markers = ("ß", "schön", "danke", "zimmer", "übernacht", "gäste", "spät", "ankunft", "können", "spaeter")
+    if any(marker in lowered for marker in de_markers):
+        return "de"
+
+    hr_markers = (
+        "hvala",
+        "soba",
+        "boravak",
+        "gost",
+        "žao",
+        "čist",
+        "dolaz",
+        "doći",
+        "možemo",
+        "večer",
+        "vecer",
+        "kasnij",
+    )
+    if any(marker in lowered for marker in hr_markers):
+        return "hr"
+
+    es_markers = ("gracias", "habitación", "llegada", "tarde", "noche", "podemos")
+    if any(marker in lowered for marker in es_markers):
+        return "es"
+
+    fr_markers = ("merci", "chambre", "arrivée", "arrivee", "soir", "tard", "pouvons")
+    if any(marker in lowered for marker in fr_markers):
+        return "fr"
+
+    it_markers = ("grazie", "camera", "arrivo", "sera", "tardi", "possiamo")
+    if any(marker in lowered for marker in it_markers):
+        return "it"
+
+    return "en"
+
+
+def resolve_arrival_reply_language(
+    reservation: Reservation,
+    *,
+    llm_language: str | None = None,
+    message_text: str = "",
+) -> str:
+    """Priority: LLM reply_language → detect from message → reservation compose language."""
+    if llm_language:
+        base = llm_language.split("-")[0].lower()
+        if base in SUPPORTED_COMPOSE_LANGS:
+            return base
+
+    detected = detect_message_language(message_text)
+    if detected in SUPPORTED_COMPOSE_LANGS:
+        return detected
+
+    return compose_language_for_reservation(reservation)

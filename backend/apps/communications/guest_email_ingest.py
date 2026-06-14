@@ -245,6 +245,14 @@ def ingest_parsed_email(
             body_preview=parsed.body_text[:200],
         )
 
+    from apps.communications.guest_arrival_inbound import maybe_handle_guest_arrival_inbound
+
+    maybe_handle_guest_arrival_inbound(
+        reservation,
+        parsed.body_text,
+        channel="email",
+    )
+
     logger.info(
         "guest email ingested",
         extra={

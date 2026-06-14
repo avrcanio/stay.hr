@@ -94,7 +94,19 @@ class PropertyAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         (
             "Dolazak / odlazak",
             {
-                "fields": ("check_in_time", "check_out_time"),
+                "fields": (
+                    "check_in_time",
+                    "check_in_latest_time",
+                    "check_out_time",
+                    "after_hours_arrival_policy",
+                    "after_hours_contact_phone",
+                    "guest_arrival_auto_reply_enabled",
+                ),
+                "description": (
+                    "Prozor dolaska za auto-odgovore gostu. "
+                    "check_in_latest_time = zadnji sat samostalnog ulaska; "
+                    "after_hours policy određuje odgovor izvan prozora."
+                ),
             },
         ),
         (

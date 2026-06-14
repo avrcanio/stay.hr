@@ -5,10 +5,12 @@ import uuid
 
 from celery import shared_task
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
 from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
 from apps.integrations.whatsapp.whatsapp_operator_service import (
+    _pg_advisory_xact_lock_operator,
     _send_operator_docs_confirm_prompt,
 )
 from apps.reservations.models import WhatsAppOperatorSession, WhatsAppOperatorSessionStatus
@@ -36,25 +38,39 @@ def send_operator_collect_prompt_for_session(session_id: int) -> dict:
     if session is None:
         return {"status": "missing"}
 
-    if session.status != WhatsAppOperatorSessionStatus.COLLECTING:
-        return {"status": "skipped", "reason": "not_collecting"}
+    with transaction.atomic():
+        _pg_advisory_xact_lock_operator(session.tenant_id, session.operator_wa_id)
+        session = (
+            WhatsAppOperatorSession.objects.select_for_update()
+            .select_related("job", "tenant")
+            .filter(pk=session_id)
+            .first()
+        )
+        if session is None:
+            return {"status": "missing"}
 
-    integration_row, runtime = get_active_whatsapp_integration(session.tenant)
-    if integration_row is None or runtime is None:
-        return {"status": "skipped", "reason": "no_integration"}
+        if session.status == WhatsAppOperatorSessionStatus.AWAITING_CONFIRM:
+            return {"status": "skipped", "reason": "already_awaiting_confirm"}
 
-    image_count = session.job.images.count()
-    if image_count == 0:
-        return {"status": "skipped", "reason": "no_images"}
+        if session.status != WhatsAppOperatorSessionStatus.COLLECTING:
+            return {"status": "skipped", "reason": "not_collecting"}
 
-    send_result = _send_operator_docs_confirm_prompt(
-        integration_row=integration_row,
-        runtime=runtime,
-        operator_wa_id=session.operator_wa_id,
-    )
-    session.status = WhatsAppOperatorSessionStatus.AWAITING_CONFIRM
-    session.last_activity_at = timezone.now()
-    session.save(update_fields=["status", "last_activity_at", "updated_at"])
+        if session.job.images.count() == 0:
+            return {"status": "skipped", "reason": "no_images"}
+
+        integration_row, runtime = get_active_whatsapp_integration(session.tenant)
+        if integration_row is None or runtime is None:
+            return {"status": "skipped", "reason": "no_integration"}
+
+        send_result = _send_operator_docs_confirm_prompt(
+            integration_row=integration_row,
+            runtime=runtime,
+            operator_wa_id=session.operator_wa_id,
+        )
+        session.status = WhatsAppOperatorSessionStatus.AWAITING_CONFIRM
+        session.last_activity_at = timezone.now()
+        session.save(update_fields=["status", "last_activity_at", "updated_at"])
+
     return {"status": "prompted", "send": send_result}
 
 

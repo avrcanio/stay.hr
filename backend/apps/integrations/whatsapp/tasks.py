@@ -279,6 +279,8 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
     button_id = inbound_interactive_button_id(row)
     action_text = _inbound_action_text(row)
 
+    reply_result: dict | None = None
+
     if row.message_type in ("image", "document"):
         on_whatsapp_document_received.delay(row.pk)
         reply_result = {"status": "auto_reply_skipped", "reason": "media"}
@@ -307,13 +309,29 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
                 reservation=None,
             )
     else:
-        reply_result = handle_guest_autocheckin_inbound(
-            row=row,
-            integration_row=integration_row,
-            runtime=runtime,
-            action_text=action_text,
-            reservation=reservation,
-        )
+        if reservation is not None and action_text:
+            from apps.communications.guest_arrival_inbound import maybe_handle_guest_arrival_inbound
+            from apps.reservations.models import Reservation as ReservationModel
+
+            reservation = ReservationModel.objects.select_related("property", "tenant").get(
+                pk=reservation.pk,
+            )
+            arrival_result = maybe_handle_guest_arrival_inbound(
+                reservation,
+                action_text,
+                channel="whatsapp",
+            )
+            if arrival_result is not None:
+                reply_result = arrival_result
+
+        if reply_result is None:
+            reply_result = handle_guest_autocheckin_inbound(
+                row=row,
+                integration_row=integration_row,
+                runtime=runtime,
+                action_text=action_text,
+                reservation=reservation,
+            )
         if reservation is None and row.reservation_id is not None:
             reservation = row.reservation
 

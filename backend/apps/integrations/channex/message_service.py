@@ -375,6 +375,23 @@ def process_channex_message_webhook(
         },
     )
     _maybe_notify_channex_guest_message(row, created=created)
+    if (
+        created
+        and row.reservation_id
+        and row.sender == ChannexMessage.Sender.GUEST
+        and (row.body or "").strip()
+    ):
+        from apps.communications.guest_arrival_inbound import maybe_handle_guest_arrival_inbound
+        from apps.reservations.models import Reservation
+
+        reservation = Reservation.objects.select_related("property", "tenant").get(
+            pk=row.reservation_id,
+        )
+        maybe_handle_guest_arrival_inbound(
+            reservation,
+            row.body,
+            channel="booking",
+        )
     return {
         "message_id": row.channex_message_id,
         "created": created,

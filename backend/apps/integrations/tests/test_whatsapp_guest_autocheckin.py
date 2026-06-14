@@ -523,45 +523,30 @@ class WhatsAppGuestAutocheckinTests(TestCase):
         self.assertEqual(result["status"], "autocheckin_prompt_sent")
         mock_interactive.assert_called_once()
 
+    @patch("apps.communications.guest_arrival_inbound.llm_configured", return_value=False)
     @patch("apps.integrations.whatsapp.operator_arrival_confirm.schedule_arrival_confirm_prompt")
-    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
-    @patch("apps.integrations.whatsapp.whatsapp_post_checkin_reply.send_guest_message")
+    @patch("apps.communications.guest_arrival_inbound.send_guest_message")
     @patch("apps.core.timezone.property_local_now")
     def test_expected_docs_complete_arrival_schedules_timer(
         self,
         mock_now,
         mock_send_guest,
         mock_schedule,
+        _llm_off,
     ):
         mock_now.return_value = datetime(2026, 6, 7, 15, 0, tzinfo=ZAGREB)
-        mock_send_guest.return_value = None
+        mock_send_guest.return_value = object()
         mock_schedule.return_value = {"status": "scheduled", "countdown": 9000}
         self._guest_with_complete_documents()
-        inbound = WhatsAppMessage.objects.create(
-            tenant=self.tenant,
-            integration=self.integration,
-            reservation=self.reservation,
-            wamid="wamid.in.arrival.time",
-            wa_id="385922222222",
-            phone_number_id="1068791909660300",
-            direction=WhatsAppMessage.Direction.INBOUND,
-            message_type="text",
-            body="Dolazimo oko 18:00...19:00",
-            raw_payload={
-                "type": "text",
-                "text": {"body": "Dolazimo oko 18:00...19:00"},
-            },
+        from apps.communications.guest_arrival_inbound import maybe_handle_guest_arrival_inbound
+
+        result = maybe_handle_guest_arrival_inbound(
+            self.reservation,
+            "Dolazimo oko 18:00...19:00",
+            channel="whatsapp",
         )
 
-        result = handle_guest_autocheckin_inbound(
-            row=inbound,
-            integration_row=self.integration,
-            runtime=self.runtime,
-            action_text=inbound.body,
-            reservation=self.reservation,
-        )
-
-        self.assertEqual(result["status"], "guest_arrival_saved")
+        self.assertEqual(result["status"], "guest_arrival_handled")
         mock_schedule.assert_called_once()
         self.reservation.refresh_from_db()
         self.assertEqual(

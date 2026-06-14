@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 from unittest.mock import patch
 
+from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -12,6 +13,7 @@ from apps.integrations.whatsapp.whatsapp_operator import (
     is_operator_wa_id,
     operator_name_for_wa_id,
 )
+from apps.integrations.whatsapp.whatsapp_operator_batch import send_operator_collect_prompt_for_session
 from apps.integrations.whatsapp.whatsapp_operator_service import (
     OPERATOR_CHECKIN_BUTTON_ID,
     OPERATOR_CHECKIN_BUTTON_TITLE,
@@ -28,10 +30,14 @@ from apps.properties.models import Property
 from apps.integrations.whatsapp.operator_reservation_pick import format_reservation_pick_line
 from apps.reservations.guest_slots import PLACEHOLDER_FIRST, PLACEHOLDER_LAST
 from apps.reservations.models import (
+    DocumentIntakeImage,
     DocumentIntakeJob,
     DocumentIntakeJobSource,
     DocumentIntakeJobStatus,
     Guest,
+    WhatsAppArrivalConfirmSession,
+    WhatsAppArrivalConfirmSessionStatus,
+    WhatsAppArrivalConfirmTrigger,
     WhatsAppOperatorSession,
     WhatsAppOperatorSessionStatus,
     Reservation,
@@ -977,3 +983,174 @@ class OperatorReservationPickFlowTests(TestCase):
         self.assertEqual(result["status"], "awaiting_reservation_pick")
         session.refresh_from_db()
         self.assertEqual(session.status, WhatsAppOperatorSessionStatus.AWAITING_RES_PICK)
+
+
+@override_settings(
+    STAY_INTEGRATION_FERNET_KEY=TEST_FERNET_KEY,
+    CELERY_TASK_ALWAYS_EAGER=True,
+    CELERY_TASK_EAGER_PROPAGATES=True,
+)
+class OperatorDocsConfirmPriorityTests(TestCase):
+    """Docs confirm Da/Ne must win over stale arrival-time sessions."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(slug="docs-priority", name="Docs Priority")
+        TenantReceptionSettings.objects.create(
+            tenant=self.tenant,
+            whatsapp_operator_phones=[{"name": "Toni", "phone": "+385998388513"}],
+        )
+        self.property = Property.objects.create(
+            tenant=self.tenant,
+            name="Uzorita",
+            slug="uzorita",
+        )
+        self.integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.WHATSAPP,
+            routing_key="1068791909660300",
+            is_active=True,
+        )
+        self.integration.set_config_dict(
+            {
+                "provider": "360dialog",
+                "phone_number_id": "1068791909660300",
+                "access_token": "d360-test",
+                "api_base_url": "https://waba-v2.360dialog.io",
+            }
+        )
+        self.integration.save()
+        self.runtime = WhatsAppRuntimeConfig.from_integration_dict(self.integration.get_config_dict())
+        self.operator_wa_id = "385998388513"
+        self.reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            booker_name="Test Guest",
+            check_in=date(2026, 6, 14),
+            check_out=date(2026, 6, 16),
+            status=Reservation.Status.EXPECTED,
+        )
+        WhatsAppArrivalConfirmSession.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            status=WhatsAppArrivalConfirmSessionStatus.AWAITING_TIME,
+            responded_operator_wa_id=self.operator_wa_id,
+            trigger=WhatsAppArrivalConfirmTrigger.NIGHTLY_23H,
+        )
+        job = DocumentIntakeJob.objects.create(
+            tenant_id=self.tenant.pk,
+            reservation=None,
+            source=DocumentIntakeJobSource.WHATSAPP_OPERATOR,
+            status=DocumentIntakeJobStatus.QUEUED,
+            device_id="whatsapp",
+        )
+        DocumentIntakeImage.objects.create(
+            tenant_id=self.tenant.pk,
+            job=job,
+            image=ContentFile(b"fake", name="op_test.jpg"),
+            sort_order=0,
+        )
+        self.session = WhatsAppOperatorSession.objects.create(
+            tenant_id=self.tenant.pk,
+            operator_wa_id=self.operator_wa_id,
+            job=job,
+            status=WhatsAppOperatorSessionStatus.AWAITING_CONFIRM,
+        )
+
+    @patch("apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job")
+    @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
+    def test_docs_yes_finalizes_instead_of_time_parse(self, mock_send, mock_finalize):
+        mock_finalize.return_value = {"status": "ambiguous_reservation", "job_id": self.session.job_id}
+        mock_send.return_value = {"messages": [{"id": "wamid.out.t"}]}
+
+        message = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            wamid="wamid.in.docs.yes.priority",
+            wa_id=self.operator_wa_id,
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="interactive",
+            body="Da",
+            raw_payload={
+                "type": "interactive",
+                "interactive": {
+                    "type": "button_reply",
+                    "button_reply": {"id": OPERATOR_DOCS_ALL_YES_ID, "title": "Da"},
+                },
+            },
+        )
+        result = handle_operator_inbound(
+            row=message,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text="Da",
+            button_id=OPERATOR_DOCS_ALL_YES_ID,
+        )
+
+        mock_finalize.assert_called_once()
+        for call in mock_send.call_args_list:
+            self.assertNotIn("Nisam razumio vrijeme", call.kwargs.get("body", ""))
+        self.assertNotEqual(result.get("status"), "time_parse_failed")
+
+
+@override_settings(
+    STAY_INTEGRATION_FERNET_KEY=TEST_FERNET_KEY,
+    CELERY_TASK_ALWAYS_EAGER=True,
+    CELERY_TASK_EAGER_PROPAGATES=True,
+)
+class OperatorDuplicatePromptTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(slug="dup-prompt", name="Dup Prompt")
+        TenantReceptionSettings.objects.create(
+            tenant=self.tenant,
+            whatsapp_operator_phones=[{"name": "Toni", "phone": "+385998388513"}],
+        )
+        self.property = Property.objects.create(tenant=self.tenant, name="Uzorita", slug="uzorita")
+        self.integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.WHATSAPP,
+            routing_key="1068791909660300",
+            is_active=True,
+        )
+        self.integration.set_config_dict(
+            {
+                "provider": "360dialog",
+                "phone_number_id": "1068791909660300",
+                "access_token": "d360-test",
+                "api_base_url": "https://waba-v2.360dialog.io",
+            }
+        )
+        self.integration.save()
+        self.operator_wa_id = "385998388513"
+        job = DocumentIntakeJob.objects.create(
+            tenant_id=self.tenant.pk,
+            source=DocumentIntakeJobSource.WHATSAPP_OPERATOR,
+            status=DocumentIntakeJobStatus.QUEUED,
+            device_id="whatsapp",
+        )
+        DocumentIntakeImage.objects.create(
+            tenant_id=self.tenant.pk,
+            job=job,
+            image=ContentFile(b"fake", name="op_dup.jpg"),
+            sort_order=0,
+        )
+        self.session = WhatsAppOperatorSession.objects.create(
+            tenant_id=self.tenant.pk,
+            operator_wa_id=self.operator_wa_id,
+            job=job,
+            status=WhatsAppOperatorSessionStatus.COLLECTING,
+        )
+
+    @patch("apps.integrations.whatsapp.whatsapp_operator_batch._send_operator_docs_confirm_prompt")
+    def test_duplicate_quiet_prompt_skipped(self, mock_send):
+        mock_send.return_value = {"status": "sent", "outbound_wamid": "wamid.out.1"}
+
+        first = send_operator_collect_prompt_for_session(self.session.pk)
+        second = send_operator_collect_prompt_for_session(self.session.pk)
+
+        self.assertEqual(first["status"], "prompted")
+        self.assertEqual(second["status"], "skipped")
+        self.assertEqual(second["reason"], "already_awaiting_confirm")
+        mock_send.assert_called_once()
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.status, WhatsAppOperatorSessionStatus.AWAITING_CONFIRM)

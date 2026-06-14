@@ -8,6 +8,11 @@ from django.db import models
 from apps.core.models import TenantScopedModel
 
 
+class AfterHoursArrivalPolicy(models.TextChoices):
+    CONTACT = "contact", "Contact phone"
+    NOT_ALLOWED = "not_allowed", "Entry not allowed after latest time"
+
+
 class Property(TenantScopedModel):
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=64)
@@ -23,6 +28,25 @@ class Property(TenantScopedModel):
     language = models.CharField(max_length=10, blank=True)
     check_in_time = models.TimeField(default=time(15, 0))
     check_out_time = models.TimeField(default=time(11, 0))
+    check_in_latest_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="Latest self-service arrival time (property local). Null = no upper bound.",
+    )
+    after_hours_arrival_policy = models.CharField(
+        max_length=16,
+        choices=AfterHoursArrivalPolicy.choices,
+        default=AfterHoursArrivalPolicy.CONTACT,
+    )
+    after_hours_contact_phone = models.CharField(
+        max_length=32,
+        blank=True,
+        help_text="Phone for late arrivals outside the window. Falls back to property.contact.",
+    )
+    guest_arrival_auto_reply_enabled = models.BooleanField(
+        default=True,
+        help_text="Auto-reply on guest arrival-time messages (WhatsApp, email, Channex).",
+    )
     whatsapp_autocheckin_enabled = models.BooleanField(default=False)
     whatsapp_autocheckin_time = models.TimeField(default=time(8, 0))
     whatsapp_autocheckin_email_lead_minutes = models.PositiveSmallIntegerField(
