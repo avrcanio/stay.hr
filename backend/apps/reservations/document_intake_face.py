@@ -64,7 +64,12 @@ def _european_id_portrait_bbox(w: int, h: int) -> tuple[int, int, int, int]:
 def _max_face_side(*, image_w: int, image_h: int) -> int:
     """Upper bound for Haar face box — landscape ID photos need a wider portrait strip."""
     min_side = min(image_w, image_h)
-    max_side = int(min_side * 0.42)
+    if image_h > image_w:
+        # Portrait snapshot of a landscape ID — real face is ~25–32% of width; header
+        # holograms often trigger oversized Haar boxes (res #165).
+        max_side = int(min_side * 0.38)
+    else:
+        max_side = int(min_side * 0.42)
     if image_w > image_h * 1.25:
         max_side = max(max_side, int(min_side * 0.52))
     return max_side
@@ -112,10 +117,25 @@ def _select_best_face(
         vertical_center = abs(cy_ratio - 0.58)
         vertical_bonus = max(0.0, 0.15 - vertical_center)
 
+        # EU header / eagle / star-circle holograms sit in the top ~35% of the card.
+        header_penalty = -0.45 if cy_ratio < 0.35 else 0.0
+
+        # Portrait snapshot of a landscape ID — biodata face usually sits mid-card vertically.
+        portrait_id_bonus = 0.0
+        if image_h > image_w and 0.36 <= cy_ratio <= 0.55:
+            portrait_id_bonus = 0.22
+
         area_score = (fw * fh) / (image_w * image_h) * 2.5
         tiny_penalty = -0.25 if max(fw, fh) < min(image_w, image_h) * 0.14 else 0.0
 
-        score = area_score + left_bonus + vertical_bonus + tiny_penalty
+        score = (
+            area_score
+            + left_bonus
+            + vertical_bonus
+            + header_penalty
+            + portrait_id_bonus
+            + tiny_penalty
+        )
         candidates.append((score, (x, y, fw, fh)))
 
     if not candidates:
@@ -123,7 +143,7 @@ def _select_best_face(
 
     # WhatsApp passport photos often show two open pages; Haar false positives on the
     # eagle/header sit above the real biodata portrait on the left strip.
-    portrait_passport = image_h / max(image_w, 1) > 1.35
+    portrait_passport = image_h / max(image_w, 1) > 1.25
     if portrait_passport:
         left_portraits = [
             box
