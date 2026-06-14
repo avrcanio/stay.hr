@@ -89,7 +89,7 @@ class AutocheckinDocsDeadlineTests(TestCase):
         self.assertIsNotNone(self.reservation.whatsapp_autocheckin_docs_deadline_at)
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
-    @patch("apps.integrations.whatsapp.guest_docs_awaiting_arrival.notify_guest_docs_awaiting_arrival")
+    @patch("apps.integrations.whatsapp.autocheckin_docs_deadline.notify_guest_docs_awaiting_arrival")
     @patch("apps.integrations.whatsapp.evisitor_reply.send_text_message")
     @patch("apps.integrations.whatsapp.autocheckin_docs_deadline.waive_whatsapp_autocheckin")
     def test_deadline_elapsed_waives_and_sends_welcome(
