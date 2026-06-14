@@ -19,10 +19,43 @@ from apps.reservations.document_intake_service import (
     job_to_dict,
     process_document_intake_job,
 )
-from apps.reservations.models import DocumentIntakeImage, DocumentIntakeJob, DocumentIntakeJobStatus
+from apps.reservations.models import (
+    DocumentIntakeImage,
+    DocumentIntakeJob,
+    DocumentIntakeJobSource,
+    DocumentIntakeJobStatus,
+    Reservation,
+)
 from apps.reservations.tasks import process_document_intake_job_task
 
 MAX_IMAGES = 20
+INTAKE_RESERVATION_STATUSES = frozenset(
+    {Reservation.Status.EXPECTED, Reservation.Status.CHECKED_IN}
+)
+
+
+def _parse_optional_int(value) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_batch_reservation(request, reservation_id: int | None) -> Reservation | None:
+    if reservation_id is None:
+        return None
+    reservation = Reservation.objects.filter(
+        tenant=request.tenant,
+        pk=reservation_id,
+        status__in=INTAKE_RESERVATION_STATUSES,
+    ).first()
+    if reservation is None:
+        raise serializers.ValidationError(
+            {"reservation_id": "Rezervacija nije pronađena ili nije u statusu expected/checked_in."}
+        )
+    return reservation
 
 
 class DocumentIntakeBatchSerializer(serializers.Serializer):
@@ -75,11 +108,19 @@ class DocumentIntakeBatchView(ReceptionWriteView, APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+        reservation_id = _parse_optional_int(request.POST.get("reservation_id"))
+        try:
+            reservation = _resolve_batch_reservation(request, reservation_id)
+        except serializers.ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+
         device_id = installation_id_from_request(request) or ""
         job = DocumentIntakeJob.objects.create(
             tenant=request.tenant,
             device_id=device_id,
             status=DocumentIntakeJobStatus.QUEUED,
+            source=DocumentIntakeJobSource.HOSPIRA_BATCH if reservation else "",
+            reservation=reservation,
         )
 
         for idx, uploaded in enumerate(files):

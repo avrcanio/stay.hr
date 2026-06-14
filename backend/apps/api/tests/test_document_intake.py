@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 
 from apps.properties.models import Property, Unit
 from apps.reservations.guest_slots import PLACEHOLDER_FIRST, PLACEHOLDER_LAST
-from apps.reservations.models import DocumentIntakeJobStatus, Guest, Reservation, ReservationUnit
+from apps.reservations.models import DocumentIntakeJob, DocumentIntakeJobSource, DocumentIntakeJobStatus, Guest, Reservation, ReservationUnit
 from apps.tenants.models import RECEPTION_DEVICE_SCOPES, ApiApplication, Tenant
 
 
@@ -352,3 +352,55 @@ class DocumentIntakeAPITests(TestCase):
         companion.refresh_from_db()
         self.assertEqual(self.primary.document_number, "EXISTING")
         self.assertEqual(companion.document_number, "DOC002")
+
+    @patch("apps.reservations.document_intake_service.ocr_configured", return_value=True)
+    @patch("apps.reservations.document_intake_service.run_document_batch_ocr")
+    def test_batch_with_reservation_id_sets_job_and_scopes_matches(self, mock_ocr, _mock_ocr_cfg):
+        mock_ocr.return_value = {
+            "images": [{"index": 0, "side": "front", "mrz_lines": [], "ocr_text": ""}],
+            "persons": [
+                {
+                    "given_names": "Hans",
+                    "surnames": "Fischer",
+                    "document_number": "L01X00T47",
+                    "nationality": "DEU",
+                    "document_type": "national_id",
+                    "front_image_index": 0,
+                }
+            ],
+        }
+
+        batch = self.client.post(
+            f"{self.base}/batch/",
+            {
+                "files": [_tiny_jpeg()],
+                "reservation_id": str(self.reservation.pk),
+            },
+            format="multipart",
+        )
+        self.assertEqual(batch.status_code, 201)
+        job_id = batch.json()["job_id"]
+
+        job = DocumentIntakeJob.objects.get(pk=job_id)
+        self.assertEqual(job.reservation_id, self.reservation.pk)
+        self.assertEqual(job.source, DocumentIntakeJobSource.HOSPIRA_BATCH)
+
+        process = self.client.post(f"{self.base}/jobs/{job_id}/process/")
+        self.assertEqual(process.status_code, 200)
+        body = process.json()
+        self.assertEqual(body["reservation_id"], self.reservation.pk)
+        self.assertEqual(len(body["matches"]), 1)
+        self.assertEqual(body["matches"][0]["reservation_id"], self.reservation.pk)
+        self.assertIn("completeness", body)
+        self.assertIn("is_complete", body["completeness"])
+
+    def test_batch_invalid_reservation_id_rejected(self):
+        batch = self.client.post(
+            f"{self.base}/batch/",
+            {
+                "files": [_tiny_jpeg()],
+                "reservation_id": "999999",
+            },
+            format="multipart",
+        )
+        self.assertEqual(batch.status_code, 400)

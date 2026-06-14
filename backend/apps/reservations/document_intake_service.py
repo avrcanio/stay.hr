@@ -619,6 +619,36 @@ def format_ocr_summary(ocr_result: dict[str, Any]) -> str:
     return "\n".join(lines).strip()
 
 
+def completeness_to_dict(completeness) -> dict[str, Any]:
+    return {
+        "is_complete": completeness.is_complete,
+        "missing_guests": [
+            {
+                "guest_id": item.guest_id,
+                "guest_name": item.guest_name,
+                "adult_ordinal": item.adult_ordinal,
+            }
+            for item in completeness.missing_guests
+        ],
+        "missing_sides": [
+            {
+                "guest_id": item.guest_id,
+                "guest_name": item.guest_name,
+                "side": item.side,
+                "is_passport": item.is_passport,
+            }
+            for item in completeness.missing_sides
+        ],
+        "unmatched_persons": [
+            {
+                "person_index": item.person_index,
+                "display_name": item.display_name,
+            }
+            for item in completeness.unmatched_persons
+        ],
+    }
+
+
 def job_to_dict(job: DocumentIntakeJob, *, request=None) -> dict[str, Any]:
     ocr_result = job.ocr_result or {}
     data: dict[str, Any] = {
@@ -636,6 +666,24 @@ def job_to_dict(job: DocumentIntakeJob, *, request=None) -> dict[str, Any]:
         "reservation_id": job.reservation_id,
         "whatsapp_message_id": job.whatsapp_message_id,
     }
+    persons = ocr_result.get("persons") if isinstance(ocr_result.get("persons"), list) else []
+    if job.reservation_id and persons:
+        reservation = (
+            Reservation.objects.prefetch_related("guests")
+            .filter(pk=job.reservation_id, tenant_id=job.tenant_id)
+            .first()
+        )
+        if reservation is not None:
+            from apps.reservations.document_intake_completeness import evaluate_completeness
+
+            images = list(job.images.order_by("sort_order", "id"))
+            completeness = evaluate_completeness(
+                reservation=reservation,
+                persons=persons,
+                matches=job.matches or [],
+                images=images,
+            )
+            data["completeness"] = completeness_to_dict(completeness)
     if request is not None and job.applied_result:
         for item in data["applied"]:
             guest_id = item.get("guest_id")
