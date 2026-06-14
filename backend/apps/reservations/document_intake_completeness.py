@@ -6,7 +6,11 @@ from dataclasses import dataclass, field
 
 from apps.integrations.whatsapp.apply_reply import adult_guests_for_registration
 from apps.reservations.document_intake_service import _resolve_side_images
-from apps.reservations.document_intake_sides import MissingIdSide
+from apps.reservations.document_intake_sides import (
+    MissingIdSide,
+    _guest_treat_as_passport,
+    _has_photo,
+)
 from apps.reservations.guest_slots import ensure_guest_slots_for_intake, is_unfilled_guest, PLACEHOLDER_NAME
 from apps.reservations.models import Guest, Reservation
 
@@ -45,32 +49,40 @@ def _person_display_name(person: dict) -> str:
     return given or surnames or "Osoba na dokumentu"
 
 
-def _missing_sides_for_person(
+def _missing_sides_for_matched_guest(
     *,
+    guest: Guest,
     person: dict,
     images: list,
     guest_name: str,
-    guest_id: int,
 ) -> list[MissingIdSide]:
+    """Batch OCR gaps merged with photos already stored on the guest (incremental capture)."""
     doc_type = str(person.get("document_type") or "national_id").lower()
     is_passport = doc_type == "passport"
 
     front_idx = person.get("front_image_index")
     back_idx = person.get("back_image_index")
-    front_img, back_img, applying_front, applying_back = _resolve_side_images(
+    _, _, applying_front, applying_back = _resolve_side_images(
         images, front_idx, back_idx, is_passport=is_passport,
     )
 
-    if is_passport:
-        if front_img is None:
-            return [MissingIdSide(guest_id, guest_name, "front", is_passport=True)]
+    id_docs = list(guest.id_documents.all())
+    treat_as_passport = is_passport or _guest_treat_as_passport(guest=guest, id_docs=id_docs)
+
+    if treat_as_passport:
+        has_front = any(_has_photo(id_doc.front_photo) for id_doc in id_docs) or applying_front
+        if not has_front:
+            return [MissingIdSide(guest.pk, guest_name, "front", is_passport=True)]
         return []
 
+    has_front = any(_has_photo(id_doc.front_photo) for id_doc in id_docs) or applying_front
+    has_back = any(_has_photo(id_doc.back_photo) for id_doc in id_docs) or applying_back
+
     gaps: list[MissingIdSide] = []
-    if not applying_front:
-        gaps.append(MissingIdSide(guest_id, guest_name, "front", is_passport=False))
-    elif not applying_back:
-        gaps.append(MissingIdSide(guest_id, guest_name, "back", is_passport=False))
+    if not has_front:
+        gaps.append(MissingIdSide(guest.pk, guest_name, "front", is_passport=False))
+    elif not has_back:
+        gaps.append(MissingIdSide(guest.pk, guest_name, "back", is_passport=False))
     return gaps
 
 
@@ -93,6 +105,7 @@ def evaluate_completeness(
         min_count=len(persons),
     )
     adults = adult_guests_for_registration(reservation)
+    guest_by_id = {guest.pk: guest for guest in reservation.guests.all()}
 
     match_by_person: dict[int, dict] = {}
     for match in matches:
@@ -122,12 +135,15 @@ def evaluate_completeness(
         guest_id = int(match["guest_id"])
         matched_guest_ids.add(guest_id)
         guest_name = str(match.get("guest_name") or "").strip() or _person_display_name(person)
+        guest = guest_by_id.get(guest_id)
+        if guest is None:
+            continue
         missing_sides.extend(
-            _missing_sides_for_person(
+            _missing_sides_for_matched_guest(
+                guest=guest,
                 person=person,
                 images=images,
                 guest_name=guest_name,
-                guest_id=guest_id,
             )
         )
 

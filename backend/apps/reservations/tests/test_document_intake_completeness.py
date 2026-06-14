@@ -1,10 +1,11 @@
 from datetime import date
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
 from apps.properties.models import Property
 from apps.reservations.document_intake_completeness import evaluate_completeness
-from apps.reservations.models import Guest, Reservation
+from apps.reservations.models import Guest, IdDocument, Reservation
 from apps.tenants.models import Tenant
 
 
@@ -164,5 +165,36 @@ class DocumentIntakeCompletenessTests(TestCase):
             },
         ]
         result = self._evaluate(persons, matches, images=[_FakeImage(0)])
+        self.assertTrue(result.is_complete)
+        self.assertEqual(result.missing_sides, [])
+
+    def test_stored_front_plus_batch_back_is_complete(self):
+        """Incremental capture: front already on guest, this batch only has back."""
+        IdDocument.objects.create(
+            guest=self.primary,
+            front_photo=SimpleUploadedFile("front.jpg", b"fake-front", content_type="image/jpeg"),
+        )
+        persons = [
+            {
+                "given_names": "Jannik",
+                "surnames": "Enders",
+                "document_type": "national_id",
+                "back_image_index": 0,
+            },
+        ]
+        matches = [
+            {
+                "person_index": 0,
+                "auto_apply": True,
+                "guest_id": self.primary.pk,
+                "reservation_id": self.reservation.pk,
+                "guest_name": "Jannik Enders",
+            },
+        ]
+        result = self._evaluate(
+            persons,
+            matches,
+            images=[_FakeImage(0, detected_side="back")],
+        )
         self.assertTrue(result.is_complete)
         self.assertEqual(result.missing_sides, [])

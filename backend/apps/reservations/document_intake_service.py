@@ -669,7 +669,7 @@ def job_to_dict(job: DocumentIntakeJob, *, request=None) -> dict[str, Any]:
     persons = ocr_result.get("persons") if isinstance(ocr_result.get("persons"), list) else []
     if job.reservation_id and persons:
         reservation = (
-            Reservation.objects.prefetch_related("guests")
+            Reservation.objects.prefetch_related("guests__id_documents")
             .filter(pk=job.reservation_id, tenant_id=job.tenant_id)
             .first()
         )
