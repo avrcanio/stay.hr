@@ -300,6 +300,11 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
                 runtime=runtime,
                 reservation=reservation,
             )
+            from apps.integrations.whatsapp.autocheckin_docs_deadline import (
+                schedule_autocheckin_docs_deadline,
+            )
+
+            schedule_autocheckin_docs_deadline(reservation)
         else:
             reply_result = handle_guest_autocheckin_inbound(
                 row=row,

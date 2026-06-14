@@ -5,7 +5,9 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
 from apps.communications.guest_compose import (
+    render_ask_arrival_time_message,
     render_checkin_ready_message,
+    render_docs_awaiting_arrival_message,
     render_operator_checkin_complete_message,
 )
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
@@ -203,7 +205,7 @@ class WhatsAppApplyReplyTests(TestCase):
         self.assertIn("Check-in:", text)
         self.assertIn("Restaurant Uzorita", text)
         self.assertIn("Parkiranje", text)
-        self.assertIn("dolazak", text.lower())
+        self.assertNotIn("dolazak", text.lower())
 
     def test_render_operator_checkin_complete_de(self):
         reservation = Reservation.objects.create(
@@ -224,7 +226,16 @@ class WhatsAppApplyReplyTests(TestCase):
         self.assertIn("Restaurant Uzorita", text)
         self.assertIn("nächsten Nachricht", text)
         self.assertIn("Parken", text)
-        self.assertIn("Ankunft", text)
+        self.assertNotIn("Ankunft", text)
+        ask = render_ask_arrival_time_message(reservation)
+        self.assertIn("Ankunft", ask)
+
+    def test_render_docs_awaiting_arrival_hr_without_ask(self):
+        text = render_docs_awaiting_arrival_message(self.reservation)
+        self.assertIn("dokument", text.lower())
+        self.assertNotIn("dolazak", text.lower())
+        ask = render_ask_arrival_time_message(self.reservation)
+        self.assertIn("dolazak", ask.lower())
 
     @patch.dict("os.environ", {"WHATSAPP_DOCUMENT_APPLY_REPLY": "true", "D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.apply_reply.send_text_message")

@@ -42,6 +42,8 @@ HINT_CHECKIN_READY = "checkin ready"
 HINT_OPERATOR_CHECKIN_COMPLETE = "operator checkin complete"
 HINT_CHECKIN_COMPLETE_SUPPLEMENT = "checkin complete supplement"
 HINT_ASK_ARRIVAL_TIME = "ask arrival time"
+HINT_AUTO_CHECKIN_DOCS_EXPIRED = "autocheckin docs expired"
+HINT_AUTO_CHECKIN_PERIOD_ENDED = "autocheckin period ended"
 HINT_AUTOCHECKIN_WHATSAPP_INTRO = "whatsapp autocheckin intro"
 HINT_EVISITOR_REGISTERED = "evisitor registered"
 HINT_ID_MISSING_SIDES = "id missing sides"
@@ -463,11 +465,10 @@ def _checkin_ask_arrival_line(reservation: Reservation, lang: str) -> str:
 def _render_operator_checkin_complete_fallback(reservation: Reservation, context: dict) -> str:
     lang = context["language"]
     body = _property_guest_text(reservation, "operator_checkin_complete", lang)
-    ask_arrival = _checkin_ask_arrival_line(reservation, lang)
     return _message_lines_before_signoff(
         reservation,
         context,
-        body_lines=[body, "", *_checkin_arrival_detail_lines(reservation, context), "", ask_arrival],
+        body_lines=[body, "", *_checkin_arrival_detail_lines(reservation, context)],
     )
 
 
@@ -478,15 +479,14 @@ def render_operator_checkin_complete_message(reservation: Reservation) -> str:
 
 
 def render_docs_awaiting_arrival_message(reservation: Reservation) -> str:
-    """After guest docs apply on arrival day — saved docs, entrance/parking/WiFi, ask arrival (no check-in yet)."""
+    """After guest docs apply on arrival day — saved docs, entrance/parking/WiFi (ask arrival sent separately)."""
     context = build_compose_context(reservation)
     lang = context["language"]
     body = _property_guest_text(reservation, "docs_awaiting_arrival", lang)
-    ask_arrival = _checkin_ask_arrival_line(reservation, lang)
     return _message_lines_before_signoff(
         reservation,
         context,
-        body_lines=[body, "", *_checkin_arrival_detail_lines(reservation, context), "", ask_arrival],
+        body_lines=[body, "", *_checkin_arrival_detail_lines(reservation, context)],
     )
 
 
@@ -512,6 +512,32 @@ def render_ask_arrival_time_message(reservation: Reservation) -> str:
         reservation,
         context,
         body_lines=[ask_arrival],
+        include_wifi=False,
+    )
+
+
+def render_autocheckin_period_ended_message(reservation: Reservation) -> str:
+    """Guest engaged but did not send docs before property check-in time."""
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    body = _property_guest_text(reservation, "autocheckin_period_ended", lang)
+    return _message_lines_before_signoff(
+        reservation,
+        context,
+        body_lines=[body],
+        include_wifi=False,
+    )
+
+
+def render_autocheckin_expired_short_message(reservation: Reservation) -> str:
+    """Online auto check-in window closed; reception check-in on arrival."""
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    body = _property_guest_text(reservation, "autocheckin_expired_short", lang)
+    return _message_lines_before_signoff(
+        reservation,
+        context,
+        body_lines=[body],
         include_wifi=False,
     )
 

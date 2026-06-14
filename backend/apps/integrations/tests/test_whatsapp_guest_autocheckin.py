@@ -493,6 +493,44 @@ class WhatsAppGuestAutocheckinTests(TestCase):
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
+    @patch("apps.integrations.whatsapp.evisitor_reply.send_text_message")
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.property_local_now")
+    def test_engaged_before_checkin_no_docs_sends_period_ended(
+        self, mock_now, mock_send, mock_interactive
+    ):
+        mock_now.return_value = datetime(2026, 6, 7, 10, 0, tzinfo=ZAGREB)
+        mock_send.return_value = {"messages": [{"id": "wamid.out.period"}]}
+        self.reservation.whatsapp_autocheckin_engaged_at = timezone.now()
+        self.reservation.save(update_fields=["whatsapp_autocheckin_engaged_at", "updated_at"])
+        inbound = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.in.period",
+            wa_id="385922222222",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="Gdje je parking?",
+            raw_payload={"type": "text", "text": {"body": "Gdje je parking?"}},
+        )
+
+        result = handle_guest_autocheckin_inbound(
+            row=inbound,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text=inbound.body,
+            reservation=self.reservation,
+        )
+
+        self.assertEqual(result["status"], "sent")
+        mock_interactive.assert_not_called()
+        mock_send.assert_called_once()
+        body = mock_send.call_args.kwargs["body"]
+        self.assertIn("automatski online check-in", body.lower())
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.property_local_now")
     def test_incomplete_documents_without_ack_draft_sends_autocheckin(
         self, mock_now, mock_interactive

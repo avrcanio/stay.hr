@@ -461,4 +461,11 @@ def run_whatsapp_autocheckin_welcome() -> dict:
         else:
             result["skipped"] += 1
 
+    from apps.integrations.whatsapp.autocheckin_docs_deadline import (
+        mark_autocheckin_session_lost_for_due_reservations,
+    )
+
+    session_lost = mark_autocheckin_session_lost_for_due_reservations()
+    result["session_lost_marked"] = session_lost.get("marked", 0)
+
     return result

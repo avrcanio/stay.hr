@@ -79,6 +79,15 @@ class Reservation(TenantScopedModel):
     whatsapp_autocheckin_intro_email_sent_at = models.DateTimeField(null=True, blank=True)
     whatsapp_autocheckin_engaged_at = models.DateTimeField(null=True, blank=True)
     whatsapp_autocheckin_waived_at = models.DateTimeField(null=True, blank=True)
+    whatsapp_autocheckin_docs_deadline_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Scheduled Celery ETA for docs deadline (check_in_time + 30 min).",
+    )
+    whatsapp_autocheckin_session_lost = models.BooleanField(
+        default=False,
+        help_text="Welcome template sent but guest never engaged before check_in_time - 1h.",
+    )
     guest_stated_arrival_at = models.DateTimeField(null=True, blank=True)
     guest_stated_arrival_text = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -286,6 +286,52 @@ AUTOCHECKIN_WAIVED_BODY = {
     ),
 }
 
+AUTOCHECKIN_PERIOD_ENDED = {
+    "hr": (
+        "Rok za automatski online check-in (Auto check-in) je završen. "
+        "Molimo predočite dokumente na recepciji pri dolasku."
+    ),
+    "en": (
+        "The online Auto check-in window has closed. "
+        "Please present your ID documents at reception when you arrive."
+    ),
+    "de": (
+        "Die Frist für den automatischen Online-Check-in (Auto check-in) ist abgelaufen. "
+        "Bitte legen Sie Ihre Ausweisdokumente bei der Ankunft an der Rezeption vor."
+    ),
+    "es": (
+        "El plazo del check-in automático en línea (Auto check-in) ha finalizado. "
+        "Presente sus documentos en recepción a su llegada."
+    ),
+    "fr": (
+        "Le délai pour l’enregistrement automatique en ligne (Auto check-in) est terminé. "
+        "Veuillez présenter vos pièces d’identité à l’accueil lors de votre arrivée."
+    ),
+}
+
+AUTOCHECKIN_EXPIRED_SHORT = {
+    "hr": (
+        "Rok za automatski online check-in je istekao. "
+        "Check-in obavljamo na recepciji kad stignete — u sljedećim porukama šaljemo ulaz i parkiranje."
+    ),
+    "en": (
+        "The online Auto check-in window has expired. "
+        "We will check you in at reception when you arrive — we are sending entrance and parking details next."
+    ),
+    "de": (
+        "Die Frist für den automatischen Online-Check-in ist abgelaufen. "
+        "Den Check-in erledigen wir bei Ihrer Ankunft an der Rezeption — Eingang und Parken folgen in den nächsten Nachrichten."
+    ),
+    "es": (
+        "El plazo del check-in automático en línea ha expirado. "
+        "Le registraremos en recepción a su llegada — a continuación le enviamos la entrada y el aparcamiento."
+    ),
+    "fr": (
+        "Le délai pour l’enregistrement automatique en ligne est expiré. "
+        "Nous vous enregistrerons à l’accueil à votre arrivée — l’entrée et le stationnement suivent dans les prochains messages."
+    ),
+}
+
 CHECKIN_AUTOMATION_FAILED = {
     "hr": (
         "Automatski check-in nije uspio — podatke ćemo upisati na recepciji kad stignete.\n\n"
@@ -717,6 +763,8 @@ DEFAULT_TEXTS: dict[str, dict[str, str]] = {
     "missing_guest_document_line": MISSING_GUEST_DOCUMENT_LINE,
     "unmatched_person_line": UNMATCHED_PERSON_LINE,
     "autocheckin_waived": AUTOCHECKIN_WAIVED_BODY,
+    "autocheckin_period_ended": AUTOCHECKIN_PERIOD_ENDED,
+    "autocheckin_expired_short": AUTOCHECKIN_EXPIRED_SHORT,
     "checkin_automation_failed": CHECKIN_AUTOMATION_FAILED,
     "checkin_ready": CHECKIN_READY_BODY,
     "post_checkin_arrival_thanks": POST_CHECKIN_ARRIVAL_THANKS,

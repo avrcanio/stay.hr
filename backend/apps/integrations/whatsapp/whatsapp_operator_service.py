@@ -585,16 +585,17 @@ def notify_guest_operator_checkin_complete(
         }
 
     body = render_operator_checkin_complete_message(reservation)
-    from apps.integrations.whatsapp.evisitor_reply import _send_reservation_whatsapp_text
+    from apps.integrations.whatsapp.guest_welcome_sequence import (
+        send_guest_welcome_entrance_and_ask_arrival,
+    )
 
-    wa_result = _send_reservation_whatsapp_text(
-        reservation=reservation,
+    wa_result = send_guest_welcome_entrance_and_ask_arrival(
+        reservation,
         body=body,
         hint=HINT_OPERATOR_CHECKIN_COMPLETE,
     )
     if wa_result.get("status") == "sent":
-        entrance_image = _send_checkin_complete_entrance_image(reservation)
-        return {"channel": "whatsapp", **wa_result, "entrance_image": entrance_image}
+        return {"channel": "whatsapp", **wa_result}
 
     email_result = _send_guest_operator_checkin_email(reservation)
     if email_result.get("sent"):

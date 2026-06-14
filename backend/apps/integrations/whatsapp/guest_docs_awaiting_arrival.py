@@ -8,12 +8,11 @@ from apps.communications.guest_compose import (
     HINT_DOCS_AWAITING_ARRIVAL,
     render_docs_awaiting_arrival_message,
 )
-from apps.communications.models import GuestMessageChannel, GuestMessageDraft, GuestMessageIntent
+from apps.communications.models import GuestMessageDraft
 from apps.core.timezone import property_local_now
-from apps.integrations.whatsapp.whatsapp_operator_service import (
-    _send_checkin_complete_entrance_image,
+from apps.integrations.whatsapp.guest_welcome_sequence import (
+    send_guest_welcome_entrance_and_ask_arrival,
 )
-from apps.integrations.whatsapp.evisitor_reply import _send_reservation_whatsapp_text
 from apps.reservations.models import Reservation
 
 logger = logging.getLogger(__name__)
@@ -37,21 +36,16 @@ def docs_awaiting_arrival_already_sent(reservation: Reservation) -> bool:
 
 
 def notify_guest_docs_awaiting_arrival(reservation: Reservation) -> dict:
-    """Send docs-saved + entrance/parking/WiFi message; idempotent once per reservation/day."""
+    """Send docs-saved welcome (text, entrance photo, ask arrival); idempotent once per day."""
     if _docs_awaiting_arrival_sent_today(reservation):
         return {"channel": "none", "status": "already_sent"}
 
     body = render_docs_awaiting_arrival_message(reservation)
-    wa_result = _send_reservation_whatsapp_text(
-        reservation=reservation,
+    result = send_guest_welcome_entrance_and_ask_arrival(
+        reservation,
         body=body,
         hint=HINT_DOCS_AWAITING_ARRIVAL,
     )
-    if wa_result.get("status") != "sent":
-        return {"channel": "none", **wa_result}
-
-    entrance_image = _send_checkin_complete_entrance_image(
-        reservation,
-        hint=HINT_DOCS_AWAITING_ARRIVAL,
-    )
-    return {"channel": "whatsapp", **wa_result, "entrance_image": entrance_image}
+    if result.get("status") != "sent":
+        return {"channel": "none", **result}
+    return result

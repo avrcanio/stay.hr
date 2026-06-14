@@ -483,6 +483,17 @@ def _handle_matched_reservation(
 
     lang = compose_language_for_reservation(reservation)
 
+    from apps.integrations.whatsapp.autocheckin_docs_deadline import (
+        maybe_reply_autocheckin_period_ended_inbound,
+    )
+
+    period_reply = maybe_reply_autocheckin_period_ended_inbound(
+        reservation=reservation,
+        action_text=action_text,
+    )
+    if period_reply is not None:
+        return period_reply
+
     if is_whatsapp_autocheckin_waived(reservation):
         if guest_message_mentions_arrival(action_text) and not arrival_thanks_sent_today(reservation):
             return send_arrival_thanks_only(row=row, reservation=reservation)
