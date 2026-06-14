@@ -494,7 +494,7 @@ class WhatsAppGuestAutocheckinTests(TestCase):
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.evisitor_reply.send_text_message")
-    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.property_local_now")
+    @patch("apps.integrations.whatsapp.autocheckin_docs_deadline.property_local_now")
     def test_engaged_before_checkin_no_docs_sends_period_ended(
         self, mock_now, mock_send, mock_interactive
     ):

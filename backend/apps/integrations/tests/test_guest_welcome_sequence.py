@@ -64,8 +64,8 @@ class GuestWelcomeSequenceTests(TestCase):
         )
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_whatsapp_ask_arrival_time")
-    @patch("apps.integrations.whatsapp.whatsapp_operator_service._send_checkin_complete_entrance_image")
+    @patch("apps.integrations.whatsapp.guest_welcome_sequence.send_whatsapp_ask_arrival_time")
+    @patch("apps.integrations.whatsapp.guest_welcome_sequence._send_checkin_complete_entrance_image")
     @patch("apps.integrations.whatsapp.evisitor_reply.send_text_message")
     def test_welcome_sequence_text_then_image_then_ask(
         self,

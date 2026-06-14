@@ -79,7 +79,7 @@ class AutocheckinDocsDeadlineTests(TestCase):
         self.assertEqual(deadline, datetime(2026, 6, 7, 15, 30, tzinfo=ZAGREB))
 
     @patch("apps.integrations.whatsapp.autocheckin_docs_deadline.autocheckin_docs_deadline_elapsed.apply_async")
-    @patch("apps.core.timezone.property_local_now")
+    @patch("apps.integrations.whatsapp.autocheckin_docs_deadline.property_local_now")
     def test_schedule_deadline_on_checkin_day(self, mock_now, mock_apply):
         mock_now.return_value = datetime(2026, 6, 7, 10, 0, tzinfo=ZAGREB)
         result = schedule_autocheckin_docs_deadline(self.reservation)
@@ -91,7 +91,7 @@ class AutocheckinDocsDeadlineTests(TestCase):
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.guest_docs_awaiting_arrival.notify_guest_docs_awaiting_arrival")
     @patch("apps.integrations.whatsapp.evisitor_reply.send_text_message")
-    @patch("apps.integrations.whatsapp.apply_reply.waive_whatsapp_autocheckin")
+    @patch("apps.integrations.whatsapp.autocheckin_docs_deadline.waive_whatsapp_autocheckin")
     def test_deadline_elapsed_waives_and_sends_welcome(
         self,
         mock_waive,
@@ -114,7 +114,7 @@ class AutocheckinDocsDeadlineTests(TestCase):
             ).exists()
         )
 
-    @patch("apps.core.timezone.property_local_now")
+    @patch("apps.integrations.whatsapp.autocheckin_docs_deadline.property_local_now")
     def test_session_lost_flag_at_t_minus_one_hour(self, mock_now):
         mock_now.return_value = datetime(2026, 6, 7, 14, 5, tzinfo=ZAGREB)
         self.reservation.whatsapp_welcome_sent_at = timezone.now()
@@ -133,7 +133,7 @@ class AutocheckinDocsDeadlineTests(TestCase):
         self.reservation.refresh_from_db()
         self.assertTrue(self.reservation.whatsapp_autocheckin_session_lost)
 
-    @patch("apps.core.timezone.property_local_now")
+    @patch("apps.integrations.whatsapp.autocheckin_docs_deadline.property_local_now")
     def test_session_lost_skipped_outside_window(self, mock_now):
         mock_now.return_value = datetime(2026, 6, 7, 10, 0, tzinfo=ZAGREB)
         self.reservation.whatsapp_welcome_sent_at = timezone.now()
