@@ -9,6 +9,7 @@ from apps.integrations.tests.test_whatsapp_webhook import TEST_FERNET_KEY
 from apps.integrations.whatsapp.operator_arrival_confirm import (
     OPERATOR_ARRIVED_NO_PREFIX,
     OPERATOR_ARRIVED_YES_PREFIX,
+    _default_confirmed_arrival_at,
     handle_operator_arrival_confirm_inbound,
     operator_arrived_no_button_id,
     operator_arrived_yes_button_id,
@@ -133,6 +134,57 @@ class OperatorArrivalConfirmTests(TestCase):
         self.assertEqual(buttons[1][0], operator_arrived_no_button_id(self.reservation.pk))
         session = WhatsAppArrivalConfirmSession.objects.get(reservation=self.reservation)
         self.assertEqual(session.status, WhatsAppArrivalConfirmSessionStatus.AWAITING_ARRIVED)
+
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm._notify_arrival_confirm_push")
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm._operator_session_open", return_value=True)
+    @patch("apps.integrations.whatsapp.operator_arrival_confirm.send_interactive_button_message")
+    def test_session_defaults_stated_arrival_to_check_in_time(self, mock_send, mock_session, mock_push):
+        mock_send.return_value = {"messages": [{"id": "wamid.prompt.1"}]}
+        mock_push.return_value = {"sent": 1}
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            booker_name="Marko Markić",
+            booking_code="BCOM-182",
+            check_in=date(2026, 6, 7),
+            check_out=date(2026, 6, 9),
+            status=Reservation.Status.EXPECTED,
+        )
+        ReservationUnit.objects.create(
+            tenant=self.tenant,
+            reservation=reservation,
+            sort_order=0,
+            room_name="B2",
+        )
+
+        send_arrival_confirm_prompt(
+            reservation,
+            trigger=WhatsAppArrivalConfirmTrigger.NIGHTLY_23H,
+            integration_row=self.integration,
+            runtime=self.runtime,
+        )
+
+        session = WhatsAppArrivalConfirmSession.objects.get(reservation=reservation)
+        self.assertEqual(
+            session.guest_stated_arrival_at,
+            datetime(2026, 6, 7, 15, 0, tzinfo=ZAGREB),
+        )
+        self.assertIsNone(reservation.guest_stated_arrival_at)
+
+    def test_default_confirmed_arrival_at_without_stated_uses_check_in_time(self):
+        reservation = Reservation.objects.create(
+            tenant=self.tenant,
+            property=self.property,
+            booker_name="Marko Markić",
+            booking_code="BCOM-184",
+            check_in=date(2026, 6, 7),
+            check_out=date(2026, 6, 9),
+            status=Reservation.Status.EXPECTED,
+        )
+        self.assertEqual(
+            _default_confirmed_arrival_at(reservation),
+            datetime(2026, 6, 7, 15, 0, tzinfo=ZAGREB),
+        )
 
     @patch("apps.integrations.whatsapp.client.send_text_message")
     @patch("apps.integrations.whatsapp.operator_arrival_confirm._notify_arrival_confirm_push")

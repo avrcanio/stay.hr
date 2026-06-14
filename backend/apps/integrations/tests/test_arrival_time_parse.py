@@ -3,7 +3,10 @@ from zoneinfo import ZoneInfo
 
 from django.test import TestCase
 
-from apps.integrations.whatsapp.arrival_time_parse import parse_guest_stated_arrival
+from apps.integrations.whatsapp.arrival_time_parse import (
+    format_guest_stated_arrival_for_operator,
+    parse_guest_stated_arrival,
+)
 from apps.properties.models import Property
 from apps.reservations.models import Reservation
 from apps.tenants.models import Tenant
@@ -47,3 +50,8 @@ class ArrivalTimeParseTests(TestCase):
 
     def test_unparseable_returns_none(self):
         self.assertIsNone(parse_guest_stated_arrival("vidimo se kasnije", self.reservation))
+
+    def test_format_defaults_to_property_check_in_time(self):
+        self.reservation.guest_stated_arrival_text = ""
+        self.reservation.guest_stated_arrival_at = None
+        self.assertEqual(format_guest_stated_arrival_for_operator(self.reservation), "15:00")

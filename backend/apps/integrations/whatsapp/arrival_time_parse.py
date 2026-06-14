@@ -7,6 +7,7 @@ from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 from apps.core.timezone import effective_timezone
+from apps.core.timezone import effective_guest_stated_arrival_at
 from apps.reservations.models import Reservation
 
 _TIME_PAIR = re.compile(
@@ -92,11 +93,9 @@ def parse_operator_confirmed_arrival_time(text: str, reservation: Reservation) -
 
 def format_guest_stated_arrival_for_operator(reservation: Reservation) -> str:
     """Human-readable guest plan for Toni prompt (property-local time)."""
-    stated_at = reservation.guest_stated_arrival_at
-    if stated_at is None:
-        return ""
-    tz = _property_tz(reservation)
-    local = stated_at.astimezone(tz)
     if reservation.guest_stated_arrival_text.strip():
         return reservation.guest_stated_arrival_text.strip()
+    stated_at = effective_guest_stated_arrival_at(reservation)
+    tz = _property_tz(reservation)
+    local = stated_at.astimezone(tz)
     return local.strftime("%H:%M")

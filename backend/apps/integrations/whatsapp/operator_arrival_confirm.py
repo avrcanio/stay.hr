@@ -12,7 +12,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.communications.message_threads_service import _room_name_for_reservation
-from apps.core.timezone import property_local_now
+from apps.core.timezone import effective_guest_stated_arrival_at, property_local_now
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
 from apps.integrations.whatsapp.arrival_time_parse import (
     _property_tz,
@@ -160,9 +160,7 @@ def _close_obsolete_arrival_sessions(*, tenant_id: int | None = None, reservatio
 
 
 def _default_confirmed_arrival_at(reservation: Reservation) -> datetime:
-    if reservation.guest_stated_arrival_at is not None:
-        return reservation.guest_stated_arrival_at
-    return property_local_now(reservation.property)
+    return effective_guest_stated_arrival_at(reservation)
 
 
 def _finish_arrival_checkin(
@@ -443,6 +441,7 @@ def send_arrival_confirm_prompt(
         return {"status": "send_failed", "operators": send_results, "push": push_result}
 
     now = timezone.now()
+    effective_stated_at = effective_guest_stated_arrival_at(reservation)
     session = (
         WhatsAppArrivalConfirmSession.objects.filter(
             reservation=reservation,
@@ -458,7 +457,7 @@ def send_arrival_confirm_prompt(
             status=WhatsAppArrivalConfirmSessionStatus.AWAITING_ARRIVED,
             trigger=trigger,
             guest_stated_arrival_text=reservation.guest_stated_arrival_text,
-            guest_stated_arrival_at=reservation.guest_stated_arrival_at,
+            guest_stated_arrival_at=effective_stated_at,
             prompted_at=now,
         )
     else:
@@ -468,7 +467,7 @@ def send_arrival_confirm_prompt(
         session.responded_operator_wa_id = ""
         session.confirmed_arrival_at = None
         session.guest_stated_arrival_text = reservation.guest_stated_arrival_text
-        session.guest_stated_arrival_at = reservation.guest_stated_arrival_at
+        session.guest_stated_arrival_at = effective_stated_at
         session.save(
             update_fields=[
                 "status",
