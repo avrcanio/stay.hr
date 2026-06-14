@@ -52,6 +52,7 @@ HINT_AUTOCHECKIN_WAIVED = "autocheckin waived"
 HINT_AUTOCHECKIN_ARRIVAL_THANKS = "autocheckin arrival thanks"
 HINT_DOCS_AWAITING_ARRIVAL = "docs awaiting arrival"
 HINT_ARRIVAL_AUTO_REPLY = "arrival auto reply"
+HINT_PARKING_AUTO_REPLY = "parking auto reply"
 
 FOOTER = "Managed by stay.hr — https://stay.hr/"
 
@@ -141,6 +142,7 @@ from apps.properties.guest_info import (
     format_wifi_block,
     guest_maps_url,
     guest_text,
+    render_parking_reply_text,
 )
 
 def _text_for_lang(texts: dict[str, str], lang: str) -> str:
@@ -420,8 +422,15 @@ def render_post_checkin_guest_reply(
         lines.append(_property_guest_text(reservation, "post_checkin_arrival_thanks", lang))
         lines.append("")
     if mentions_parking:
-        lines.append(_property_guest_text(reservation, "parking_post_checkin", lang))
-        lines.append("")
+        parking_line = render_parking_reply_text(
+            reservation.property,
+            lang,
+            variant="post_checkin",
+            reservation_notes=reservation.notes or "",
+        )
+        if parking_line:
+            lines.append(parking_line)
+            lines.append("")
     welcome_key = "post_checkin_welcome_evening" if evening_welcome else "post_checkin_welcome_today"
     lines.append(_property_guest_text(reservation, welcome_key, lang, property_name=property_name))
     wifi = _wifi_section(reservation, lang)
@@ -454,7 +463,12 @@ def _checkin_arrival_detail_lines(reservation: Reservation, context: dict) -> li
         check_in_time=context["check_in_time"],
     )
     entrance = _property_guest_text(reservation, "entrance", lang)
-    parking = _property_guest_text(reservation, "parking", lang)
+    parking = render_parking_reply_text(
+        reservation.property,
+        lang,
+        variant="standard",
+        reservation_notes=reservation.notes or "",
+    )
     return [checkin_line, "", entrance, "", parking]
 
 

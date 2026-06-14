@@ -246,12 +246,19 @@ def ingest_parsed_email(
         )
 
     from apps.communications.guest_arrival_inbound import maybe_handle_guest_arrival_inbound
+    from apps.communications.guest_parking_inbound import maybe_handle_guest_parking_inbound
 
-    maybe_handle_guest_arrival_inbound(
+    arrival_result = maybe_handle_guest_arrival_inbound(
         reservation,
         parsed.body_text,
         channel="email",
     )
+    if arrival_result is None:
+        maybe_handle_guest_parking_inbound(
+            reservation,
+            parsed.body_text,
+            channel="email",
+        )
 
     logger.info(
         "guest email ingested",

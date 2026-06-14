@@ -158,3 +158,17 @@ def resolve_arrival_reply_language(
         return detected
 
     return compose_language_for_reservation(reservation)
+
+
+def resolve_parking_reply_language(
+    reservation: Reservation,
+    *,
+    llm_language: str | None = None,
+    message_text: str = "",
+) -> str:
+    """Same priority as arrival replies — language of the guest message."""
+    return resolve_arrival_reply_language(
+        reservation,
+        llm_language=llm_language,
+        message_text=message_text,
+    )

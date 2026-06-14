@@ -328,6 +328,18 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
             )
             if arrival_result is not None:
                 reply_result = arrival_result
+            else:
+                from apps.communications.guest_parking_inbound import (
+                    maybe_handle_guest_parking_inbound,
+                )
+
+                parking_result = maybe_handle_guest_parking_inbound(
+                    reservation,
+                    action_text,
+                    channel="whatsapp",
+                )
+                if parking_result is not None:
+                    reply_result = parking_result
 
         if reply_result is None:
             reply_result = handle_guest_autocheckin_inbound(

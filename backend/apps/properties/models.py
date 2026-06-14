@@ -47,6 +47,10 @@ class Property(TenantScopedModel):
         default=True,
         help_text="Auto-reply on guest arrival-time messages (WhatsApp, email, Channex).",
     )
+    guest_parking_auto_reply_enabled = models.BooleanField(
+        default=True,
+        help_text="Auto-reply when guest asks about parking (WhatsApp, email, Channex).",
+    )
     whatsapp_autocheckin_enabled = models.BooleanField(default=False)
     whatsapp_autocheckin_time = models.TimeField(default=time(8, 0))
     whatsapp_autocheckin_email_lead_minutes = models.PositiveSmallIntegerField(

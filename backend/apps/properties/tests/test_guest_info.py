@@ -6,8 +6,11 @@ from apps.properties.guest_info import (
     format_wifi_block,
     guest_maps_url,
     guest_text,
+    merge_parking_into_guest_info,
     merge_wifi_into_guest_info,
     normalize_guest_info,
+    parking_facts_from_guest_info,
+    render_parking_reply_text,
     wifi_facts_from_guest_info,
 )
 from apps.properties.admin_forms import PropertyAdminForm
@@ -30,6 +33,7 @@ class GuestInfoTests(TestCase):
         self.assertEqual(normalized["links"]["maps_url"], MAPS_LINK)
         self.assertIn("entrance", normalized["texts"])
         self.assertTrue(normalized["facts"]["ai_notes"])
+        self.assertIn("parking", normalized["facts"])
         wifi = normalized["facts"]["wifi"]
         self.assertEqual(wifi["ssid"], "Uzoritarooms")
         self.assertEqual(wifi["password"], "77777777")
@@ -59,6 +63,7 @@ class GuestInfoTests(TestCase):
         self.assertEqual(facts["maps_url"], MAPS_LINK)
         self.assertIn("entrance", facts)
         self.assertIn("parking", facts)
+        self.assertIn("summary", facts["parking"])
         self.assertIn("ai_notes", facts)
         self.assertEqual(facts["wifi"]["ssid"], "Uzoritarooms")
         self.assertEqual(facts["wifi"]["password"], "77777777")
@@ -99,6 +104,9 @@ class GuestInfoTests(TestCase):
                 "language": "",
                 "check_in_time": "15:00:00",
                 "check_out_time": "11:00:00",
+                "after_hours_arrival_policy": "contact",
+                "guest_arrival_auto_reply_enabled": True,
+                "guest_parking_auto_reply_enabled": True,
                 "whatsapp_autocheckin_enabled": False,
                 "whatsapp_autocheckin_time": "08:00:00",
                 "whatsapp_autocheckin_email_lead_minutes": 30,
@@ -106,6 +114,16 @@ class GuestInfoTests(TestCase):
                 "tourist_tax_category": "",
                 "wifi_ssid": "NewSSID",
                 "wifi_password": "newpass",
+                "parking_has_private": True,
+                "parking_zone_label": "Zone C",
+                "parking_price_per_day": "3.50",
+                "parking_currency": "EUR",
+                "parking_price_notes": "",
+                "parking_reservation_required": False,
+                "parking_ev_charging": False,
+                "parking_large_vehicles_allowed": True,
+                "parking_custom_hr": "Uz ulicu.",
+                "parking_custom_en": "By the street.",
             },
             instance=self.property,
         )
@@ -115,6 +133,9 @@ class GuestInfoTests(TestCase):
         ssid, password = wifi_facts_from_guest_info(self.property.guest_info)
         self.assertEqual(ssid, "NewSSID")
         self.assertEqual(password, "newpass")
+        parking = parking_facts_from_guest_info(self.property.guest_info)
+        self.assertEqual(parking.get("zone_label"), "Zone C")
+        self.assertEqual(parking.get("price_per_day"), "3.50")
 
     def test_guest_maps_url_fallback(self):
         self.assertEqual(guest_maps_url(self.property), MAPS_LINK)

@@ -387,11 +387,21 @@ def process_channex_message_webhook(
         reservation = Reservation.objects.select_related("property", "tenant").get(
             pk=row.reservation_id,
         )
-        maybe_handle_guest_arrival_inbound(
+        arrival_result = maybe_handle_guest_arrival_inbound(
             reservation,
             row.body,
             channel="booking",
         )
+        if arrival_result is None:
+            from apps.communications.guest_parking_inbound import (
+                maybe_handle_guest_parking_inbound,
+            )
+
+            maybe_handle_guest_parking_inbound(
+                reservation,
+                row.body,
+                channel="booking",
+            )
     return {
         "message_id": row.channex_message_id,
         "created": created,

@@ -55,6 +55,7 @@ class Command(BaseCommand):
         prop.after_hours_arrival_policy = AfterHoursArrivalPolicy.CONTACT
         prop.after_hours_contact_phone = "+385998388513"
         prop.guest_arrival_auto_reply_enabled = True
+        prop.guest_parking_auto_reply_enabled = True
         prop.save(
             update_fields=[
                 "guest_info",
@@ -62,6 +63,7 @@ class Command(BaseCommand):
                 "after_hours_arrival_policy",
                 "after_hours_contact_phone",
                 "guest_arrival_auto_reply_enabled",
+                "guest_parking_auto_reply_enabled",
                 "updated_at",
             ]
         )

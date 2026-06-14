@@ -15,22 +15,16 @@ from apps.communications.guest_message_send import (
     send_guest_message,
     send_whatsapp_entrance_image_from_asset,
 )
+from apps.communications.guest_parking_patterns import (
+    guest_message_mentions_arrival_for_parking_split,
+    guest_message_mentions_parking,
+)
 from apps.communications.models import GuestMessageChannel, GuestMessageDraft, GuestMessageIntent
 from apps.core.timezone import property_local_now
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 from apps.reservations.models import Reservation
 
-_ARRIVAL_PATTERN = re.compile(
-    r"\b(arrive|arrival|arriving|dolaz\w*|dolaska|stignu|check.?in|reception|recepction|"
-    r"evening|večer|vecer|noc|night|pm|p\.m\.|\d{1,2}\s*(?:pm|h))\b",
-    re.IGNORECASE,
-)
-_PARKING_PATTERN = re.compile(
-    r"\b(parking|parkir|parkiranje|parkplatz|aparcamiento|stationnement|park|"
-    r"leave my car|where.*car|car space)\b",
-    re.IGNORECASE,
-)
 _EVENING_PATTERN = re.compile(
     r"\b(evening|večer|vecer|noc|night|pm|p\.m\.|\d{1,2}\s*(?:pm|h))\b",
     re.IGNORECASE,
@@ -38,17 +32,14 @@ _EVENING_PATTERN = re.compile(
 
 
 def guest_message_mentions_arrival(action_text: str) -> bool:
-    text = (action_text or "").strip()
-    if not text:
-        return False
-    return bool(_ARRIVAL_PATTERN.search(text))
+    return guest_message_mentions_arrival_for_parking_split(action_text)
 
 
 def guest_message_needs_post_checkin_reply(action_text: str) -> bool:
     text = (action_text or "").strip()
     if not text:
         return False
-    return bool(_ARRIVAL_PATTERN.search(text) or _PARKING_PATTERN.search(text))
+    return guest_message_mentions_arrival_for_parking_split(text) or guest_message_mentions_parking(text)
 
 
 def parse_post_checkin_message_hints(
@@ -57,8 +48,8 @@ def parse_post_checkin_message_hints(
     reservation: Reservation,
 ) -> dict[str, bool]:
     text = (action_text or "").strip()
-    mentions_arrival = bool(_ARRIVAL_PATTERN.search(text))
-    mentions_parking = bool(_PARKING_PATTERN.search(text))
+    mentions_arrival = guest_message_mentions_arrival_for_parking_split(text)
+    mentions_parking = guest_message_mentions_parking(text)
     evening_welcome = False
     if reservation.check_in == property_local_now(reservation.property).date():
         evening_welcome = bool(_EVENING_PATTERN.search(text))

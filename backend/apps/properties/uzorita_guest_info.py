@@ -28,6 +28,23 @@ UZORITA_GUEST_INFO: dict = {
             "ssid": "Uzoritarooms",
             "password": "77777777",
         },
+        "parking": {
+            "has_private": True,
+            "zone_label": "cijela zona (besplatno)",
+            "price_per_day": "0",
+            "currency": "EUR",
+            "large_vehicles_allowed": True,
+            "custom": {
+                "hr": (
+                    "Možete parkirati ispred restorana ako ima mjesta, "
+                    "ili bilo gdje u neposrednoj blizini."
+                ),
+                "en": (
+                    "You may park in front of the restaurant if there is space, "
+                    "or anywhere nearby."
+                ),
+            },
+        },
     },
     "texts": dict(DEFAULT_TEXTS),
 }

@@ -101,12 +101,31 @@ class PropertyAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                     "after_hours_arrival_policy",
                     "after_hours_contact_phone",
                     "guest_arrival_auto_reply_enabled",
+                    "guest_parking_auto_reply_enabled",
                 ),
                 "description": (
                     "Prozor dolaska za auto-odgovore gostu. "
                     "check_in_latest_time = zadnji sat samostalnog ulaska; "
                     "after_hours policy određuje odgovor izvan prozora."
                 ),
+            },
+        ),
+        (
+            "Parking za goste",
+            {
+                "fields": (
+                    "parking_has_private",
+                    "parking_zone_label",
+                    "parking_price_per_day",
+                    "parking_currency",
+                    "parking_price_notes",
+                    "parking_reservation_required",
+                    "parking_ev_charging",
+                    "parking_large_vehicles_allowed",
+                    "parking_custom_hr",
+                    "parking_custom_en",
+                ),
+                "description": "Strukturirani podaci za auto-odgovore o parkiranju. Sprema se u guest_info.",
             },
         ),
         (
