@@ -199,6 +199,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 900.0,
         "kwargs": {"tenant_slug": "uzorita"},
     },
+    "channex-booking-revisions-feed": {
+        "task": "apps.integrations.channex.booking_tasks.process_channex_booking_revisions_feed_periodic",
+        "schedule": 900.0,
+        "kwargs": {"tenant_slug": "uzorita"},
+    },
     "channex-reviews-periodic": {
         "task": "apps.integrations.channex.review_tasks.sync_channex_reviews_periodic",
         "schedule": 21600.0,

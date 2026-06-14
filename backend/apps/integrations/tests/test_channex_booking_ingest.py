@@ -218,6 +218,53 @@ class ChannexBookingIngestTests(TestCase):
         self.assertEqual(reservation.status, Reservation.Status.CANCELED)
         self.assertIsNotNone(reservation.canceled_at)
 
+    @patch(
+        "apps.integrations.channex.reservation_availability_service.push_channex_inventory_after_ingest"
+    )
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_cancelled_revision_without_dates_preserves_units(
+        self, mock_client_cls, mock_push_inventory
+    ):
+        """B.com cancel payloads often drop arrival/departure and rooms."""
+        mock_client = MagicMock()
+        mock_client.get_booking_revision.return_value = self.revision_payload
+        mock_client_cls.return_value = mock_client
+
+        reservation = process_channex_booking_revision(
+            self.integration,
+            "active-revision-id",
+        )
+        unit = self.unit
+        ReservationUnit.objects.filter(reservation=reservation).update(unit=unit)
+
+        cancelled = dict(self.revision_payload)
+        cancelled["id"] = "cancel-revision-id"
+        cancelled["attributes"] = {
+            **self.revision_payload["attributes"],
+            "status": "cancelled",
+            "arrival_date": None,
+            "departure_date": None,
+            "rooms": [],
+            "occupancy": {"adults": 0, "children": 0, "infants": 0},
+            "amount": "0.00",
+        }
+        mock_client.get_booking_revision.return_value = cancelled
+
+        updated = process_channex_booking_revision(
+            self.integration,
+            "cancel-revision-id",
+        )
+
+        self.assertEqual(updated.pk, reservation.pk)
+        self.assertEqual(updated.status, Reservation.Status.CANCELED)
+        self.assertEqual(updated.check_in, reservation.check_in)
+        self.assertEqual(updated.check_out, reservation.check_out)
+        self.assertEqual(
+            ReservationUnit.objects.filter(reservation=updated, unit=unit).count(),
+            1,
+        )
+        mock_push_inventory.assert_called()
+
     @patch("apps.integrations.channex.booking_service.ChannexClient")
     def test_ingest_stores_infants_separately_from_persons_count(self, mock_client_cls):
         payload = dict(self.revision_payload)

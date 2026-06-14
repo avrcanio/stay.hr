@@ -49,7 +49,9 @@ def should_preserve_units_on_channex_ingest(
         Reservation.Status.CANCELED,
         Reservation.Status.NO_SHOW,
     }:
-        return False
+        # Booking.com cancel revisions often omit dates and rooms; keep units for ARI reopen.
+        mapped = _count_mapped_units(reservation)
+        return mapped > 0 and channex_rooms_count == 0
     mapped = _count_mapped_units(reservation)
     return mapped > 0 and channex_rooms_count < mapped
 

@@ -267,6 +267,15 @@ def _upsert_reservation_from_revision(
 
     check_in = _parse_date(attrs.get("arrival_date"))
     check_out = _parse_date(attrs.get("departure_date"))
+
+    existing_for_dates = Reservation.objects.filter(
+        tenant=tenant,
+        external_id=channex_external_id(booking_id),
+    ).first()
+    if not check_in or not check_out:
+        if existing_for_dates is not None:
+            check_in = check_in or existing_for_dates.check_in
+            check_out = check_out or existing_for_dates.check_out
     if not check_in or not check_out:
         raise ChannexBookingIngestError("Booking revision missing arrival/departure dates.")
 
