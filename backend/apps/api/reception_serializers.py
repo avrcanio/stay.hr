@@ -157,6 +157,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
     check_in_blocked_code = serializers.SerializerMethodField()
     confirmation_pdf_url = serializers.SerializerMethodField()
     invoice_summary = serializers.SerializerMethodField()
+    expected_arrival_at = serializers.SerializerMethodField()
     property_slug = serializers.CharField(source="property.slug", read_only=True)
     property_name = serializers.CharField(source="property.name", read_only=True)
 
@@ -213,8 +214,14 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
             "check_in_blocked_code",
             "guest_stated_arrival_text",
             "guest_stated_arrival_at",
+            "expected_arrival_at",
             "invoice_summary",
         )
+
+    def get_expected_arrival_at(self, obj):
+        from apps.core.timezone import effective_guest_stated_arrival_at
+
+        return effective_guest_stated_arrival_at(obj)
 
     def get_primary_guest_name(self, obj):
         primary_guest = next((g for g in obj.guests.all() if g.is_primary), None)
