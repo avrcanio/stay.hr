@@ -5,9 +5,9 @@ Omogućuje unos **povijesnih** prihoda, provizija i noćenja po mjesecu kada u b
 ## Ponašanje
 
 1. API `GET /api/v1/reception/statistics/monthly/?year=YYYY`:
-   - **`current.revenue` / `nights`** — **realizirano**: `checked_in` + `checked_out` (check-in u tekućoj godini).
-   - **`current.reserved_*`** — **rezervirano**: sve osim `canceled` (`expected` + `checked_in` + `checked_out`) za check-in u tekućoj godini.
-   - **`current.canceled_*`** — **otkazano**: `canceled` po check-in u tekućoj godini.
+   - **`current.revenue` / `nights`** — **realizirano**: `checked_in` + `checked_out` + `no_show` (check-in u tekućoj godini).
+   - **`current.reserved_*`** — **ukupne rezervacije**: sve osim `canceled` (`expected` + `checked_in` + `checked_out` + `no_show`) za check-in u tekućoj godini.
+   - **`current.canceled_*`** — **otkazano**: `canceled` po check-in u tekućoj godini (ne uključuje `no_show`).
    - **`previous.revenue` / `nights`** — realizirano za prošlu godinu (ili override).
    - **`previous.prior_*`** — realizirano za godinu **−2** (npr. 2024 kad je `year=2026`; YoY na stupcu 2025).
    - **`previous.canceled_*`** — otkazano u prošloj godini (YoY otkazano: tekuća vs prošla).
@@ -15,7 +15,7 @@ Omogućuje unos **povijesnih** prihoda, provizija i noćenja po mjesecu kada u b
    - **`active_units`** — broj aktivnih soba (`Unit.is_active=True`) za tenant.
    - **`capacity_room_nights`** — `active_units × dani_u_mjesecu` (kalendar kapacitet).
    - **`occupied_room_nights`** — realizirane soba-noći (`checked_in` + `checked_out`) po kalendaru noći u mjesecu.
-   - **`reserved_room_nights`** — bookirane soba-noći (`expected` + `checked_in` + `checked_out`) po kalendaru noći u mjesecu.
+   - **`reserved_room_nights`** — bookirane soba-noći (`expected` + `checked_in` + `checked_out` + `no_show`) po kalendaru noći u mjesecu.
    - **`occupancy_*_pct`** — postotak zauzetosti u odnosu na `capacity_room_nights`.
 2. Ako postoji zapis **`MonthlyStatisticsOverride`** za `(tenant, godina, mjesec)`, te vrijednosti **potpuno zamjenjuju** realizirani zbroj (`revenue`, `commission`, `nights`) za taj mjesec — **ne** diraju `reserved_*` niti occupancy polja.
 

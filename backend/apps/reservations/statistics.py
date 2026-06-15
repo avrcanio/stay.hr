@@ -18,11 +18,13 @@ DEFAULT_CURRENCY = "EUR"
 _REALIZED_STATUSES = [
     Reservation.Status.CHECKED_IN,
     Reservation.Status.CHECKED_OUT,
+    Reservation.Status.NO_SHOW,
 ]
 _RESERVED_STATUSES = [
     Reservation.Status.EXPECTED,
     Reservation.Status.CHECKED_IN,
     Reservation.Status.CHECKED_OUT,
+    Reservation.Status.NO_SHOW,
 ]
 
 

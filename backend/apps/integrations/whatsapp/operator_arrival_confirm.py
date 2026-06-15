@@ -116,6 +116,15 @@ def _start_of_property_day(reservation: Reservation):
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
+def _is_checkin_day(reservation: Reservation) -> bool:
+    """True when reservation.check_in is today in property-local timezone."""
+    return reservation.check_in == property_local_now(reservation.property).date()
+
+
+def _guest_reported_arrival(reservation: Reservation) -> bool:
+    return bool(reservation.guest_stated_arrival_text.strip()) or reservation.guest_stated_arrival_at is not None
+
+
 def _should_skip_arrival_prompt(reservation: Reservation) -> str | None:
     from apps.integrations.whatsapp.apply_reply import is_whatsapp_autocheckin_waived
 
@@ -127,11 +136,13 @@ def _should_skip_arrival_prompt(reservation: Reservation) -> str | None:
         return reservation.status
     if is_whatsapp_autocheckin_waived(reservation):
         return "waived"
+    if not _is_checkin_day(reservation):
+        return "not_checkin_day"
     return None
 
 
 def _close_obsolete_arrival_sessions(*, tenant_id: int | None = None, reservation_id: int | None = None) -> int:
-    """Close open arrival sessions when reservation is no longer expected."""
+    """Close open arrival sessions when reservation is no longer expected or not on check-in day."""
     terminal_reservation_statuses = {
         Reservation.Status.CHECKED_IN,
         Reservation.Status.CHECKED_OUT,
@@ -142,7 +153,8 @@ def _close_obsolete_arrival_sessions(*, tenant_id: int | None = None, reservatio
         WhatsAppArrivalConfirmSessionStatus.AWAITING_TIME,
     }
     qs = WhatsAppArrivalConfirmSession.objects.filter(status__in=open_statuses).select_related(
-        "reservation"
+        "reservation",
+        "reservation__property",
     )
     if tenant_id is not None:
         qs = qs.filter(tenant_id=tenant_id)
@@ -151,11 +163,11 @@ def _close_obsolete_arrival_sessions(*, tenant_id: int | None = None, reservatio
 
     closed = 0
     for session in qs:
-        if session.reservation.status not in terminal_reservation_statuses:
-            continue
-        session.status = WhatsAppArrivalConfirmSessionStatus.DONE
-        session.save(update_fields=["status", "updated_at"])
-        closed += 1
+        reservation = session.reservation
+        if reservation.status in terminal_reservation_statuses or not _is_checkin_day(reservation):
+            session.status = WhatsAppArrivalConfirmSessionStatus.DONE
+            session.save(update_fields=["status", "updated_at"])
+            closed += 1
     return closed
 
 
@@ -211,7 +223,10 @@ def _build_arrival_confirm_prompt_body(reservation: Reservation) -> str:
         f"#{reservation.pk} · soba {room} · {reservation.booker_name} · {code}",
     ]
     if guest_plan:
-        lines.append(f"Gost javio: {guest_plan}")
+        if _guest_reported_arrival(reservation):
+            lines.append(f"Gost javio: {guest_plan}")
+        else:
+            lines.append(f"Planirani check-in: {guest_plan}")
     lines.append("Došli svi gosti?")
     return "\n".join(lines)
 

@@ -32,6 +32,11 @@ from apps.reservations.models import (
 logger = logging.getLogger(__name__)
 
 SESSION_TTL = timedelta(hours=24)
+
+
+def _skip_auto_reply(*, reason: str) -> dict:
+    """No WhatsApp auto-reply when we cannot answer the guest's message."""
+    return {"status": "auto_reply_skipped", "reason": reason}
 GUEST_AUTO_CHECKIN_BUTTON_ID = "guest_auto_checkin"
 
 _GUEST_AUTO_CHECKIN_BUTTON_TITLE = {
@@ -123,42 +128,6 @@ _BOOKING_MATCHED_NOT_CHECKIN_DAY = {
         "Nous avons trouvé la réservation {booking_code} ({check_in}–{check_out}) "
         "à {property_name}.\n\n"
         "L’enregistrement en ligne (Auto check-in) sera disponible le jour d’arrivée ({check_in})."
-    ),
-}
-
-_BOOKING_DOCS_ALREADY_RECEIVED = {
-    "hr": (
-        "Vaši dokumenti su već primljeni. Javite nam ako trebate parking ili upute za dolazak."
-    ),
-    "en": (
-        "We already have your documents. Let us know if you need parking or arrival directions."
-    ),
-    "de": (
-        "Ihre Dokumente sind bereits erfasst. Melden Sie sich bei Fragen zu Parken oder Ankunft."
-    ),
-    "es": (
-        "Ya tenemos sus documentos. Avísenos si necesita parking o indicaciones de llegada."
-    ),
-    "fr": (
-        "Vos documents sont déjà enregistrés. Contactez-nous pour le parking ou l’accès."
-    ),
-}
-
-_BOOKING_ALREADY_HANDLED = {
-    "hr": (
-        "Vaš check-in je već riješen. Javite nam samo okvirno vrijeme dolaska ako još niste."
-    ),
-    "en": (
-        "Your check-in is already complete. Please share your approximate arrival time if you have not yet."
-    ),
-    "de": (
-        "Ihr Check-in ist bereits erledigt. Teilen Sie uns bitte Ihre Ankunftszeit mit, falls noch nicht geschehen."
-    ),
-    "es": (
-        "Su check-in ya está completado. Indíquenos su hora de llegada si aún no lo ha hecho."
-    ),
-    "fr": (
-        "Votre enregistrement est déjà fait. Indiquez votre heure d’arrivée si ce n’est pas encore fait."
     ),
 }
 
@@ -497,28 +466,14 @@ def _handle_matched_reservation(
     if is_whatsapp_autocheckin_waived(reservation):
         if guest_message_mentions_arrival(action_text) and not arrival_thanks_sent_today(reservation):
             return send_arrival_thanks_only(row=row, reservation=reservation)
-        body = _text_for_lang(_BOOKING_ALREADY_HANDLED, lang)
-        return _send_whatsapp_text(
-            integration_row=integration_row,
-            runtime=runtime,
-            row=row,
-            reservation=reservation,
-            body=body,
-        )
+        return {"status": "skipped", "reason": "autocheckin_waived"}
 
     if (
         reservation.status == Reservation.Status.EXPECTED
         and is_document_checkin_complete(reservation)
     ):
         if docs_awaiting_arrival_already_sent(reservation):
-            body = _text_for_lang(_BOOKING_DOCS_ALREADY_RECEIVED, lang)
-            return _send_whatsapp_text(
-                integration_row=integration_row,
-                runtime=runtime,
-                row=row,
-                reservation=reservation,
-                body=body,
-            )
+            return _skip_auto_reply(reason="no_matching_handler")
 
     if is_guest_checkin_acknowledged(reservation):
         if (
@@ -533,14 +488,7 @@ def _handle_matched_reservation(
                 reservation=reservation,
                 **hints,
             )
-        body = _text_for_lang(_BOOKING_DOCS_ALREADY_RECEIVED, lang)
-        return _send_whatsapp_text(
-            integration_row=integration_row,
-            runtime=runtime,
-            row=row,
-            reservation=reservation,
-            body=body,
-        )
+        return _skip_auto_reply(reason="no_matching_handler")
 
     mark_autocheckin_engaged(reservation)
     if _is_autocheckin_day(reservation):

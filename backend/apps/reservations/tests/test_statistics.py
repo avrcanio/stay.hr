@@ -126,8 +126,31 @@ class MonthlyStatisticsTests(TestCase):
         may = next(m for m in payload["months"] if m["month"] == 5)
         self.assertEqual(may["current"]["canceled_revenue"], "400.00")
         self.assertEqual(may["current"]["canceled_nights"], 4)
+        self.assertEqual(may["current"]["revenue"], "0.00")
         self.assertEqual(may["previous"]["canceled_revenue"], "200.00")
         self.assertEqual(may["previous"]["canceled_nights"], 2)
+
+    def test_no_show_counts_as_realized_revenue(self):
+        unit = self._create_unit("R3")
+        reservation = self._create_reservation(
+            check_in=date(2026, 6, 13),
+            amount=Decimal("89.00"),
+            status=Reservation.Status.NO_SHOW,
+            nights=1,
+        )
+        self._link_unit(reservation, unit)
+        payload = aggregate_monthly_statistics(self.tenant, 2026)
+        june = next(m for m in payload["months"] if m["month"] == 6)
+        self.assertEqual(june["current"]["revenue"], "89.00")
+        self.assertEqual(june["current"]["commission"], "10.00")
+        self.assertEqual(june["current"]["nights"], 1)
+        self.assertEqual(june["current"]["canceled_revenue"], "0.00")
+        self.assertEqual(june["current"]["canceled_nights"], 0)
+        self.assertEqual(june["current"]["reserved_revenue"], "89.00")
+        self.assertEqual(june["current"]["reserved_commission"], "10.00")
+        self.assertEqual(june["current"]["reserved_nights"], 1)
+        self.assertEqual(june["current"]["reserved_room_nights"], 1)
+        self.assertEqual(june["current"]["occupied_room_nights"], 0)
 
     def test_prior_year_realized_on_previous_bucket(self):
         self._create_reservation(

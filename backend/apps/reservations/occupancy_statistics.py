@@ -20,6 +20,7 @@ _RESERVED_STATUSES = [
     Reservation.Status.EXPECTED,
     Reservation.Status.CHECKED_IN,
     Reservation.Status.CHECKED_OUT,
+    Reservation.Status.NO_SHOW,
 ]
 
 
