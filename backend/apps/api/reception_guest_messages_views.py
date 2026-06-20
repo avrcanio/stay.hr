@@ -256,6 +256,9 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
         payload = serialize_outbound(outbound)
         if channel == GuestMessageChannel.WHATSAPP:
             payload["wa_me_url"] = outbound.wa_me_url
+            handoff_reason = getattr(outbound, "handoff_reason", None)
+            if handoff_reason:
+                payload["handoff_reason"] = handoff_reason
         payload["edited"] = draft.edited
         return Response(payload, status=status.HTTP_201_CREATED)
 

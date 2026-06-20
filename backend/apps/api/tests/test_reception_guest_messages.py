@@ -1,12 +1,17 @@
 from decimal import Decimal
 import os
+from datetime import timedelta
 from io import BytesIO
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
+from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
+
+from apps.integrations.tests.test_whatsapp_webhook import TEST_FERNET_KEY
+from apps.integrations.whatsapp.client import WhatsAppApiError
 
 from apps.properties.models import Property, Unit
 from apps.reservations.models import Guest, Reservation, ReservationUnit
@@ -816,6 +821,307 @@ class ReceptionGuestMessagesAPITests(TestCase):
         timeline = self.client.get(f"{self.base}/", **self.auth)
         self.assertEqual(len(timeline.json()), 1)
         self.assertEqual(timeline.json()[0]["message_type"], "image")
+
+    def test_message_channels_includes_reply_channel(self):
+        from apps.integrations.models import IntegrationConfig, WhatsAppMessage
+
+        integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.WHATSAPP,
+            routing_key="1068791909660300",
+            is_active=True,
+        )
+        WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=integration,
+            reservation=self.reservation,
+            wamid="wamid.in.reply-ch",
+            wa_id="491701234567",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="Latest guest message",
+            raw_payload={},
+        )
+
+        response = self.client.get(f"{self.base}/channels/", **self.auth)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["reply_channel"], "whatsapp")
+        self.assertEqual(data["default_channel"], "email")
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_compose_reply_defaults_to_booking_after_inbound(self):
+        from apps.integrations.channex.booking_service import channex_external_id
+        from apps.integrations.models import ChannexMessage, IntegrationConfig
+        from apps.tenants.models import ChannelManager, TenantReceptionSettings
+
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        TenantReceptionSettings.objects.create(
+            tenant=self.tenant,
+            channel_manager=ChannelManager.CHANNEX,
+        )
+        IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.CHANNEX,
+            is_active=True,
+        )
+        self.reservation.import_source = "channex"
+        self.reservation.external_id = channex_external_id("test-booking-uuid")
+        self.reservation.save(update_fields=["import_source", "external_id"])
+
+        ChannexMessage.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            channex_booking_id="test-booking-uuid",
+            channex_message_id="msg-in-reply",
+            direction=ChannexMessage.Direction.INBOUND,
+            sender=ChannexMessage.Sender.GUEST,
+            body="Question from Booking.com",
+        )
+
+        response = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "reply"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["channels"]["reply_channel"], "booking")
+        self.assertEqual(data["channels"]["default_channel"], "booking")
+
+    def test_last_inbound_channel_for_reply(self):
+        from apps.communications.guest_message_send import last_inbound_channel_for_reply
+        from apps.integrations.models import IntegrationConfig, WhatsAppMessage
+
+        self.assertEqual(last_inbound_channel_for_reply(self.reservation), "")
+
+        integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.WHATSAPP,
+            routing_key="1068791909660300",
+            is_active=True,
+        )
+        WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=integration,
+            reservation=self.reservation,
+            wamid="wamid.in.unit",
+            wa_id="491701234567",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="Hello",
+            raw_payload={},
+        )
+        self.assertEqual(last_inbound_channel_for_reply(self.reservation), "whatsapp")
+
+    def test_guest_whatsapp_session_open(self):
+        from apps.communications.guest_message_send import guest_whatsapp_session_open
+        from apps.integrations.models import IntegrationConfig, WhatsAppMessage
+
+        integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.WHATSAPP,
+            routing_key="1068791909660300",
+            is_active=True,
+        )
+        self.assertFalse(guest_whatsapp_session_open(self.reservation))
+
+        WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=integration,
+            reservation=self.reservation,
+            wamid="wamid.in.old",
+            wa_id="491701234567",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="Old hello",
+            raw_payload={},
+        )
+        old = WhatsAppMessage.objects.get(wamid="wamid.in.old")
+        WhatsAppMessage.objects.filter(pk=old.pk).update(
+            created_at=timezone.now() - timedelta(hours=25),
+        )
+        self.assertFalse(guest_whatsapp_session_open(self.reservation))
+
+        WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=integration,
+            reservation=self.reservation,
+            wamid="wamid.in.fresh",
+            wa_id="491701234567",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="Fresh hello",
+            raw_payload={},
+        )
+        self.assertTrue(guest_whatsapp_session_open(self.reservation))
+
+    def _create_whatsapp_integration(self):
+        from apps.integrations.models import IntegrationConfig
+
+        integration = IntegrationConfig.objects.create(
+            tenant=self.tenant,
+            provider=IntegrationConfig.Provider.WHATSAPP,
+            routing_key="1068791909660300",
+            is_active=True,
+        )
+        integration.set_config_dict(
+            {
+                "provider": "360dialog",
+                "phone_number_id": "1068791909660300",
+                "access_token": "test-d360-key",
+                "api_base_url": "https://waba-v2.360dialog.io",
+            }
+        )
+        integration.save()
+        return integration
+
+    @override_settings(STAY_INTEGRATION_FERNET_KEY=TEST_FERNET_KEY)
+    @patch.dict(os.environ, {"D360_API_KEY": "test-d360-key"}, clear=False)
+    @patch("apps.communications.guest_message_send.send_text_message")
+    def test_send_whatsapp_api_no_session_handoff(self, mock_send):
+        from apps.integrations.models import WhatsAppMessage
+
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        integration = self._create_whatsapp_integration()
+        stale = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=integration,
+            reservation=self.reservation,
+            wamid="wamid.in.stale",
+            wa_id="491701234567",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="Stale",
+            raw_payload={},
+        )
+        WhatsAppMessage.objects.filter(pk=stale.pk).update(
+            created_at=timezone.now() - timedelta(hours=30),
+        )
+
+        compose = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "checkin"},
+            format="json",
+            **self.auth,
+        )
+        draft_id = compose.json()["draft_id"]
+        body = "Follow-up after stale session"
+
+        response = self.client.post(
+            f"{self.base}/send/",
+            {
+                "draft_id": draft_id,
+                "channel": "whatsapp",
+                "body_text": body,
+            },
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["status"], "handoff_whatsapp")
+        self.assertEqual(data["handoff_reason"], "no_session")
+        self.assertIn("wa.me/491701234567", data["wa_me_url"])
+        mock_send.assert_not_called()
+
+    @override_settings(STAY_INTEGRATION_FERNET_KEY=TEST_FERNET_KEY)
+    @patch.dict(os.environ, {"D360_API_KEY": "test-d360-key"}, clear=False)
+    @patch("apps.communications.guest_message_send.send_text_message")
+    def test_send_whatsapp_api_with_session_sent(self, mock_send):
+        from apps.integrations.models import WhatsAppMessage
+
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        mock_send.return_value = {"messages": [{"id": "wamid.out.sent"}]}
+        integration = self._create_whatsapp_integration()
+        WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=integration,
+            reservation=self.reservation,
+            wamid="wamid.in.fresh",
+            wa_id="491701234567",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="Fresh inbound",
+            raw_payload={},
+        )
+
+        compose = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "reply"},
+            format="json",
+            **self.auth,
+        )
+        draft_id = compose.json()["draft_id"]
+        body = "Reply within session"
+
+        response = self.client.post(
+            f"{self.base}/send/",
+            {
+                "draft_id": draft_id,
+                "channel": "whatsapp",
+                "body_text": body,
+            },
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["status"], "sent")
+        mock_send.assert_called_once()
+
+    @override_settings(STAY_INTEGRATION_FERNET_KEY=TEST_FERNET_KEY)
+    @patch.dict(os.environ, {"D360_API_KEY": "test-d360-key"}, clear=False)
+    @patch("apps.communications.guest_message_send.send_text_message")
+    def test_send_whatsapp_api_session_error_handoff(self, mock_send):
+        from apps.integrations.models import WhatsAppMessage
+
+        os.environ.pop("GUEST_COMPOSE_LLM_API_KEY", None)
+        mock_send.side_effect = WhatsAppApiError("WhatsApp API error 400: 131047 Re-engagement message")
+        integration = self._create_whatsapp_integration()
+        WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=integration,
+            reservation=self.reservation,
+            wamid="wamid.in.open",
+            wa_id="491701234567",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="Recent inbound",
+            raw_payload={},
+        )
+
+        compose = self.client.post(
+            f"{self.base}/compose/",
+            {"intent": "reply"},
+            format="json",
+            **self.auth,
+        )
+        draft_id = compose.json()["draft_id"]
+
+        response = self.client.post(
+            f"{self.base}/send/",
+            {
+                "draft_id": draft_id,
+                "channel": "whatsapp",
+                "body_text": "Session closed by API",
+            },
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["status"], "handoff_whatsapp")
+        self.assertEqual(data["handoff_reason"], "api_session_error")
+        self.assertIn("wa.me/491701234567", data["wa_me_url"])
 
     @patch("apps.integrations.channex.message_service.ChannexClient")
     def test_send_image_booking(self, mock_client_cls):

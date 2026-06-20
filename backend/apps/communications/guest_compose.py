@@ -29,7 +29,7 @@ from apps.communications.guest_compose_language import (
     compose_language_for_reservation,
 )
 from apps.communications.guest_email import _email_context
-from apps.communications.guest_message_send import build_message_channels
+from apps.communications.guest_message_send import build_message_channels, channels_with_reply_default
 from apps.communications.models import GuestMessageDraft, GuestMessageIntent
 from apps.integrations.models import ChannexMessage, WhatsAppMessage
 from apps.reservations.document_intake_sides import MissingIdSide
@@ -1072,7 +1072,11 @@ def create_draft_from_body_text(
         raise ValueError("body_text is required")
 
     lang = _lang_key(reservation, None)
-    channels = build_message_channels(reservation)
+    channels = channels_with_reply_default(
+        reservation,
+        build_message_channels(reservation),
+        intent=GuestMessageIntent.CUSTOM,
+    )
     draft = GuestMessageDraft.objects.create(
         tenant_id=reservation.tenant_id,
         reservation=reservation,
@@ -1104,7 +1108,11 @@ def compose_guest_message(
 
     body, llm_used, model_name = _generate_body(reservation, intent, hint, language)
     lang = _lang_key(reservation, language)
-    channels = build_message_channels(reservation)
+    channels = channels_with_reply_default(
+        reservation,
+        build_message_channels(reservation),
+        intent=intent,
+    )
 
     draft = GuestMessageDraft.objects.create(
         tenant_id=reservation.tenant_id,

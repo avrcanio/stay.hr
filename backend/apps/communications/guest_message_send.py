@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import quote
 
 from django.conf import settings
 from django.core.files.base import ContentFile
-
+from django.db.models import Q
 from django.core.mail import EmailMultiAlternatives
 from django.utils import timezone
 
+from apps.communications.guest_message_timeline import last_timeline_entry
 from apps.communications.guest_email import (
     _email_context,
     _guest_recipient,
@@ -99,6 +101,81 @@ def _booking_channel_available(reservation: Reservation) -> bool:
     ).exists()
 
 
+def _reply_channel_from_last_inbound(
+    reservation: Reservation,
+    *,
+    email_available: bool,
+    whatsapp_available: bool,
+    booking_available: bool,
+) -> str:
+    entry = last_timeline_entry(reservation)
+    if not entry or entry.get("direction") != "inbound":
+        return ""
+    channel = (entry.get("channel") or "").strip()
+    if channel == GuestMessageChannel.EMAIL and email_available:
+        return GuestMessageChannel.EMAIL
+    if channel == GuestMessageChannel.WHATSAPP and whatsapp_available:
+        return GuestMessageChannel.WHATSAPP
+    if channel == GuestMessageChannel.BOOKING and booking_available:
+        return GuestMessageChannel.BOOKING
+    return ""
+
+
+def last_inbound_channel_for_reply(reservation: Reservation) -> str:
+    """Last inbound timeline channel when available for outbound reply."""
+    channels = build_message_channels(reservation)
+    return (channels.get("reply_channel") or "").strip()
+
+
+def guest_whatsapp_session_open(reservation: Reservation) -> bool:
+    """True when guest sent inbound WhatsApp within the 24h customer-care window."""
+    phone_wa = normalize_phone(guest_phone_number(reservation))
+    if not phone_wa:
+        return False
+    cutoff = timezone.now() - timedelta(hours=24)
+    return (
+        WhatsAppMessage.objects.filter(
+            tenant_id=reservation.tenant_id,
+            direction=WhatsAppMessage.Direction.INBOUND,
+            created_at__gte=cutoff,
+        )
+        .filter(Q(reservation=reservation) | Q(wa_id=phone_wa))
+        .exists()
+    )
+
+
+def _is_whatsapp_session_api_error(exc: WhatsAppApiError) -> bool:
+    msg = str(exc).lower()
+    markers = (
+        "131047",
+        "re-engagement",
+        "reengagement",
+        "24 hour",
+        "24-hour",
+        "outside",
+        "session",
+        "window",
+    )
+    return any(marker in msg for marker in markers)
+
+
+def channels_with_reply_default(
+    reservation: Reservation,
+    channels: dict,
+    *,
+    intent: str,
+) -> dict:
+    """For reply compose, prefer the last inbound channel as default."""
+    if intent != GuestMessageIntent.REPLY:
+        return channels
+    reply_channel = (channels.get("reply_channel") or "").strip()
+    if not reply_channel:
+        return channels
+    updated = dict(channels)
+    updated["default_channel"] = reply_channel
+    return updated
+
+
 def build_message_channels(reservation: Reservation) -> dict:
     email = _guest_recipient(reservation)
     phone_raw = guest_phone_number(reservation)
@@ -123,6 +200,13 @@ def build_message_channels(reservation: Reservation) -> dict:
     else:
         default_channel = ""
 
+    reply_channel = _reply_channel_from_last_inbound(
+        reservation,
+        email_available=email_available,
+        whatsapp_available=whatsapp_available,
+        booking_available=booking_available,
+    )
+
     return {
         "email": {
             "available": email_available,
@@ -139,6 +223,7 @@ def build_message_channels(reservation: Reservation) -> dict:
             "available": booking_available,
         },
         "default_channel": default_channel,
+        "reply_channel": reply_channel,
     }
 
 
@@ -343,6 +428,14 @@ def _send_whatsapp_channel(
         and is_360dialog_provider(runtime.provider)
         and runtime.send_credentials_ok()
     ):
+        if not guest_whatsapp_session_open(reservation):
+            return _send_whatsapp_handoff(
+                reservation=reservation,
+                draft=draft,
+                body_text=body_text,
+                api_application=api_application,
+                handoff_reason="no_session",
+            )
         return _send_whatsapp_api(
             reservation=reservation,
             draft=draft,
@@ -394,6 +487,15 @@ def _send_whatsapp_api(
             api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
+        if _is_whatsapp_session_api_error(exc):
+            outbound.delete()
+            return _send_whatsapp_handoff(
+                reservation=reservation,
+                draft=draft,
+                body_text=body_text,
+                api_application=api_application,
+                handoff_reason="api_session_error",
+            )
         outbound.status = GuestOutboundMessageStatus.FAILED
         outbound.error_message = str(exc)
         outbound.save(update_fields=["status", "error_message"])
@@ -446,6 +548,8 @@ def send_guest_whatsapp_image(
     phone_wa = normalize_phone(phone_raw)
     if not phone_wa:
         raise ValueError("no_phone")
+    if not guest_whatsapp_session_open(reservation):
+        raise ValueError("whatsapp_session_closed")
 
     file_bytes = uploaded_file.read()
     uploaded_file.seek(0)
@@ -743,6 +847,7 @@ def _send_whatsapp_handoff(
     draft: GuestMessageDraft,
     body_text: str,
     api_application: ApiApplication | None,
+    handoff_reason: str = "",
 ) -> GuestOutboundMessage:
     phone_raw = guest_phone_number(reservation)
     phone_wa = normalize_phone(phone_raw)
@@ -767,6 +872,9 @@ def _send_whatsapp_handoff(
     draft.channel = GuestMessageChannel.WHATSAPP
     draft.sent_at = now
     draft.save(update_fields=["final_body_text", "channel", "sent_at"])
+
+    if handoff_reason:
+        outbound.handoff_reason = handoff_reason  # type: ignore[attr-defined]
 
     return outbound
 
