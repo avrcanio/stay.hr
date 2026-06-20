@@ -17,6 +17,7 @@ import {
   isCheckInActionDisabled,
   showCheckInBlockedHint,
 } from "@/lib/checkInEligibility";
+import { LinkifiedText } from "@/lib/linkifyText";
 import { reservationConfirmationPdfPath } from "@/lib/stay-client";
 import {
   allowedNextStatuses,
@@ -320,7 +321,9 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
       {reservation.notes ? (
         <div>
           <h2 className="mb-1 font-semibold">{t("notes")}</h2>
-          <p className="whitespace-pre-wrap text-sm text-muted">{reservation.notes}</p>
+          <LinkifiedText className="whitespace-pre-wrap text-sm text-muted">
+            {reservation.notes}
+          </LinkifiedText>
         </div>
       ) : null}
 
