@@ -213,7 +213,7 @@
     "checkOutSuccess": "Gost je odjavljen.",
     "statusChangeFailed": "Promjena statusa nije uspjela.",
     "checkoutEvisitorHint": "Prije odjave svi punoljetni gosti moraju biti prijavljeni u eVisitor.",
-    "checkInBlockedWrongDate": "Check-in je moguć samo na dan dolaska.",
+    "checkInBlockedWrongDate": "Check-in nije moguć prije dana dolaska.",
     "checkInBlockedRoomOccupied": "Soba je zauzeta — drugi gost je već prijavljen.",
     "checkInBlockedNoUnit": "Rezervacija nema dodijeljenu sobu.",
     "moveDates": "Promijeni datume",

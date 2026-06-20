@@ -174,3 +174,52 @@ class WhatsAppAutocheckinInboundTests(TestCase):
         self.assertEqual(result["status"], "auto_reply_skipped")
         mock_send.assert_not_called()
         mock_doc_task.assert_called_once_with(inbound.pk)
+
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.send_interactive_button_message")
+    @patch("apps.integrations.whatsapp.tasks.send_text_message")
+    def test_autocheckin_during_awaiting_confirm_re_prompts(self, mock_send, mock_interactive):
+        from apps.reservations.models import (
+            DocumentIntakeJob,
+            DocumentIntakeJobStatus,
+            WhatsAppDocumentBatchSession,
+            WhatsAppDocumentBatchStatus,
+        )
+
+        mock_interactive.return_value = {"messages": [{"id": "wamid.out.confirm"}]}
+        job = DocumentIntakeJob.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            status=DocumentIntakeJobStatus.DONE,
+        )
+        WhatsAppDocumentBatchSession.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            job=job,
+            wa_id="385911111111",
+            status=WhatsAppDocumentBatchStatus.AWAITING_CONFIRM,
+            prompt_sent_at=timezone.now(),
+        )
+        inbound = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.in.autocheckin.during.confirm",
+            wa_id="385911111111",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="interactive",
+            body="Autocheck-in",
+            raw_payload={
+                "type": "interactive",
+                "interactive": {
+                    "type": "button_reply",
+                    "button_reply": {"id": "guest_auto_checkin", "title": "Autocheck-in"},
+                },
+            },
+        )
+
+        result = process_inbound_message(inbound.pk)
+
+        self.assertEqual(result["status"], "batch_awaiting_confirm")
+        mock_send.assert_not_called()
+        mock_interactive.assert_called_once()

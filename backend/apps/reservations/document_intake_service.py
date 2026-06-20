@@ -12,8 +12,18 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
-from apps.ai.document_ocr import DocumentOcrError, ocr_configured, run_document_batch_ocr
+from apps.ai.document_ocr import (
+    DocumentOcrError,
+    merge_persons,
+    ocr_configured,
+    run_document_batch_ocr,
+    run_orphan_document_ocr,
+)
 from apps.reservations.document_intake_ocr_fixup import fixup_document_ocr_result
+from apps.reservations.document_intake_preprocess import (
+    dedupe_image_bytes,
+    remap_ocr_indices_to_original,
+)
 from apps.reservations.document_intake_face import crop_face_jpeg, _coerce_bbox_dict
 from apps.reservations.document_intake_match import match_persons_to_guests, normalize_mrz_lines
 from apps.reservations.document_intake_sides import find_id_document_for_side_merge
@@ -44,6 +54,41 @@ def _mime_for_path(path: str) -> str:
     return guessed or "image/jpeg"
 
 
+def should_run_orphan_pass(
+    *,
+    reservation: Reservation | None,
+    persons: list[dict],
+    images: list,
+    ocr_result: dict | None = None,
+) -> bool:
+    """True when a second OCR pass on unassigned images may find missing guests."""
+    from apps.reservations.document_intake_completeness import unassigned_image_indices
+
+    if ocr_result and (ocr_result.get("_orphan_pass") or {}).get("ran"):
+        return False
+    if reservation is None:
+        return False
+    unassigned = unassigned_image_indices(persons=persons, image_count=len(images))
+    adults_count = reservation.adults_count or 0
+    if len(unassigned) >= 2:
+        return True
+    return len(persons) < adults_count and len(unassigned) >= 1
+
+
+def _merge_ocr_images(existing: list, extra: list) -> list:
+    by_index: dict[int, dict] = {}
+    for item in existing + extra:
+        if not isinstance(item, dict):
+            continue
+        try:
+            idx = int(item.get("index", -1))
+        except (TypeError, ValueError):
+            continue
+        if idx >= 0:
+            by_index[idx] = item
+    return [by_index[k] for k in sorted(by_index)]
+
+
 def process_document_intake_job(job_id: int) -> None:
     job = DocumentIntakeJob.objects.prefetch_related("images").get(pk=job_id)
     if job.status == DocumentIntakeJobStatus.APPLIED:
@@ -71,12 +116,72 @@ def process_document_intake_job(job_id: int) -> None:
                 img.image.close()
             mimes.append(_mime_for_path(img.image.name))
 
-        ocr_result = fixup_document_ocr_result(
-            run_document_batch_ocr(image_bytes_list=bytes_list, mime_types=mimes)
+        unique_bytes, unique_to_original, dropped_dupes = dedupe_image_bytes(bytes_list)
+        ocr_input_bytes = unique_bytes if unique_bytes else bytes_list
+        ocr_input_mimes = (
+            [mimes[i] for i in unique_to_original] if unique_to_original else mimes
         )
+
+        ocr_result = fixup_document_ocr_result(
+            run_document_batch_ocr(image_bytes_list=ocr_input_bytes, mime_types=ocr_input_mimes)
+        )
+        if unique_to_original and len(unique_to_original) < len(bytes_list):
+            ocr_result = remap_ocr_indices_to_original(ocr_result, unique_to_original)
+            preprocess = ocr_result.get("_preprocess") or {}
+            if not isinstance(preprocess, dict):
+                preprocess = {}
+            preprocess["dropped_duplicate_indices"] = dropped_dupes
+            ocr_result["_preprocess"] = preprocess
+
         persons = ocr_result.get("persons") or []
         if not isinstance(persons, list):
             persons = []
+
+        reservation = None
+        if job.reservation_id:
+            reservation = Reservation.objects.prefetch_related("guests").get(pk=job.reservation_id)
+
+        if should_run_orphan_pass(
+            reservation=reservation,
+            persons=persons,
+            images=images,
+            ocr_result=ocr_result,
+        ):
+            from apps.reservations.document_intake_completeness import unassigned_image_indices
+
+            unassigned = unassigned_image_indices(persons=persons, image_count=len(images))
+            orphan_result = fixup_document_ocr_result(
+                run_orphan_document_ocr(
+                    image_bytes_list=bytes_list,
+                    mime_types=mimes,
+                    orphan_indices=unassigned,
+                )
+            )
+            extra_persons = orphan_result.get("persons") or []
+            if extra_persons:
+                persons = merge_persons(persons, extra_persons)
+                ocr_result["persons"] = persons
+            ocr_result["images"] = _merge_ocr_images(
+                ocr_result.get("images") or [],
+                orphan_result.get("images") or [],
+            )
+            ocr_result["_orphan_pass"] = {"ran": True, "indices": unassigned}
+
+        from apps.reservations.document_intake_audit import audit_document_intake_persons
+
+        persons, person_audit = audit_document_intake_persons(
+            reservation=reservation,
+            persons=persons,
+            images=images,
+            ocr_result=ocr_result,
+        )
+        if person_audit:
+            ocr_result["persons"] = persons
+            logger.info(
+                "document intake person audit job_id=%s actions=%s",
+                job_id,
+                person_audit,
+            )
 
         ocr_images = ocr_result.get("images") or []
         if isinstance(ocr_images, list):
@@ -96,6 +201,23 @@ def process_document_intake_job(job_id: int) -> None:
             persons=persons,
             reservation_id=job.reservation_id,
         )
+
+        if job.reservation_id and persons:
+            from apps.reservations.document_intake_audit import audit_document_intake_matches
+
+            if reservation is None:
+                reservation = Reservation.objects.prefetch_related("guests").get(pk=job.reservation_id)
+            matches, audit_actions = audit_document_intake_matches(
+                reservation=reservation,
+                persons=persons,
+                matches=matches,
+            )
+            if audit_actions:
+                logger.info(
+                    "document intake audit job_id=%s actions=%s",
+                    job_id,
+                    audit_actions,
+                )
 
         job.ocr_result = ocr_result
         job.matches = matches
@@ -167,6 +289,7 @@ def apply_document_intake_job(
     device_id: str = "",
     request=None,
     whatsapp_reply: bool = True,
+    allow_partial: bool = False,
 ) -> list[dict[str, Any]]:
     """Apply OCR results to guests. selections override auto matches.
 
@@ -203,6 +326,20 @@ def apply_document_intake_job(
     }
 
     applied: list[dict[str, Any]] = []
+    completeness = None
+    if allow_partial and job.reservation_id:
+        from apps.reservations.document_intake_completeness import evaluate_completeness
+
+        reservation = Reservation.objects.prefetch_related("guests__id_documents").get(
+            pk=job.reservation_id,
+            tenant_id=job.tenant_id,
+        )
+        completeness = evaluate_completeness(
+            reservation=reservation,
+            persons=persons,
+            matches=matches,
+            images=images,
+        )
 
     with transaction.atomic():
         for match in matches:
@@ -227,6 +364,11 @@ def apply_document_intake_job(
 
             if not sel and int(guest_id) in previously_applied_guest_ids:
                 continue
+
+            if allow_partial and completeness is not None and not sel:
+                guest_id_int = int(guest_id)
+                if any(g.guest_id == guest_id_int for g in completeness.missing_sides):
+                    continue
 
             guest = Guest.objects.select_related("reservation").get(
                 pk=guest_id,
@@ -253,7 +395,27 @@ def apply_document_intake_job(
             for item in applied:
                 merged_by_guest[int(item["guest_id"])] = item
             job.applied_result = list(merged_by_guest.values())
-        job.status = DocumentIntakeJobStatus.APPLIED
+
+        if allow_partial and job.reservation_id:
+            if completeness is None:
+                from apps.reservations.document_intake_completeness import evaluate_completeness
+
+                reservation = Reservation.objects.prefetch_related("guests__id_documents").get(
+                    pk=job.reservation_id,
+                    tenant_id=job.tenant_id,
+                )
+                completeness = evaluate_completeness(
+                    reservation=reservation,
+                    persons=persons,
+                    matches=matches,
+                    images=images,
+                )
+            if completeness.is_complete:
+                job.status = DocumentIntakeJobStatus.APPLIED
+            else:
+                job.status = DocumentIntakeJobStatus.DONE
+        else:
+            job.status = DocumentIntakeJobStatus.APPLIED
         job.save(update_fields=["applied_result", "status", "updated_at"])
 
     if whatsapp_reply:
@@ -646,6 +808,9 @@ def completeness_to_dict(completeness) -> dict[str, Any]:
             }
             for item in completeness.unmatched_persons
         ],
+        "unassigned_image_indices": list(completeness.unassigned_image_indices),
+        "unassigned_image_count": len(completeness.unassigned_image_indices),
+        "ocr_under_extracted": completeness.ocr_under_extracted,
     }
 
 
@@ -667,7 +832,7 @@ def job_to_dict(job: DocumentIntakeJob, *, request=None) -> dict[str, Any]:
         "whatsapp_message_id": job.whatsapp_message_id,
     }
     persons = ocr_result.get("persons") if isinstance(ocr_result.get("persons"), list) else []
-    if job.reservation_id and persons:
+    if job.reservation_id:
         reservation = (
             Reservation.objects.prefetch_related("guests__id_documents")
             .filter(pk=job.reservation_id, tenant_id=job.tenant_id)
@@ -684,6 +849,8 @@ def job_to_dict(job: DocumentIntakeJob, *, request=None) -> dict[str, Any]:
                 images=images,
             )
             data["completeness"] = completeness_to_dict(completeness)
+            data["unassigned_image_count"] = len(completeness.unassigned_image_indices)
+            data["unassigned_image_indices"] = list(completeness.unassigned_image_indices)
     if request is not None and job.applied_result:
         for item in data["applied"]:
             guest_id = item.get("guest_id")

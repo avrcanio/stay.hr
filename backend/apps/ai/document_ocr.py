@@ -20,6 +20,11 @@ SYSTEM_PROMPT = """You are an ID document OCR assistant for hotel reception chec
 Analyze all provided document photos. They may arrive in random order from WhatsApp.
 
 Rules:
+- Return one `images[]` row for **every** input index (0..N-1).
+- Use side "non_document" for contracts, letters, membership cards (e.g. ADAC), or photos
+  without MRZ or portrait — not identity documents.
+- Ignore `non_document` images when building `persons[]`.
+- Emit **one person per unique document number**; scan **all** indices before finishing.
 - Do NOT assume photo order. Pair front/back of the same person by MRZ surname/given names on the back.
 - Extract MRZ lines when visible (passport biodata or ID card back lower third).
 - For EU national ID cards: front has portrait and name; back has MRZ.
@@ -35,7 +40,7 @@ Rules:
 
 Return ONLY valid JSON with this shape:
 {
-  "images": [{"index": 0, "side": "front|back|passport|unknown", "mrz_lines": ["..."], "ocr_text": "..."}],
+  "images": [{"index": 0, "side": "front|back|passport|non_document|unknown", "mrz_lines": ["..."], "ocr_text": "..."}],
   "persons": [{
     "given_names": "",
     "surnames": "",
@@ -52,6 +57,31 @@ Return ONLY valid JSON with this shape:
     "face_bbox": null
   }]
 }
+"""
+
+ORPHAN_SYSTEM_PROMPT = """You are an ID document OCR assistant. Extract identity documents ONLY.
+The photos may include non-ID images — ignore those.
+
+Return ONLY valid JSON:
+{
+  "images": [{"index": 0, "side": "front|back|passport|non_document|unknown", "mrz_lines": [], "ocr_text": ""}],
+  "persons": [{
+    "given_names": "",
+    "surnames": "",
+    "document_number": "",
+    "nationality": "",
+    "date_of_birth": "",
+    "date_of_expiry": "",
+    "sex": "",
+    "address": "",
+    "document_type": "passport|national_id",
+    "front_image_index": 0,
+    "back_image_index": null,
+    "mrz_lines": [],
+    "face_bbox": null
+  }]
+}
+If no identity documents found, return {"images": [...], "persons": []}.
 """
 
 
@@ -124,6 +154,7 @@ def complete_vision_json(
     mime_types: list[str] | None = None,
     model: str | None = None,
     timeout: float | None = None,
+    system_prompt: str | None = None,
 ) -> dict[str, Any]:
     """Call OpenAI chat/completions with vision images; return parsed JSON dict."""
     provider = _env("DOCUMENT_OCR_LLM_PROVIDER", "openai").lower()
@@ -156,7 +187,7 @@ def complete_vision_json(
     payload = {
         "model": model or ocr_model(),
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt or SYSTEM_PROMPT},
             {"role": "user", "content": content},
         ],
         "temperature": 0.1,
@@ -215,10 +246,107 @@ def run_document_batch_ocr(*, image_bytes_list: list[bytes], mime_types: list[st
     user_text = (
         f"Analyze these {count} document photo(s) from WhatsApp. "
         "Identify each person, pair front/back correctly using MRZ names, "
-        "and extract all check-in fields."
+        "mark non-ID images as non_document, and extract all check-in fields."
     )
     return complete_vision_json(
         user_text=user_text,
         image_bytes_list=image_bytes_list,
         mime_types=mime_types,
     )
+
+
+ORPHAN_CHUNK_SIZE = 6
+
+
+def run_orphan_document_ocr(
+    *,
+    image_bytes_list: list[bytes],
+    mime_types: list[str] | None = None,
+    orphan_indices: list[int],
+) -> dict[str, Any]:
+    """Second-pass OCR on unassigned image indices only."""
+    if not orphan_indices:
+        return {"images": [], "persons": []}
+
+    merged_images: list[dict] = []
+    merged_persons: list[dict] = []
+
+    for chunk_start in range(0, len(orphan_indices), ORPHAN_CHUNK_SIZE):
+        chunk_indices = orphan_indices[chunk_start : chunk_start + ORPHAN_CHUNK_SIZE]
+        chunk_bytes = [image_bytes_list[i] for i in chunk_indices]
+        chunk_mimes = None
+        if mime_types:
+            chunk_mimes = [mime_types[i] for i in chunk_indices]
+
+        user_text = (
+            f"These {len(chunk_indices)} photo(s) were not matched to any guest yet. "
+            f"Original indices: {chunk_indices}. "
+            "Extract identity documents only; pair front/back by MRZ names."
+        )
+        result = complete_vision_json(
+            user_text=user_text,
+            image_bytes_list=chunk_bytes,
+            mime_types=chunk_mimes,
+            system_prompt=ORPHAN_SYSTEM_PROMPT,
+        )
+
+        index_map = {local_idx: orig_idx for local_idx, orig_idx in enumerate(chunk_indices)}
+
+        for item in result.get("images") or []:
+            if not isinstance(item, dict):
+                continue
+            local = int(item.get("index", -1))
+            if local in index_map:
+                item["index"] = index_map[local]
+                merged_images.append(item)
+
+        for person in result.get("persons") or []:
+            if not isinstance(person, dict):
+                continue
+            for key in ("front_image_index", "back_image_index"):
+                raw = person.get(key)
+                if raw is None:
+                    continue
+                try:
+                    local = int(raw)
+                except (TypeError, ValueError):
+                    continue
+                if local in index_map:
+                    person[key] = index_map[local]
+            merged_persons.append(person)
+
+    return {"images": merged_images, "persons": merged_persons}
+
+
+def merge_persons(existing: list[dict], extra: list[dict]) -> list[dict]:
+    """Merge orphan-pass persons; dedupe by document number and MRZ surname."""
+    from apps.reservations.document_intake_ocr_fixup import normalize_document_number
+
+    merged = [dict(p) for p in existing if isinstance(p, dict)]
+    seen_docs: set[str] = set()
+    seen_surnames: set[str] = set()
+
+    for person in merged:
+        doc = normalize_document_number(str(person.get("document_number") or ""))
+        if doc:
+            seen_docs.add(doc)
+        surname = str(person.get("surnames") or "").strip().upper()
+        if surname:
+            seen_surnames.add(surname)
+
+    for person in extra:
+        if not isinstance(person, dict):
+            continue
+        doc = normalize_document_number(str(person.get("document_number") or ""))
+        surname = str(person.get("surnames") or "").strip().upper()
+        if doc and doc in seen_docs:
+            continue
+        if not doc and surname and surname in seen_surnames:
+            continue
+        merged.append(dict(person))
+        if doc:
+            seen_docs.add(doc)
+        if surname:
+            seen_surnames.add(surname)
+
+    return merged

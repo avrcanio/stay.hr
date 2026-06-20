@@ -9,13 +9,17 @@ Operativna pravila za WhatsApp / Hospira batch OCR (`document-intake` API). Ažu
 ## Što sustav radi automatski (nakon popravka)
 
 1. **Batch OCR** — do 20 slika u jednom jobu; LLM vraća `persons[]` (uparene prednja/stražnja strana).
-2. **Matching** — po osobi:
+2. **Pre-OCR dedup** — identične slike (byte hash) se šalju LLM-u samo jednom; duplikati se bilježe u `ocr_result._preprocess.dropped_duplicate_indices`.
+3. **non_document** — ugovori, pisma, članice (ADAC) označavaju se u `images[]`; ne ulaze u `persons[]`.
+4. **Orphan re-OCR** — kad `ocr_under_extracted` (manje osoba nego odrasli, ili ≥2 neiskorištene slike), drugi LLM poziv samo na neiskorištene indekse.
+5. **Partial apply** — prepoznati gosti se apply-aju odmah; job ostaje `DONE` dok svi odrasli nemaju dokument.
+6. **Matching** — po osobi:
    - prvo **ime** (fuzzy match na gosta rezervacije),
    - zatim **prazan slot** — preferira **„Novi gost”** placeholder, ne primary booker bez dokumenta,
    - unutar batcha **ne dodjeljuje isti guest_id** dvjema osobama.
-3. **auto_apply** — primjenjuje se kad je kandidat jedinstven, ili kad je cijeli batch očito na **jednu rezervaciju** (name match na primary + suputnici na istoj rezervaciji).
-4. **Guest slotovi pri apply** — `max(adults_count, persons_count, broj OCR osoba)`; ako treba, kreira se dodatni **Novi gost**.
-5. **Re-apply** — ponovni `POST .../apply/` na već primijenjen job **preskače** goste koji su već bili u `applied_result` (npr. samo nedostajući suputnici).
+7. **auto_apply** — primjenjuje se kad je kandidat jedinstven, ili kad je cijeli batch očito na **jednu rezervaciju** (name match na primary + suputnici na istoj rezervaciji).
+8. **Guest slotovi pri apply** — `max(adults_count, persons_count, broj OCR osoba)`; ako treba, kreira se dodatni **Novi gost**.
+9. **Re-apply** — ponovni `POST .../apply/` na već primijenjen job **preskače** goste koji su već bili u `applied_result` (npr. samo nedostajući suputnici).
 
 eVisitor se **ne šalje automatski** — i dalje ručno / gumb u Hospiri.
 
@@ -51,7 +55,9 @@ for m in j.matches or []:
 | Simptom | Vjerojatni uzrok | Akcija |
 |--------|------------------|--------|
 | Samo primary ažuriran | Stari kod / apply prije process DONE | Restart django, ponovi apply na job |
-| `persons` u OCR &lt; slika/2 | Loše uparivanje front/back | Ručni OCR po runbooku §2 |
+| `persons` u OCR &lt; slika/2 | Loše uparivanje front/back ili miješani batch | Provjeri `unassigned_image_indices`; orphan pass ili ručni pregled |
+| `unassigned_image_indices` pun | Ne-ID slike + nedostaje 2. gost u kasnim indeksima | Orphan pass automatski; recepcija vidi indekse u API `completeness` |
+| Miješani batch (ID + ugovori + duplikati) | WhatsApp share više dokumenata odjednom | Dedup + orphan pass; partial apply primjenjuje prepoznate odmah |
 | Nedostaje 3. gost | `persons_count` &gt; broj guest redova | Ponovi apply (kreira slot) ili `ensure_guest_slots` |
 | `auto_apply=False` za sve | Više rezervacija u prozoru s praznim slotovima | Apply s ručnim `persons[]` selekcijama |
 
@@ -92,13 +98,33 @@ POST /api/v1/reception/document-intake/jobs/{job_id}/apply/
 
 ---
 
+## Miješani batch (ID + ne-ID + duplikati)
+
+Tipičan slučaj: gost pošalje više fotografija odjednom — osobne iskaznice, ugovore o radu, članice, duplikate.
+
+**Simptom u API / Hospiri:** `completeness.unassigned_image_indices` popunjen, `ocr_under_extracted: true`, `persons.length` &lt; `adults_count`.
+
+**Flow:**
+
+1. Dedup prije OCR-a (11 → 6 jedinstvenih sadržaja).
+2. Pass 1: prepoznati gosti + `non_document` oznake.
+3. Orphan pass na neiskorištenim indeksima (npr. sort 7–8 → drugi gost).
+4. Partial apply prepoznatih; incomplete poruka gostu samo za nedostajuće.
+5. `reconcile_guest_document_batches` ponovo pokreće `process_document_intake_job` kad je `ocr_under_extracted`.
+
+---
+
 ## Datoteke u kodu
 
 | Datoteka | Uloga |
 |----------|--------|
 | `backend/apps/reservations/document_intake_match.py` | Matching + auto_apply |
+| `backend/apps/reservations/document_intake_preprocess.py` | Byte-hash dedup prije OCR |
+| `backend/apps/reservations/document_intake_completeness.py` | `unassigned_image_indices`, `ocr_under_extracted` |
+| `backend/apps/ai/document_ocr.py` | Batch OCR + orphan pass |
 | `backend/apps/reservations/guest_slots.py` | `ensure_guest_slots_for_intake()` |
-| `backend/apps/reservations/document_intake_service.py` | process / apply |
+| `backend/apps/reservations/document_intake_service.py` | process / apply (partial mode) |
+| `backend/apps/integrations/whatsapp/document_intake_finalize.py` | Partial apply + incomplete poruka |
 | `backend/apps/api/reception_document_intake_views.py` | API |
 
 Nakon promjena Python koda: `./scripts/deploy.sh` ili `docker compose restart django`.

@@ -67,6 +67,16 @@ class FaceCropHeuristicsTests(SimpleTestCase):
         best = _select_best_face(faces, image_w=w, image_h=h)
         self.assertEqual(best, (443, 297, 475, 475))
 
+    def test_select_best_face_rejects_bottom_table_false_positive(self):
+        """Wood-grain false positive below the card (res #22 Böttcher)."""
+        w, h = 1600, 1200
+        faces = [
+            (789, 296, 104, 104),  # hologram false positive
+            (63, 926, 265, 265),  # table below ID — must not win
+        ]
+        best = _select_best_face(faces, image_w=w, image_h=h)
+        self.assertEqual(best, (789, 296, 104, 104))
+
     def test_rejects_list_placeholder_bbox(self):
         self.assertTrue(_is_placeholder_llm_bbox([0.1, 0.2, 0.3, 0.4]))
 

@@ -114,7 +114,7 @@
     "checkOutSuccess": "Gast ausgecheckt.",
     "statusChangeFailed": "Statusänderung fehlgeschlagen.",
     "checkoutEvisitorHint": "Alle volljährigen Gäste müssen vor dem Checkout in eVisitor angemeldet sein.",
-    "checkInBlockedWrongDate": "Check-in ist nur am Anreisetag möglich.",
+    "checkInBlockedWrongDate": "Check-in ist vor dem Anreisetag nicht möglich.",
     "checkInBlockedRoomOccupied": "Das Zimmer ist belegt — ein anderer Gast ist bereits eingecheckt.",
     "checkInBlockedNoUnit": "Der Reservierung ist kein Zimmer zugewiesen.",
     "actionsHint": "Check-in, Checkout, Stornierung und eVisitor-Anmeldung hier; andere Änderungen auf dem Tablet (Hospira).",

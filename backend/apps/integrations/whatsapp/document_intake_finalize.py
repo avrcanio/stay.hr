@@ -26,7 +26,7 @@ from apps.integrations.whatsapp.whatsapp_operator_service import (
 )
 from apps.reservations.checkin import validate_reservation_check_in
 from apps.reservations.document_intake_completeness import evaluate_completeness
-from apps.reservations.document_intake_service import apply_document_intake_job, process_document_intake_job
+from apps.reservations.document_intake_service import apply_document_intake_job, process_document_intake_job, completeness_to_dict
 from apps.reservations.models import (
     DocumentIntakeImage,
     DocumentIntakeJob,
@@ -216,7 +216,10 @@ def finalize_document_intake_job(
     reservation = Reservation.objects.select_related("property", "tenant").get(pk=job.reservation_id)
     persons = (job.ocr_result or {}).get("persons") or []
     images = list(job.images.order_by("sort_order", "id"))
-    matches = list(job.matches or [])
+
+    from apps.reservations.document_intake_audit import rematch_and_audit_job
+
+    matches = rematch_and_audit_job(job, reservation=reservation)
 
     completeness = evaluate_completeness(
         reservation=reservation,
@@ -226,7 +229,23 @@ def finalize_document_intake_job(
     )
 
     if not completeness.is_complete:
-        body = render_document_intake_incomplete_message(reservation, completeness)
+        try:
+            apply_document_intake_job(job.pk, whatsapp_reply=False, allow_partial=True)
+            job.refresh_from_db()
+        except Exception as exc:
+            logger.warning("Document finalize partial apply failed job_id=%s: %s", job.pk, exc)
+
+        completeness = evaluate_completeness(
+            reservation=reservation,
+            persons=persons,
+            matches=matches,
+            images=images,
+        )
+
+    if not completeness.is_complete:
+        body = render_document_intake_incomplete_message(
+            reservation, completeness, image_count=len(images),
+        )
         _set_session_collecting(session)
         reply = _send_incomplete_reply(
             channel=channel,
@@ -242,7 +261,7 @@ def finalize_document_intake_job(
             "job_id": job.pk,
             "reservation_id": reservation.pk,
             "reply": reply,
-            "completeness": completeness,
+            "completeness": completeness_to_dict(completeness),
         }
 
     processing_at = property_local_now(reservation.property)

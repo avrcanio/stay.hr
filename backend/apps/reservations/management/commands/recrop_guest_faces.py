@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from django.core.management.base import BaseCommand
 
-from apps.reservations.document_intake_face import crop_face_jpeg
+from apps.reservations.document_intake_face import _coerce_bbox_dict, crop_face_jpeg
 from apps.reservations.models import Guest, IdDocument
 
 
@@ -59,7 +59,7 @@ class Command(BaseCommand):
                 continue
 
             person = (doc.extracted_payload or {}).get("person") or {}
-            bbox = person.get("face_bbox") if isinstance(person.get("face_bbox"), dict) else None
+            bbox = _coerce_bbox_dict(person.get("face_bbox"))
             face_content = crop_face_jpeg(doc.front_photo.path, bbox)
             if face_content is None:
                 self.stdout.write(f"guest {guest_id}: face crop failed — skip")

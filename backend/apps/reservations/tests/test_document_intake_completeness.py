@@ -170,6 +170,8 @@ class DocumentIntakeCompletenessTests(TestCase):
 
     def test_stored_front_plus_batch_back_is_complete(self):
         """Incremental capture: front already on guest, this batch only has back."""
+        self.reservation.adults_count = 1
+        self.reservation.save(update_fields=["adults_count"])
         IdDocument.objects.create(
             guest=self.primary,
             front_photo=SimpleUploadedFile("front.jpg", b"fake-front", content_type="image/jpeg"),
@@ -198,3 +200,51 @@ class DocumentIntakeCompletenessTests(TestCase):
         )
         self.assertTrue(result.is_complete)
         self.assertEqual(result.missing_sides, [])
+
+    def test_unassigned_image_indices(self):
+        persons = [
+            {
+                "given_names": "Gabriele",
+                "surnames": "Boettcher",
+                "document_type": "national_id",
+                "front_image_index": 0,
+                "back_image_index": 1,
+            },
+        ]
+        matches = [
+            {
+                "person_index": 0,
+                "auto_apply": True,
+                "guest_id": self.primary.pk,
+                "reservation_id": self.reservation.pk,
+                "guest_name": "Gabriele Boettcher",
+            },
+        ]
+        images = [_FakeImage(i) for i in range(11)]
+        result = self._evaluate(persons, matches, images=images)
+        self.assertEqual(result.unassigned_image_indices, list(range(2, 11)))
+        self.assertTrue(result.ocr_under_extracted)
+        self.assertFalse(result.is_complete)
+
+    def test_ocr_under_extracted_one_person_two_adults(self):
+        persons = [
+            {
+                "given_names": "Jannik",
+                "surnames": "Enders",
+                "document_type": "national_id",
+                "front_image_index": 0,
+                "back_image_index": 1,
+            },
+        ]
+        matches = [
+            {
+                "person_index": 0,
+                "auto_apply": True,
+                "guest_id": self.primary.pk,
+                "reservation_id": self.reservation.pk,
+                "guest_name": "Jannik Enders",
+            },
+        ]
+        result = self._evaluate(persons, matches, images=[_FakeImage(0), _FakeImage(1)])
+        self.assertTrue(result.ocr_under_extracted)
+        self.assertEqual(result.unassigned_image_indices, [])

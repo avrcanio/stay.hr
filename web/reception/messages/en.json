@@ -213,7 +213,7 @@
     "checkOutSuccess": "Guest checked out.",
     "statusChangeFailed": "Status change failed.",
     "checkoutEvisitorHint": "All adult guests must be registered in eVisitor before checkout.",
-    "checkInBlockedWrongDate": "Check-in is only allowed on the arrival date.",
+    "checkInBlockedWrongDate": "Check-in is not possible before the arrival date.",
     "checkInBlockedRoomOccupied": "The room is occupied — another guest is already checked in.",
     "checkInBlockedNoUnit": "The reservation has no assigned room.",
     "moveDates": "Change dates",

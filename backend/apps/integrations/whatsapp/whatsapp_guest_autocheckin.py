@@ -490,6 +490,19 @@ def _handle_matched_reservation(
             )
         return _skip_auto_reply(reason="no_matching_handler")
 
+    from apps.integrations.whatsapp.whatsapp_document_batch import (
+        handle_autocheckin_during_document_batch,
+    )
+
+    batch_guard = handle_autocheckin_during_document_batch(
+        reservation=reservation,
+        integration_row=integration_row,
+        runtime=runtime,
+        row=row,
+    )
+    if batch_guard is not None:
+        return batch_guard
+
     mark_autocheckin_engaged(reservation)
     if _is_autocheckin_day(reservation):
         return _send_autocheckin_prompt(

@@ -75,6 +75,79 @@ def _max_face_side(*, image_w: int, image_h: int) -> int:
     return max_side
 
 
+def _face_box_is_plausible(
+    x: int,
+    y: int,
+    fw: int,
+    fh: int,
+    *,
+    image_w: int,
+    image_h: int,
+) -> bool:
+    """Reject Haar boxes that sit on table edges / wood grain below the card."""
+    cy_ratio = (y + fh / 2) / image_h
+    if cy_ratio > 0.72:
+        return False
+
+    min_side = int(min(image_w, image_h) * 0.08)
+    max_side = _max_face_side(image_w=image_w, image_h=image_h)
+    if fw < min_side or fh < min_side:
+        return False
+    if fw > max_side or fh > max_side:
+        return False
+    aspect = fw / fh if fh else 0
+    return 0.65 <= aspect <= 1.45
+
+
+def _score_face_box(
+    x: int,
+    y: int,
+    fw: int,
+    fh: int,
+    *,
+    image_w: int,
+    image_h: int,
+) -> float:
+    cx = x + fw / 2
+    cy = y + fh / 2
+    cx_ratio = cx / image_w
+    cy_ratio = cy / image_h
+
+    # EU ID portrait sits in the left strip; holograms often trigger false positives mid-card.
+    if cx_ratio < 0.30:
+        left_bonus = 0.35
+    elif cx_ratio < 0.40:
+        left_bonus = 0.20
+    elif cx_ratio < 0.55:
+        left_bonus = 0.05
+    else:
+        left_bonus = -0.40
+
+    # Portrait center is usually below mid-height on TD1 cards.
+    vertical_center = abs(cy_ratio - 0.58)
+    vertical_bonus = max(0.0, 0.15 - vertical_center)
+
+    # EU header / eagle / star-circle holograms sit in the top ~35% of the card.
+    header_penalty = -0.45 if cy_ratio < 0.35 else 0.0
+
+    # Portrait snapshot of a landscape ID — biodata face usually sits mid-card vertically.
+    portrait_id_bonus = 0.0
+    if image_h > image_w and 0.36 <= cy_ratio <= 0.55:
+        portrait_id_bonus = 0.22
+
+    area_score = (fw * fh) / (image_w * image_h) * 2.5
+    tiny_penalty = -0.25 if max(fw, fh) < min(image_w, image_h) * 0.14 else 0.0
+
+    return (
+        area_score
+        + left_bonus
+        + vertical_bonus
+        + header_penalty
+        + portrait_id_bonus
+        + tiny_penalty
+    )
+
+
 def _select_best_face(
     faces: list[tuple[int, int, int, int]],
     *,
@@ -85,57 +158,13 @@ def _select_best_face(
     if not faces:
         return None
 
-    min_side = int(min(image_w, image_h) * 0.08)
-    max_side = _max_face_side(image_w=image_w, image_h=image_h)
     candidates: list[tuple[float, tuple[int, int, int, int]]] = []
 
     for x, y, fw, fh in faces:
-        if fw < min_side or fh < min_side:
-            continue
-        if fw > max_side or fh > max_side:
-            continue
-        aspect = fw / fh if fh else 0
-        if aspect < 0.65 or aspect > 1.45:
+        if not _face_box_is_plausible(x, y, fw, fh, image_w=image_w, image_h=image_h):
             continue
 
-        cx = x + fw / 2
-        cy = y + fh / 2
-        cx_ratio = cx / image_w
-        cy_ratio = cy / image_h
-
-        # EU ID portrait sits in the left strip; holograms often trigger false positives mid-card.
-        if cx_ratio < 0.30:
-            left_bonus = 0.35
-        elif cx_ratio < 0.40:
-            left_bonus = 0.20
-        elif cx_ratio < 0.55:
-            left_bonus = 0.05
-        else:
-            left_bonus = -0.40
-
-        # Portrait center is usually below mid-height on TD1 cards.
-        vertical_center = abs(cy_ratio - 0.58)
-        vertical_bonus = max(0.0, 0.15 - vertical_center)
-
-        # EU header / eagle / star-circle holograms sit in the top ~35% of the card.
-        header_penalty = -0.45 if cy_ratio < 0.35 else 0.0
-
-        # Portrait snapshot of a landscape ID — biodata face usually sits mid-card vertically.
-        portrait_id_bonus = 0.0
-        if image_h > image_w and 0.36 <= cy_ratio <= 0.55:
-            portrait_id_bonus = 0.22
-
-        area_score = (fw * fh) / (image_w * image_h) * 2.5
-        tiny_penalty = -0.25 if max(fw, fh) < min(image_w, image_h) * 0.14 else 0.0
-
-        score = (
-            area_score
-            + left_bonus
-            + vertical_bonus
-            + header_penalty
-            + portrait_id_bonus
-            + tiny_penalty
-        )
+        score = _score_face_box(x, y, fw, fh, image_w=image_w, image_h=image_h)
         candidates.append((score, (x, y, fw, fh)))
 
     if not candidates:
@@ -195,6 +224,30 @@ def detect_face_bbox_pixels(image_path: str) -> tuple[int, int, int, int] | None
         return None
 
 
+def _detect_faces_in_bgr_all(img) -> list[tuple[int, int, int, int]]:
+    """Return all plausible Haar face boxes in a BGR image."""
+    import cv2
+
+    h, w = img.shape[:2]
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.equalizeHist(gray)
+
+    cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    cascade = cv2.CascadeClassifier(cascade_path)
+    faces_raw = cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.05,
+        minNeighbors=4,
+        minSize=(int(min(w, h) * 0.08), int(min(w, h) * 0.08)),
+    )
+    faces = [tuple(int(v) for v in face) for face in faces_raw]
+    return [
+        box
+        for box in faces
+        if _face_box_is_plausible(*box, image_w=w, image_h=h)
+    ]
+
+
 def _detect_face_with_portrait_rotation(
     im: Image.Image,
 ) -> tuple[tuple[int, int, int, int] | None, int]:
@@ -207,16 +260,25 @@ def _detect_face_with_portrait_rotation(
 
     w, h = im.size
     angles = (0,)
-    if h > w * 1.15:
+    # Portrait phone photo of a landscape ID, or landscape photo of a portrait ID.
+    if h > w * 1.15 or w > h * 1.15:
         angles = (0, 90, -90)
 
+    best: tuple[float, tuple[int, int, int, int], int] | None = None
     for angle in angles:
         working = im if angle == 0 else im.rotate(angle, expand=True)
         bgr = cv2.cvtColor(np.array(working.convert("RGB")), cv2.COLOR_RGB2BGR)
-        face_px = _detect_faces_in_bgr(bgr)
-        if face_px is not None:
-            return face_px, angle
-    return None, 0
+        iw = bgr.shape[1]
+        ih = bgr.shape[0]
+        for face_px in _detect_faces_in_bgr_all(bgr):
+            x, y, fw, fh = face_px
+            score = _score_face_box(x, y, fw, fh, image_w=iw, image_h=ih)
+            if best is None or score > best[0]:
+                best = (score, face_px, angle)
+
+    if best is None:
+        return None, 0
+    return best[1], best[2]
 
 
 def _square_crop_around_face(

@@ -221,6 +221,37 @@ UNMATCHED_PERSON_LINE = {
     "fr": "• {name} — non associé à la réservation",
 }
 
+UNREAD_PHOTOS_INTRO = {
+    "hr": (
+        "Primili smo {total} fotografija, ali {unread} nismo mogli pročitati kao osobnu iskaznicu. "
+        "Molimo pošaljite jasnu prednju i stražnju stranu {missing_guest_hint}."
+    ),
+    "en": (
+        "We received {total} photos, but could not read {unread} as an ID card. "
+        "Please send a clear front and back of {missing_guest_hint}."
+    ),
+    "de": (
+        "Wir haben {total} Fotos erhalten, konnten aber {unread} nicht als Personalausweis lesen. "
+        "Bitte senden Sie die Vorder- und Rückseite von {missing_guest_hint}."
+    ),
+    "es": (
+        "Recibimos {total} fotos, pero no pudimos leer {unread} como documento de identidad. "
+        "Envíe el anverso y reverso de {missing_guest_hint}."
+    ),
+    "fr": (
+        "Nous avons reçu {total} photos, mais n'avons pas pu lire {unread} comme carte d'identité. "
+        "Veuillez envoyer le recto et le verso de {missing_guest_hint}."
+    ),
+}
+
+MISSING_GUEST_HINT_OTHER_ADULT = {
+    "hr": "drugog odraslog gosta",
+    "en": "the other adult guest",
+    "de": "des anderen erwachsenen Gastes",
+    "es": "del otro huésped adulto",
+    "fr": "l'autre invité adulte",
+}
+
 AUTOCHECKIN_WAIVED_BODY = {
     "hr": (
         "Pozdrav {first_name},\n\n"
@@ -762,6 +793,8 @@ DEFAULT_TEXTS: dict[str, dict[str, str]] = {
     "missing_id_side_label_passport": MISSING_ID_SIDE_LABEL_PASSPORT,
     "missing_guest_document_line": MISSING_GUEST_DOCUMENT_LINE,
     "unmatched_person_line": UNMATCHED_PERSON_LINE,
+    "unread_photos_intro": UNREAD_PHOTOS_INTRO,
+    "missing_guest_hint_other_adult": MISSING_GUEST_HINT_OTHER_ADULT,
     "autocheckin_waived": AUTOCHECKIN_WAIVED_BODY,
     "autocheckin_period_ended": AUTOCHECKIN_PERIOD_ENDED,
     "autocheckin_expired_short": AUTOCHECKIN_EXPIRED_SHORT,

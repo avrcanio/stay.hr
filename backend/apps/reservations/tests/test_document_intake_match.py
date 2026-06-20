@@ -76,6 +76,7 @@ class DocumentIntakeMatchTests(TestCase):
         daniela = matches[0]
         self.assertTrue(daniela["auto_apply"])
         self.assertEqual(daniela["reservation_id"], target.pk)
+        self.assertEqual(daniela["guest_id"], target.guests.get(is_primary=True).pk)
         self.assertEqual(daniela["confidence"], "high")
 
         companion = matches[1]
@@ -127,8 +128,23 @@ class DocumentIntakeMatchTests(TestCase):
         jasmin = matches[0]
         self.assertTrue(jasmin["auto_apply"])
         self.assertEqual(jasmin["reservation_id"], target.pk)
+        self.assertEqual(jasmin["guest_id"], target.guests.get(is_primary=True).pk)
 
         ingo = matches[1]
         self.assertTrue(ingo["auto_apply"])
         self.assertEqual(ingo["reservation_id"], target.pk)
         self.assertNotEqual(ingo["guest_id"], jasmin["guest_id"])
+
+    def test_boettcher_document_matches_boettcher_booker_primary(self):
+        """German OCR Boettcher vs booker Böttcher maps to primary guest."""
+        today = timezone.now().date()
+        target = self._reservation(pk_suffix=22, booker="Gabriele Böttcher", check_in=today)
+
+        persons = [{"given_names": "GABRIELE", "surnames": "BOETTCHER"}]
+        matches = match_persons_to_guests(tenant_id=self.tenant.pk, persons=persons)
+
+        self.assertEqual(len(matches), 1)
+        match = matches[0]
+        self.assertTrue(match["auto_apply"])
+        self.assertEqual(match["reservation_id"], target.pk)
+        self.assertEqual(match["guest_id"], target.guests.get(is_primary=True).pk)

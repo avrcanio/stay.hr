@@ -316,6 +316,8 @@ def _normalize_guest_name_key(name: str) -> str:
     text = text.translate(_latin_folds)
     text = unicodedata.normalize("NFKD", text)
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    # German digraphs: Boettcher/Böttcher, Mueller/Müller, etc.
+    text = text.replace("ae", "a").replace("oe", "o").replace("ue", "u")
     return text.casefold()
 
 

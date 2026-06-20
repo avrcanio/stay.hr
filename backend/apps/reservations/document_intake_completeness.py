@@ -34,6 +34,27 @@ class DocumentIntakeCompleteness:
     missing_guests: list[MissingGuest] = field(default_factory=list)
     missing_sides: list[MissingIdSide] = field(default_factory=list)
     unmatched_persons: list[UnmatchedPerson] = field(default_factory=list)
+    unassigned_image_indices: list[int] = field(default_factory=list)
+    ocr_under_extracted: bool = False
+
+
+def unassigned_image_indices(*, persons: list[dict], image_count: int) -> list[int]:
+    """Image indices not referenced by any person's front/back index."""
+    used: set[int] = set()
+    for person in persons:
+        if not isinstance(person, dict):
+            continue
+        for key in ("front_image_index", "back_image_index"):
+            raw = person.get(key)
+            if raw is None:
+                continue
+            try:
+                idx = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if idx >= 0:
+                used.add(idx)
+    return [i for i in range(image_count) if i not in used]
 
 
 def _guest_display_name(guest: Guest) -> str:
@@ -160,10 +181,18 @@ def evaluate_completeness(
             MissingGuest(guest_id=guest.pk, guest_name=label, adult_ordinal=ordinal)
         )
 
+    unassigned = unassigned_image_indices(persons=persons, image_count=len(images))
+    adults_count = reservation.adults_count or len(adults)
+    ocr_under_extracted = len(persons) < adults_count or (
+        len(unassigned) >= 2 and bool(missing_guests)
+    )
+
     is_complete = not missing_guests and not missing_sides and not unmatched_persons
     return DocumentIntakeCompleteness(
         is_complete=is_complete,
         missing_guests=missing_guests,
         missing_sides=missing_sides,
         unmatched_persons=unmatched_persons,
+        unassigned_image_indices=unassigned,
+        ocr_under_extracted=ocr_under_extracted,
     )

@@ -66,6 +66,10 @@ class CheckInValidationTests(TestCase):
                 validate_reservation_check_in(self.reservation, tenant=self.tenant)
         self.assertEqual(ctx.exception.code, "wrong_date")
 
+    def test_check_in_allowed_after_arrival_date_when_room_free(self):
+        with self._mock_today(date(2026, 5, 28)):
+            validate_reservation_check_in(self.reservation, tenant=self.tenant)
+
     def test_check_in_rejected_when_room_occupied(self):
         other = Reservation.objects.create(
             tenant=self.tenant,

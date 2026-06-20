@@ -279,7 +279,7 @@ def _fuzzy_guest_match(
         for guest in reservation.guests.all():
             if guest.pk in blocked:
                 continue
-            if _guest_name_matches(guest, keys):
+            if guest.is_primary and is_unfilled_guest(guest):
                 return guest
         unfilled = _find_unfilled_slot(reservation, exclude=blocked)
         if unfilled is not None:

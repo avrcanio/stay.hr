@@ -44,10 +44,10 @@ def unit_has_checked_in_guest(
 
 def validate_reservation_check_in(reservation: Reservation, *, tenant: Tenant) -> None:
     today = property_local_now(reservation.property).date()
-    if today != reservation.check_in:
+    if today < reservation.check_in:
         raise CheckInBlockedError(
             "wrong_date",
-            "Check-in je moguć samo na dan dolaska.",
+            "Check-in nije moguć prije dana dolaska.",
         )
 
     unit_ids = _reservation_unit_ids(reservation)

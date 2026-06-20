@@ -114,7 +114,7 @@
     "checkOutSuccess": "Check-out effettuato.",
     "statusChangeFailed": "Modifica stato non riuscita.",
     "checkoutEvisitorHint": "Tutti gli ospiti maggiorenni devono essere registrati in eVisitor prima del check-out.",
-    "checkInBlockedWrongDate": "Il check-in è possibile solo nel giorno di arrivo.",
+    "checkInBlockedWrongDate": "Il check-in non è possibile prima del giorno di arrivo.",
     "checkInBlockedRoomOccupied": "La camera è occupata — un altro ospite è già registrato.",
     "checkInBlockedNoUnit": "La prenotazione non ha una camera assegnata.",
     "actionsHint": "Check-in, check-out, annullamento e eVisitor qui; altre modifiche sul tablet (Hospira).",

@@ -114,7 +114,7 @@
     "checkOutSuccess": "Client parti.",
     "statusChangeFailed": "Échec du changement de statut.",
     "checkoutEvisitorHint": "Tous les clients majeurs doivent être enregistrés dans eVisitor avant le départ.",
-    "checkInBlockedWrongDate": "L'enregistrement n'est possible que le jour d'arrivée.",
+    "checkInBlockedWrongDate": "L'enregistrement n'est pas possible avant le jour d'arrivée.",
     "checkInBlockedRoomOccupied": "La chambre est occupée — un autre client est déjà enregistré.",
     "checkInBlockedNoUnit": "La réservation n'a pas de chambre assignée.",
     "actionsHint": "Arrivée, départ, annulation et eVisitor ici ; autres modifications sur la tablette (Hospira).",

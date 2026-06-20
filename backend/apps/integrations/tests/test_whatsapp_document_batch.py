@@ -173,7 +173,7 @@ class WhatsAppDocumentBatchTests(TestCase):
 
         result = handle_whatsapp_document_batch_reply(yes_message.pk)
 
-        self.assertEqual(result["status"], "finalized")
+        self.assertEqual(result["status"], "docs_saved")
         mock_finalize.assert_called_once()
         mock_notify.assert_called_once()
         session.refresh_from_db()
@@ -264,7 +264,7 @@ class WhatsAppDocumentBatchTests(TestCase):
 
         result = document_batch_confirm_timeout(session.pk)
 
-        self.assertEqual(result["status"], "finalized")
+        self.assertEqual(result["status"], "docs_saved")
         mock_finalize.assert_called_once()
         mock_notify.assert_called_once()
 
@@ -282,9 +282,32 @@ class WhatsAppDocumentBatchTests(TestCase):
 
         with patch("apps.core.tasks.notify_guest_message_inbound.delay") as mock_notify:
             result = finalize_whatsapp_document_batch(session.pk)
-            self.assertEqual(result["status"], "finalized")
+            self.assertEqual(result["status"], "incomplete")
             mock_finalize.assert_called_once()
             mock_notify.assert_not_called()
+
+    @patch("apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
+    def test_confirm_timeout_return_is_json_serializable(self, mock_fetch, mock_schedule, mock_finalize):
+        import json
+
+        mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
+        mock_finalize.return_value = {
+            "status": "incomplete",
+            "job_id": 1,
+            "completeness": {"is_complete": False, "missing_guests": [], "missing_sides": [], "unmatched_persons": []},
+        }
+        message = self._image_message(pk_suffix="json", wamid="wamid.in.json")
+        on_whatsapp_document_received(message.pk)
+        session = WhatsAppDocumentBatchSession.objects.get(reservation=self.reservation)
+        session.status = WhatsAppDocumentBatchStatus.AWAITING_CONFIRM
+        session.prompt_sent_at = timezone.now() - timezone.timedelta(seconds=CONFIRM_TIMEOUT_SECONDS + 1)
+        session.save(update_fields=["status", "prompt_sent_at", "updated_at"])
+
+        result = document_batch_confirm_timeout(session.pk)
+        json.dumps(result)
+        self.assertEqual(result["status"], "incomplete")
 
     @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
@@ -296,6 +319,19 @@ class WhatsAppDocumentBatchTests(TestCase):
         self.assertEqual(result["status"], "duplicate")
         session = WhatsAppDocumentBatchSession.objects.get(reservation=self.reservation)
         self.assertEqual(session.job.images.count(), 1)
+
+    @patch("apps.integrations.whatsapp.apply_reply.is_document_checkin_complete", return_value=True)
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
+    def test_image_skipped_when_docs_already_complete(self, mock_fetch, _mock_docs_complete):
+        message = self._image_message(pk_suffix="complete", wamid="wamid.in.complete")
+        result = on_whatsapp_document_received(message.pk)
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "docs_complete")
+        mock_fetch.assert_not_called()
+        self.assertFalse(
+            WhatsAppDocumentBatchSession.objects.filter(reservation=self.reservation).exists()
+        )
+        self.assertFalse(DocumentIntakeJob.objects.filter(reservation=self.reservation).exists())
 
 
 class WhatsAppDocumentBatchTimerTests(TestCase):

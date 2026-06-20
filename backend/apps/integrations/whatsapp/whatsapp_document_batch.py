@@ -148,6 +148,43 @@ def _pg_advisory_xact_lock_guest_batch(tenant_id: int, reservation_id: int) -> N
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", [key])
 
 
+def get_active_document_batch_session(*, reservation_id: int):
+    """Public wrapper for active guest document batch session (if any)."""
+    return _get_active_session(reservation_id=reservation_id)
+
+
+def handle_autocheckin_during_document_batch(
+    *,
+    reservation,
+    integration_row,
+    runtime,
+    row: WhatsAppMessage,
+) -> dict | None:
+    """If a document batch is active, avoid autocheck-in loops; re-prompt or skip."""
+    session = get_active_document_batch_session(reservation_id=reservation.pk)
+    if session is None:
+        return None
+
+    if session.status == WhatsAppDocumentBatchStatus.AWAITING_CONFIRM:
+        send_result = _prompt_and_await_confirm(session)
+        return {
+            "status": "batch_awaiting_confirm",
+            "session_id": session.pk,
+            "send": send_result,
+        }
+
+    if session.status in {
+        WhatsAppDocumentBatchStatus.COLLECTING,
+        WhatsAppDocumentBatchStatus.AFTER_NO,
+    }:
+        return {"status": "skipped", "reason": "batch_collecting", "session_id": session.pk}
+
+    if session.status == WhatsAppDocumentBatchStatus.PROCESSING:
+        return {"status": "skipped", "reason": "batch_processing", "session_id": session.pk}
+
+    return None
+
+
 def _get_active_session(*, reservation_id: int, for_update: bool = False):
     qs = WhatsAppDocumentBatchSession.objects.select_related(
         "job",
@@ -309,7 +346,7 @@ def _run_finalize(session: WhatsAppDocumentBatchSession) -> dict:
             session.save(update_fields=["status", "updated_at"])
 
     return {
-        "status": "finalized",
+        "status": finalize_status or "finalized",
         "session_id": session.pk,
         "job_id": session.job_id,
         "finalize": result,
@@ -344,10 +381,16 @@ def on_whatsapp_document_received(message_id: int) -> dict:
     if reservation is None:
         return {"status": "skipped", "reason": "no_reservation"}
 
-    from apps.integrations.whatsapp.apply_reply import is_whatsapp_autocheckin_waived
+    from apps.integrations.whatsapp.apply_reply import (
+        is_document_checkin_complete,
+        is_whatsapp_autocheckin_waived,
+    )
 
     if is_whatsapp_autocheckin_waived(reservation):
         return {"status": "skipped", "reason": "autocheckin_waived"}
+
+    if is_document_checkin_complete(reservation):
+        return {"status": "skipped", "reason": "docs_complete"}
 
     integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None:

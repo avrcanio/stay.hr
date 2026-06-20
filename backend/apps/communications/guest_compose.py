@@ -121,6 +121,8 @@ from apps.communications.guest_compose_defaults import (
     MISSING_ID_SIDE_LINE,
     MISSING_ID_SIDES_INTRO,
     UNMATCHED_PERSON_LINE,
+    UNREAD_PHOTOS_INTRO,
+    MISSING_GUEST_HINT_OTHER_ADULT,
     OPERATOR_CHECKIN_COMPLETE_BODY,
     ARRIVAL_LATE_CONTACT,
     ARRIVAL_LATE_NOT_ALLOWED,
@@ -806,14 +808,37 @@ def render_missing_id_sides_message(reservation: Reservation, gaps: list[Missing
 def render_document_intake_incomplete_message(
     reservation: Reservation,
     completeness,
+    *,
+    image_count: int | None = None,
 ) -> str:
     """Concrete follow-up: missing guest slots, ID sides, or unmatched OCR persons."""
     context = build_compose_context(reservation)
     lang = context["language"]
-    line_items: list[str] = [
-        _property_guest_text(reservation, "missing_id_sides_intro", lang),
-        "",
-    ]
+    line_items: list[str] = []
+
+    unassigned = getattr(completeness, "unassigned_image_indices", []) or []
+    total_photos = image_count if image_count is not None else len(unassigned)
+
+    if unassigned:
+        missing_hint = _property_guest_text(
+            reservation, "missing_guest_hint_other_adult", lang
+        )
+        if completeness.missing_guests:
+            names = [g.guest_name for g in completeness.missing_guests if g.guest_name]
+            if len(names) == 1:
+                missing_hint = names[0]
+        unread_intro = _property_guest_text(reservation, "unread_photos_intro", lang)
+        line_items.append(
+            unread_intro.format(
+                total=total_photos,
+                unread=len(unassigned),
+                missing_guest_hint=missing_hint,
+            )
+        )
+        line_items.append("")
+    else:
+        line_items.append(_property_guest_text(reservation, "missing_id_sides_intro", lang))
+        line_items.append("")
 
     guest_line = _property_guest_text(reservation, "missing_guest_document_line", lang)
     for gap in completeness.missing_guests:
