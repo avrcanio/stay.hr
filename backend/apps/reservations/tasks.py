@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from celery import shared_task
+from django.core.cache import cache
 
 from apps.core.timezone import property_local_now, tenant_local_now
 from apps.integrations.evisitor.exceptions import (
@@ -31,8 +32,29 @@ def _skipped_entry(reservation: Reservation, reason: str) -> dict:
     return {
         "reservation_id": reservation.pk,
         "booking_code": reservation.booking_code or str(reservation.pk),
+        "booker_name": reservation.booker_name or "",
+        "check_out": reservation.check_out.isoformat() if reservation.check_out else "",
         "reason": reason,
     }
+
+
+def _skip_notify_cache_key(tenant_id: int, reservation_id: int, check_out: str) -> str:
+    return f"auto_checkout_skip_notify:{tenant_id}:{reservation_id}:{check_out}"
+
+
+def _filter_new_skip_notifications(tenant_id: int, skipped: list[dict]) -> list[dict]:
+    """Return skipped entries not yet notified today (once per reservation + check_out date)."""
+    fresh: list[dict] = []
+    for item in skipped:
+        reservation_id = int(item.get("reservation_id") or 0)
+        check_out = str(item.get("check_out") or "").strip()
+        if reservation_id <= 0 or not check_out:
+            fresh.append(item)
+            continue
+        key = _skip_notify_cache_key(tenant_id, reservation_id, check_out)
+        if cache.add(key, "1", timeout=60 * 60 * 36):
+            fresh.append(item)
+    return fresh
 
 
 def _is_due_for_auto_checkout(reservation: Reservation) -> bool:
@@ -123,7 +145,9 @@ def run_auto_checkouts() -> dict:
             result["tenants_processed"] += 1
 
         if skipped:
-            notify_auto_checkout_summary.delay(tenant.pk, skipped)
+            to_notify = _filter_new_skip_notifications(tenant.pk, skipped)
+            if to_notify:
+                notify_auto_checkout_summary.delay(tenant.pk, to_notify)
             result["skipped"] += len(skipped)
 
     return result

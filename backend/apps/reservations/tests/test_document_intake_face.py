@@ -77,6 +77,17 @@ class FaceCropHeuristicsTests(SimpleTestCase):
         best = _select_best_face(faces, image_w=w, image_h=h)
         self.assertEqual(best, (789, 296, 104, 104))
 
+    def test_select_best_face_ukrainian_passport_open_book(self):
+        """Header false positive above biodata portrait (res #925 Tetyana Nykolyn)."""
+        w, h = 1126, 1280
+        faces = [
+            (953, 748, 97, 97),  # right-side hologram
+            (26, 500, 338, 338),  # passport header false positive
+            (96, 776, 203, 203),  # real biodata portrait
+        ]
+        best = _select_best_face(faces, image_w=w, image_h=h)
+        self.assertEqual(best, (96, 776, 203, 203))
+
     def test_rejects_list_placeholder_bbox(self):
         self.assertTrue(_is_placeholder_llm_bbox([0.1, 0.2, 0.3, 0.4]))
 

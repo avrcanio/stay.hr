@@ -338,6 +338,7 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
                 reservation,
                 action_text,
                 channel="whatsapp",
+                reference_at=row.created_at,
             )
             if arrival_result is not None:
                 reply_result = arrival_result

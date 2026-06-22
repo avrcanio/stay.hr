@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from apps.core.timezone import effective_timezone
-from apps.core.timezone import effective_guest_stated_arrival_at
+from apps.core.timezone import effective_guest_stated_arrival_at, effective_timezone, property_local_now
 from apps.reservations.models import Reservation
 
 _TIME_PAIR = re.compile(
@@ -77,18 +76,106 @@ def _extract_times(text: str) -> list[tuple[int, int]]:
     return []
 
 
-def parse_guest_stated_arrival(text: str, reservation: Reservation) -> datetime | None:
-    """Return upper bound of an arrival interval (or single time) on check-in date."""
-    times = _extract_times(text)
-    if not times:
+_RELATIVE_HOURS = re.compile(
+    r"za\s+(?P<n>\d+)\s*sata",
+    re.IGNORECASE,
+)
+_RELATIVE_MINUTE_RULES: list[tuple[re.Pattern[str], int]] = [
+    (re.compile(r"za\s+sat\s+do\s+sat\s+i\s+pol", re.IGNORECASE), 90),
+    (re.compile(r"za\s+sat\s+i\s+pol", re.IGNORECASE), 90),
+    (re.compile(r"(?:za\s+)?sat\s+sat\s+i\s+pol", re.IGNORECASE), 90),
+    (re.compile(r"in\s+an?\s+hour\s+and\s+a\s+half", re.IGNORECASE), 90),
+    (re.compile(r"in\s+one\s+to\s+one\s+and\s+a\s+half\s+hours?", re.IGNORECASE), 90),
+    (re.compile(r"za\s+pola?\s+sata", re.IGNORECASE), 30),
+    (re.compile(r"in\s+half\s+an?\s+hour", re.IGNORECASE), 30),
+    (re.compile(r"za\s+sat\b(?!\s+(?:do|i\s+pol))", re.IGNORECASE), 60),
+    (re.compile(r"in\s+an?\s+hour\b", re.IGNORECASE), 60),
+]
+
+
+def _parse_relative_arrival_minutes(text: str) -> int | None:
+    normalized = (text or "").strip()
+    if not normalized:
         return None
-    hour, minute = times[-1]
-    return _combine_on_check_in(reservation, hour, minute)
+
+    hours_match = _RELATIVE_HOURS.search(normalized)
+    if hours_match:
+        try:
+            hours = int(hours_match.group("n"))
+        except (TypeError, ValueError):
+            return None
+        if 1 <= hours <= 12:
+            return hours * 60
+
+    for pattern, minutes in _RELATIVE_MINUTE_RULES:
+        if pattern.search(normalized):
+            return minutes
+    return None
 
 
-def parse_operator_confirmed_arrival_time(text: str, reservation: Reservation) -> datetime | None:
+def _check_in_earliest_at(reservation: Reservation) -> datetime:
+    tz = _property_tz(reservation)
+    return datetime.combine(
+        reservation.check_in,
+        reservation.property.check_in_time,
+        tzinfo=tz,
+    )
+
+
+def _floor_to_check_in_earliest(reservation: Reservation, computed: datetime) -> datetime:
+    tz = _property_tz(reservation)
+    local = computed.astimezone(tz) if computed.tzinfo else computed.replace(tzinfo=tz)
+    earliest = _check_in_earliest_at(reservation)
+    if local < earliest:
+        return earliest
+    return local
+
+
+def _parse_relative_arrival_at(
+    text: str,
+    reservation: Reservation,
+    *,
+    reference_at: datetime,
+) -> datetime | None:
+    minutes = _parse_relative_arrival_minutes(text)
+    if minutes is None:
+        return None
+
+    tz = _property_tz(reservation)
+    ref = reference_at.astimezone(tz) if reference_at.tzinfo else reference_at.replace(tzinfo=tz)
+    if ref.date() != reservation.check_in:
+        return None
+
+    computed = ref + timedelta(minutes=minutes)
+    return _floor_to_check_in_earliest(reservation, computed)
+
+
+def parse_guest_stated_arrival(
+    text: str,
+    reservation: Reservation,
+    *,
+    reference_at: datetime | None = None,
+) -> datetime | None:
+    """Return arrival datetime on check-in date (absolute time or relative to reference_at)."""
+    times = _extract_times(text)
+    if times:
+        hour, minute = times[-1]
+        return _combine_on_check_in(reservation, hour, minute)
+
+    ref = reference_at
+    if ref is None:
+        ref = property_local_now(reservation.property)
+    return _parse_relative_arrival_at(text, reservation, reference_at=ref)
+
+
+def parse_operator_confirmed_arrival_time(
+    text: str,
+    reservation: Reservation,
+    *,
+    reference_at: datetime | None = None,
+) -> datetime | None:
     """Parse HH:MM (or H) from operator reply on check-in date."""
-    return parse_guest_stated_arrival(text, reservation)
+    return parse_guest_stated_arrival(text, reservation, reference_at=reference_at)
 
 
 def format_guest_stated_arrival_for_operator(reservation: Reservation) -> str:

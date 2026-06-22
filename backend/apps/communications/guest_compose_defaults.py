@@ -119,6 +119,52 @@ DOCUMENTS_BATCH_CONFIRM_NO = {
     "fr": "Non",
 }
 
+DOCUMENTS_BATCH_ADDITIONAL_PHOTO = {
+    "hr": (
+        "Primili smo dodatnu fotografiju. Kad pošaljete sve dokumente, "
+        "odgovorite **Da** na pitanje ispod."
+    ),
+    "en": (
+        "We received an additional photo. When you have sent all documents, "
+        "please reply **Yes** to the question below."
+    ),
+    "de": (
+        "Wir haben ein zusätzliches Foto erhalten. Wenn Sie alle Dokumente gesendet haben, "
+        "antworten Sie bitte mit **Ja** auf die Frage unten."
+    ),
+    "es": (
+        "Hemos recibido una foto adicional. Cuando haya enviado todos los documentos, "
+        "responda **Sí** a la pregunta siguiente."
+    ),
+    "fr": (
+        "Nous avons reçu une photo supplémentaire. Lorsque vous avez envoyé tous les documents, "
+        "répondez **Oui** à la question ci-dessous."
+    ),
+}
+
+DOCUMENTS_BATCH_COMPLETE_REPROMPT = {
+    "hr": (
+        "Sve potrebne strane dokumenata su primljene.\n\n"
+        "Molimo potvrdite gumbom **Da** ako ste poslali sve dokumente za sve odrasle goste."
+    ),
+    "en": (
+        "We have received all required document sides.\n\n"
+        "Please confirm with **Yes** if you have sent ID documents for all adult guests."
+    ),
+    "de": (
+        "Alle erforderlichen Ausweisseiten wurden empfangen.\n\n"
+        "Bitte bestätigen Sie mit **Ja**, wenn Sie Ausweisdokumente für alle erwachsenen Gäste gesendet haben."
+    ),
+    "es": (
+        "Hemos recibido todas las caras necesarias del documento.\n\n"
+        "Confirme con **Sí** si ha enviado documentos de identidad de todos los huéspedes adultos."
+    ),
+    "fr": (
+        "Toutes les faces requises des documents ont été reçues.\n\n"
+        "Veuillez confirmer avec **Oui** si vous avez envoyé les pièces d’identité de tous les adultes."
+    ),
+}
+
 OPERATOR_DOCUMENTS_CONFIRM = {
     "hr": (
         "Primili smo fotografije. Jeste li unijeli sve potrebne slike dokumenta "
@@ -784,6 +830,8 @@ DEFAULT_TEXTS: dict[str, dict[str, str]] = {
     "documents_batch_confirm": DOCUMENTS_BATCH_CONFIRM,
     "documents_batch_confirm_yes": DOCUMENTS_BATCH_CONFIRM_YES,
     "documents_batch_confirm_no": DOCUMENTS_BATCH_CONFIRM_NO,
+    "documents_batch_additional_photo": DOCUMENTS_BATCH_ADDITIONAL_PHOTO,
+    "documents_batch_complete_reprompt": DOCUMENTS_BATCH_COMPLETE_REPROMPT,
     "operator_documents_confirm": OPERATOR_DOCUMENTS_CONFIRM,
     "checkin_partial_documents": CHECKIN_PARTIAL_DOCUMENTS,
     "missing_id_sides_intro": MISSING_ID_SIDES_INTRO,

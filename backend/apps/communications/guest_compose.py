@@ -47,6 +47,8 @@ HINT_AUTO_CHECKIN_PERIOD_ENDED = "autocheckin period ended"
 HINT_AUTOCHECKIN_WHATSAPP_INTRO = "whatsapp autocheckin intro"
 HINT_EVISITOR_REGISTERED = "evisitor registered"
 HINT_ID_MISSING_SIDES = "id missing sides"
+HINT_DOCUMENTS_BATCH_ADDITIONAL_PHOTO = "documents batch additional photo"
+HINT_DOCUMENTS_BATCH_COMPLETE_REPROMPT = "documents batch complete reprompt"
 HINT_POST_CHECKIN_AUTO_REPLY = "post_checkin_auto_reply"
 HINT_AUTOCHECKIN_WAIVED = "autocheckin waived"
 HINT_AUTOCHECKIN_ARRIVAL_THANKS = "autocheckin arrival thanks"
@@ -108,6 +110,8 @@ from apps.communications.guest_compose_defaults import (
     DOCUMENTS_BATCH_CONFIRM,
     DOCUMENTS_BATCH_CONFIRM_NO,
     DOCUMENTS_BATCH_CONFIRM_YES,
+    DOCUMENTS_BATCH_ADDITIONAL_PHOTO,
+    DOCUMENTS_BATCH_COMPLETE_REPROMPT,
     DOCUMENTS_TEXTS,
     ENTRANCE_IMAGE_CAPTION,
     ENTRANCE_TEXTS,
@@ -750,6 +754,38 @@ def documents_batch_confirm_button_labels(reservation: Reservation) -> tuple[str
     return (
         _property_guest_text(reservation, "documents_batch_confirm_yes", lang),
         _property_guest_text(reservation, "documents_batch_confirm_no", lang),
+    )
+
+
+def render_documents_batch_additional_photo_message(reservation: Reservation) -> str:
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    body = _property_guest_text(reservation, "documents_batch_additional_photo", lang)
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
+
+
+def render_documents_batch_complete_reprompt_message(reservation: Reservation) -> str:
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    body = _property_guest_text(reservation, "documents_batch_complete_reprompt", lang)
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
     )
 
 

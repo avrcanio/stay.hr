@@ -51,6 +51,50 @@ class ArrivalTimeParseTests(TestCase):
     def test_unparseable_returns_none(self):
         self.assertIsNone(parse_guest_stated_arrival("vidimo se kasnije", self.reservation))
 
+    def test_relative_sat_i_pol_from_reference(self):
+        ref = datetime(2026, 6, 22, 14, 24, tzinfo=ZAGREB)
+        self.reservation.check_in = date(2026, 6, 22)
+        self.reservation.save(update_fields=["check_in", "updated_at"])
+        parsed = parse_guest_stated_arrival(
+            "Bit cemo tu za sat sat i pol",
+            self.reservation,
+            reference_at=ref,
+        )
+        self.assertEqual(parsed, datetime(2026, 6, 22, 15, 54, tzinfo=ZAGREB))
+
+    def test_relative_sat_do_sat_i_pol(self):
+        ref = datetime(2026, 6, 22, 14, 24, tzinfo=ZAGREB)
+        self.reservation.check_in = date(2026, 6, 22)
+        self.reservation.save(update_fields=["check_in", "updated_at"])
+        parsed = parse_guest_stated_arrival(
+            "za sat do sat i pol",
+            self.reservation,
+            reference_at=ref,
+        )
+        self.assertEqual(parsed, datetime(2026, 6, 22, 15, 54, tzinfo=ZAGREB))
+
+    def test_relative_floors_to_check_in_time(self):
+        ref = datetime(2026, 6, 22, 14, 24, tzinfo=ZAGREB)
+        self.reservation.check_in = date(2026, 6, 22)
+        self.reservation.save(update_fields=["check_in", "updated_at"])
+        parsed = parse_guest_stated_arrival(
+            "za sat",
+            self.reservation,
+            reference_at=ref,
+        )
+        self.assertEqual(parsed, datetime(2026, 6, 22, 15, 24, tzinfo=ZAGREB))
+
+    def test_relative_pola_sata_floors_to_check_in_open(self):
+        ref = datetime(2026, 6, 22, 14, 24, tzinfo=ZAGREB)
+        self.reservation.check_in = date(2026, 6, 22)
+        self.reservation.save(update_fields=["check_in", "updated_at"])
+        parsed = parse_guest_stated_arrival(
+            "za pola sata",
+            self.reservation,
+            reference_at=ref,
+        )
+        self.assertEqual(parsed, datetime(2026, 6, 22, 15, 0, tzinfo=ZAGREB))
+
     def test_format_defaults_to_property_check_in_time(self):
         self.reservation.guest_stated_arrival_text = ""
         self.reservation.guest_stated_arrival_at = None

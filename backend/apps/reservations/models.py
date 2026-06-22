@@ -504,6 +504,7 @@ class WhatsAppDocumentBatchSession(TenantScopedModel):
     prompt_sent_at = models.DateTimeField(null=True, blank=True)
     prompt_count = models.PositiveSmallIntegerField(default=0)
     after_no_at = models.DateTimeField(null=True, blank=True)
+    confirm_interrupted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

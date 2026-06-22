@@ -257,21 +257,43 @@ def notify_guest_review_inbound(
     }
 
 
-def _auto_checkout_skipped_body(count: int, booking_codes: list[str]) -> str:
+def _primary_reservation_id_from_skipped(skipped: list[dict]) -> int:
+    for item in skipped:
+        reservation_id = int(item.get("reservation_id") or 0)
+        if reservation_id > 0:
+            return reservation_id
+    return 0
+
+
+def _auto_checkout_skipped_body(count: int, skipped: list[dict]) -> str:
     if count == 1:
-        base = "1 rezervacija nije odjavljena (eVisitor)"
-    elif 2 <= count <= 4:
+        item = skipped[0]
+        reservation_id = int(item.get("reservation_id") or 0)
+        booking_code = str(item.get("booking_code") or reservation_id or "").strip()
+        if reservation_id > 0 and booking_code:
+            return f"1 rezervacija nije odjavljena (eVisitor): #{reservation_id} · {booking_code}"
+        return "1 rezervacija nije odjavljena (eVisitor)"
+
+    if 2 <= count <= 4:
         base = f"{count} rezervacije nisu odjavljene (eVisitor)"
     else:
         base = f"{count} rezervacija nije odjavljena (eVisitor)"
 
-    if not booking_codes:
+    labels: list[str] = []
+    for item in skipped[:5]:
+        reservation_id = int(item.get("reservation_id") or 0)
+        booking_code = str(item.get("booking_code") or reservation_id or "").strip()
+        if reservation_id > 0 and booking_code:
+            labels.append(f"#{reservation_id} · {booking_code}")
+        elif booking_code:
+            labels.append(booking_code)
+
+    if not labels:
         return base
 
-    shown = booking_codes[:5]
-    suffix = ", ".join(shown)
-    if count > len(shown):
-        suffix = f"{suffix} (+{count - len(shown)})"
+    suffix = ", ".join(labels)
+    if count > len(labels):
+        suffix = f"{suffix} (+{count - len(labels)})"
     return f"{base}: {suffix}"
 
 
@@ -286,17 +308,14 @@ def notify_auto_checkout_summary(tenant_id: int, skipped: list[dict]) -> dict:
     if count == 0:
         return {"sent": 0, "tenant_id": tenant_id, "reason": "empty"}
 
-    booking_codes = [
-        str(item.get("booking_code") or "")
-        for item in skipped
-        if item.get("booking_code")
-    ]
+    primary_reservation_id = _primary_reservation_id_from_skipped(skipped)
     title = "Auto odjava — preskočeno"
-    body = _auto_checkout_skipped_body(count, booking_codes)
+    body = _auto_checkout_skipped_body(count, skipped)
+    summary = body if count == 1 else f"{count} preskočeno"
     data = reception_push_data(
         event_type="auto_checkout.skipped",
-        reservation_id=0,
-        summary=f"{count} preskočeno",
+        reservation_id=primary_reservation_id,
+        summary=summary,
         tenant_id=str(tenant_id),
         skipped_count=str(count),
         skipped=json.dumps(skipped),

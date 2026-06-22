@@ -135,6 +135,17 @@ class GuestArrivalInboundTests(TestCase):
         self.assertIsNotNone(self.reservation.guest_stated_arrival_at)
 
     @patch("apps.communications.guest_arrival_inbound.llm_configured", return_value=False)
+    def test_save_relative_sat_i_pol(self, _mock_llm):
+        ref = datetime(2026, 6, 22, 14, 24, tzinfo=ZAGREB)
+        self.reservation.check_in = date(2026, 6, 22)
+        self.reservation.save(update_fields=["check_in", "updated_at"])
+        body = "Sve uredno primljeno\nBit cemo tu za sat sat i pol"
+        parsed = save_stated_arrival(self.reservation, text=body, reference_at=ref)
+        self.reservation.refresh_from_db()
+        self.assertEqual(parsed, datetime(2026, 6, 22, 15, 54, tzinfo=ZAGREB))
+        self.assertEqual(self.reservation.guest_stated_arrival_at, parsed)
+
+    @patch("apps.communications.guest_arrival_inbound.llm_configured", return_value=False)
     @patch("apps.communications.guest_arrival_inbound.schedule_arrival_confirm_prompt")
     @patch("apps.communications.guest_arrival_inbound.send_guest_message")
     def test_handle_time_stated_sends_reply(self, mock_send, mock_schedule, _mock_llm):

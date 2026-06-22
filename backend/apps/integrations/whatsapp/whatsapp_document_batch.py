@@ -13,9 +13,16 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.communications.guest_compose import (
+    HINT_DOCUMENTS_BATCH_ADDITIONAL_PHOTO,
+    HINT_DOCUMENTS_BATCH_COMPLETE_REPROMPT,
+    HINT_ID_MISSING_SIDES,
     documents_batch_confirm_button_labels,
+    render_document_intake_incomplete_message,
+    render_documents_batch_additional_photo_message,
+    render_documents_batch_complete_reprompt_message,
     render_documents_batch_confirm_message,
 )
+from apps.communications.models import GuestMessageIntent
 from apps.communications.whatsapp_autocheckin_tasks import mark_autocheckin_engaged
 from apps.integrations.models import WhatsAppMessage
 from apps.integrations.whatsapp.client import (
@@ -207,6 +214,99 @@ def _message_already_in_job(job: DocumentIntakeJob, message_id: int) -> bool:
         if name.startswith(prefix):
             return True
     return False
+
+
+def _session_accepts_docs_reply(session: WhatsAppDocumentBatchSession) -> bool:
+    if session.status == WhatsAppDocumentBatchStatus.AWAITING_CONFIRM:
+        return True
+    if session.status == WhatsAppDocumentBatchStatus.COLLECTING and (session.prompt_count or 0) > 0:
+        return True
+    return False
+
+
+def _send_batch_text_ack(
+    *,
+    session: WhatsAppDocumentBatchSession,
+    body: str,
+    hint: str,
+) -> dict:
+    from apps.integrations.whatsapp.apply_reply import _send_whatsapp_text_reply
+
+    return _send_whatsapp_text_reply(
+        job=session.job,
+        body=body,
+        intent=GuestMessageIntent.REPLY,
+        hint=hint,
+        mark_reply_sent=False,
+    )
+
+
+def _send_batch_additional_photo_ack(session: WhatsAppDocumentBatchSession) -> dict:
+    body = render_documents_batch_additional_photo_message(session.reservation)
+    return _send_batch_text_ack(
+        session=session,
+        body=body,
+        hint=HINT_DOCUMENTS_BATCH_ADDITIONAL_PHOTO,
+    )
+
+
+def assess_batch_after_quiet(session: WhatsAppDocumentBatchSession) -> dict:
+    """OCR preview after quiet period; notify guest then re-prompt Ja/Ne."""
+    reservation = session.reservation
+    job = session.job
+    integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+    if integration_row is None or runtime is None:
+        return {"status": "skipped", "reason": "no_integration"}
+
+    from apps.reservations.document_intake_audit import rematch_and_audit_job
+    from apps.reservations.document_intake_completeness import evaluate_completeness
+    from apps.reservations.document_intake_service import process_document_intake_job
+
+    process_document_intake_job(job.pk)
+    job.refresh_from_db()
+
+    if job.status == DocumentIntakeJobStatus.FAILED:
+        return {"status": "ocr_failed", "job_id": job.pk}
+
+    matches = rematch_and_audit_job(job, reservation=reservation)
+    persons = (job.ocr_result or {}).get("persons") or []
+    images = list(job.images.order_by("sort_order", "id"))
+    completeness = evaluate_completeness(
+        reservation=reservation,
+        persons=persons,
+        matches=matches,
+        images=images,
+    )
+
+    if completeness.is_complete:
+        body = render_documents_batch_complete_reprompt_message(reservation)
+        preview_reply = _send_batch_text_ack(
+            session=session,
+            body=body,
+            hint=HINT_DOCUMENTS_BATCH_COMPLETE_REPROMPT,
+        )
+        preview = "complete"
+    else:
+        body = render_document_intake_incomplete_message(
+            reservation,
+            completeness,
+            image_count=len(images),
+        )
+        preview_reply = _send_batch_text_ack(
+            session=session,
+            body=body,
+            hint=HINT_ID_MISSING_SIDES,
+        )
+        preview = "incomplete"
+
+    send_result = _prompt_and_await_confirm(session)
+    return {
+        "status": "assessed",
+        "preview": preview,
+        "preview_reply": preview_reply,
+        "prompt": send_result,
+        "job_id": job.pk,
+    }
 
 
 def _schedule_quiet_timer(session: WhatsAppDocumentBatchSession) -> None:
@@ -436,6 +536,7 @@ def on_whatsapp_document_received(message_id: int) -> dict:
     mime = downloaded_mime or mime_type
     filename = f"wa_{row.pk}{_extension_for_mime(mime)}"
     now = timezone.now()
+    was_awaiting_confirm = False
 
     with transaction.atomic():
         _pg_advisory_xact_lock_guest_batch(row.tenant_id, reservation.pk)
@@ -444,6 +545,8 @@ def on_whatsapp_document_received(message_id: int) -> dict:
             return {"status": "skipped", "reason": "no_session"}
         if _message_already_in_job(session.job, row.pk):
             return {"status": "duplicate", "session_id": session.pk, "job_id": session.job_id}
+
+        was_awaiting_confirm = session.status == WhatsAppDocumentBatchStatus.AWAITING_CONFIRM
 
         sort_order = session.job.images.count()
         DocumentIntakeImage.objects.create(
@@ -459,17 +562,29 @@ def on_whatsapp_document_received(message_id: int) -> dict:
         session.last_media_at = now
         session.status = WhatsAppDocumentBatchStatus.COLLECTING
         session.after_no_at = None
-        session.save(update_fields=["last_media_at", "status", "after_no_at", "updated_at"])
+        update_fields = ["last_media_at", "status", "after_no_at", "updated_at"]
+        if was_awaiting_confirm:
+            session.confirm_interrupted_at = now
+            update_fields.append("confirm_interrupted_at")
+        session.save(update_fields=update_fields)
 
     _cancel_confirm_timers(session.pk)
     _schedule_quiet_timer(session)
 
-    return {
+    ack_result: dict | None = None
+    if was_awaiting_confirm:
+        ack_result = _send_batch_additional_photo_ack(session)
+
+    result = {
         "status": "collected",
         "session_id": session.pk,
         "job_id": session.job_id,
         "image_count": session.job.images.count(),
     }
+    if was_awaiting_confirm:
+        result["confirm_interrupted"] = True
+        result["ack"] = ack_result
+    return result
 
 
 @shared_task
@@ -500,8 +615,7 @@ def document_batch_quiet_elapsed(session_id: int) -> dict:
     if not session.job.images.exists():
         return {"status": "skipped", "reason": "no_images"}
 
-    send_result = _prompt_and_await_confirm(session)
-    return {"status": "prompted", "send": send_result}
+    return assess_batch_after_quiet(session)
 
 
 @shared_task
@@ -575,13 +689,15 @@ def handle_whatsapp_document_batch_reply(message_id: int) -> dict:
         action_text = str((interactive.get("button_reply") or {}).get("title") or "").strip()
 
     session = _get_active_session(reservation_id=row.reservation_id)
-    if session is None or session.status != WhatsAppDocumentBatchStatus.AWAITING_CONFIRM:
+    if session is None or not _session_accepts_docs_reply(session):
         return {"status": "skipped", "reason": "no_active_confirm"}
 
     if is_documents_all_yes_reply(button_id=button_id, text=action_text):
         return finalize_whatsapp_document_batch(session.pk)
 
     if is_documents_all_no_reply(button_id=button_id, text=action_text):
+        if session.status != WhatsAppDocumentBatchStatus.AWAITING_CONFIRM:
+            return {"status": "skipped", "reason": "no_active_confirm"}
         _revoke_all_timers(session.pk)
         session.status = WhatsAppDocumentBatchStatus.AFTER_NO
         session.after_no_at = timezone.now()

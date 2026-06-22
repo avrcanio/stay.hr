@@ -53,21 +53,31 @@ _CHANNEL_MAP = {
 }
 
 
-def classify_inbound(body: str, reservation: Reservation) -> ArrivalInboundKind | None:
+def classify_inbound(
+    body: str,
+    reservation: Reservation,
+    *,
+    reference_at: datetime | None = None,
+) -> ArrivalInboundKind | None:
     text = (body or "").strip()
     if not text:
         return None
     if not guest_message_mentions_arrival(text) and not _LATE_INQUIRY.search(text):
         return None
-    if parse_guest_stated_arrival(text, reservation) is not None:
+    if parse_guest_stated_arrival(text, reservation, reference_at=reference_at) is not None:
         return "time_stated"
     if _LATE_INQUIRY.search(text) or guest_message_mentions_arrival(text):
         return "late_inquiry"
     return None
 
 
-def save_stated_arrival(reservation: Reservation, *, text: str) -> datetime | None:
-    parsed = parse_guest_stated_arrival(text, reservation)
+def save_stated_arrival(
+    reservation: Reservation,
+    *,
+    text: str,
+    reference_at: datetime | None = None,
+) -> datetime | None:
+    parsed = parse_guest_stated_arrival(text, reservation, reference_at=reference_at)
     reservation.guest_stated_arrival_text = (text or "")[:255]
     reservation.guest_stated_arrival_at = parsed
     reservation.save(
@@ -128,15 +138,20 @@ def _save_time_for_kind(
     kind: ArrivalInboundKind,
     *,
     stated_time_raw: str = "",
+    reference_at: datetime | None = None,
 ) -> datetime | None:
     if kind != "time_stated":
         return None
     save_text = (body or "").strip() or (stated_time_raw or "").strip()
     if not save_text:
         return None
-    parsed = save_stated_arrival(reservation, text=save_text)
+    parsed = save_stated_arrival(reservation, text=save_text, reference_at=reference_at)
     if parsed is None and stated_time_raw and stated_time_raw != save_text:
-        return save_stated_arrival(reservation, text=stated_time_raw)
+        return save_stated_arrival(
+            reservation,
+            text=stated_time_raw,
+            reference_at=reference_at,
+        )
     return parsed
 
 
@@ -243,12 +258,18 @@ def _handle_arrival_fallback(
     body: str,
     *,
     channel: str,
+    reference_at: datetime | None = None,
 ) -> dict | None:
-    kind = classify_inbound(body, reservation)
+    kind = classify_inbound(body, reservation, reference_at=reference_at)
     if kind is None:
         return None
 
-    parsed = _save_time_for_kind(reservation, body, kind)
+    parsed = _save_time_for_kind(
+        reservation,
+        body,
+        kind,
+        reference_at=reference_at,
+    )
     reply_body = None
     if reservation.property.guest_arrival_auto_reply_enabled and not _auto_reply_sent_today(
         reservation, kind
@@ -277,6 +298,7 @@ def _handle_arrival_llm(
     *,
     channel: str,
     llm_result: ArrivalLlmResult,
+    reference_at: datetime | None = None,
 ) -> dict:
     kind = llm_result.scenario
     if kind is None:
@@ -287,6 +309,7 @@ def _handle_arrival_llm(
         body,
         kind,
         stated_time_raw=llm_result.stated_time_raw,
+        reference_at=reference_at,
     )
     reply_body = llm_result.reply_text if llm_result.reply_text else None
 
@@ -307,6 +330,7 @@ def maybe_handle_guest_arrival_inbound(
     body: str,
     *,
     channel: str,
+    reference_at: datetime | None = None,
 ) -> dict | None:
     """Parse arrival info, save to reservation, auto-reply on same channel. Returns None if N/A."""
     if reservation.status != Reservation.Status.EXPECTED:
@@ -326,6 +350,7 @@ def maybe_handle_guest_arrival_inbound(
                 body,
                 channel=channel,
                 llm_result=llm_result,
+                reference_at=reference_at,
             )
         except GuestComposeError as exc:
             logger.warning(
@@ -334,4 +359,9 @@ def maybe_handle_guest_arrival_inbound(
                 exc,
             )
 
-    return _handle_arrival_fallback(reservation, body, channel=channel)
+    return _handle_arrival_fallback(
+        reservation,
+        body,
+        channel=channel,
+        reference_at=reference_at,
+    )

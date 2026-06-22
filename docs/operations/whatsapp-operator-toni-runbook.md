@@ -42,10 +42,40 @@ Toni → slika → webhook → DocumentIntakeJob
 | „Nema aktivnih slika“ | Check-in prije slike | Prvo slika, pa Check-in |
 | „Nisam pronašao rezervaciju“ | OCR/match neuspjeh | Pošalji `#<id>` ili booking kod |
 | Chat na **8388513** | Krivi broj | Prebaci na **976789626** |
+| Gost kliknuo **Da**, nema odgovora | Slika stigla nakon Ja/Ne pitanja → sesija `collecting`, **Da** odbačen | Vidi [guest incident Mauro](./whatsapp-38598203090-mauro-diliddo-5585518759-hr.md); `reconcile_guest_document_batches --reservation-id <ID> --apply` |
 
 ---
 
 ## Ručni recovery (recepcija / admin)
+
+### Guest auto check-in (WhatsApp gost → poslovni broj)
+
+Ako gost pošalje dokumente, dobije Ja/Ne pitanje, pošalje još slika ili klikne **Da** bez odgovora:
+
+```bash
+# Pronađi sesiju / job
+docker compose exec django python manage.py shell -c "
+from apps.reservations.models import WhatsAppDocumentBatchSession, DocumentIntakeJob
+for s in WhatsAppDocumentBatchSession.objects.filter(status__in=['collecting','awaiting_confirm']).order_by('-pk')[:5]:
+    print('session', s.pk, s.status, s.reservation_id, s.job_id, s.prompt_count)
+for j in DocumentIntakeJob.objects.filter(source='whatsapp').order_by('-pk')[:5]:
+    print('job', j.pk, j.status, j.reservation_id, j.images.count())
+"
+
+# Reconcile (OCR + apply kad je kompletno)
+docker compose exec django python manage.py reconcile_guest_document_batches \
+  --reservation-id <RES_ID> --apply
+
+# Ručno finalize jedne sesije
+docker compose exec django python manage.py shell -c "
+from apps.integrations.whatsapp.whatsapp_document_batch import finalize_whatsapp_document_batch
+from apps.reservations.models import WhatsAppDocumentBatchSession
+s = WhatsAppDocumentBatchSession.objects.get(pk=<SESSION_ID>)
+print(finalize_whatsapp_document_batch(s.pk))
+"
+```
+
+### Operator (Toni → poslovni broj)
 
 Ako je slika stigla ali flow stao:
 
@@ -76,5 +106,16 @@ docker compose exec django python manage.py complete_operator_document_job \
 | Job | #50, 1 slika putovnice |
 | Uzrok | Celery task `operator_collect_quiet_elapsed` nije bio registriran → Toni nije dobio „Primljeno 1 sliku“ |
 | Fix | Import u `tasks.py` + restart `celery-worker`; replay `complete_operator_document_job --job-id 50 --reservation-id 863` |
+
+## Incident 2026-06-22 — Mauro Di Liddo (#799)
+
+Dva problema:
+
+1. **Confirm flow** — gost poslao stražnje strane umjesto Da/Ne, zatim kliknuo Da bez odgovora sustava. Fix u kodu (confirm-during-batch).
+2. **Guest match** — OCR `DILIDDO` nije matchan na bookera `Di Liddo`; Maurov CI završio na drugom slotu, Veronika unmatched. Ručno prebačeno u bazi (bez poruka gostu).
+
+Detalji: [whatsapp-38598203090-mauro-diliddo-5585518759-hr.md](./whatsapp-38598203090-mauro-diliddo-5585518759-hr.md)
+
+---
 
 Povezano: [guest-messages-channels.md](./guest-messages-channels.md), [whatsapp-checkin-template.md](./whatsapp-checkin-template.md)

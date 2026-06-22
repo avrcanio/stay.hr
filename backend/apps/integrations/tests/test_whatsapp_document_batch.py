@@ -27,6 +27,7 @@ from apps.reservations.models import (
     WhatsAppDocumentBatchStatus,
     Reservation,
 )
+from apps.reservations.document_intake_completeness import DocumentIntakeCompleteness
 from apps.tenants.models import Tenant
 
 
@@ -108,12 +109,54 @@ class WhatsAppDocumentBatchTests(TestCase):
         self.assertEqual(DocumentIntakeJob.objects.filter(reservation=self.reservation).count(), 1)
         mock_notify.assert_not_called()
 
+    def _mock_ocr_preview_complete(self, mock_process, mock_rematch, mock_eval):
+        def _process(job_id):
+            job = DocumentIntakeJob.objects.get(pk=job_id)
+            job.status = DocumentIntakeJobStatus.DONE
+            job.ocr_result = {"persons": []}
+            job.save(update_fields=["status", "ocr_result", "updated_at"])
+
+        mock_process.side_effect = _process
+        mock_rematch.return_value = []
+        mock_eval.return_value = DocumentIntakeCompleteness(is_complete=True)
+
+    def _mock_ocr_preview_incomplete(self, mock_process, mock_rematch, mock_eval):
+        def _process(job_id):
+            job = DocumentIntakeJob.objects.get(pk=job_id)
+            job.status = DocumentIntakeJobStatus.DONE
+            job.ocr_result = {"persons": []}
+            job.save(update_fields=["status", "ocr_result", "updated_at"])
+
+        mock_process.side_effect = _process
+        mock_rematch.return_value = []
+        mock_eval.return_value = DocumentIntakeCompleteness(
+            is_complete=False,
+            missing_guests=[],
+            missing_sides=[],
+            unmatched_persons=[],
+        )
+
+    @patch("apps.reservations.document_intake_completeness.evaluate_completeness")
+    @patch("apps.reservations.document_intake_audit.rematch_and_audit_job")
+    @patch("apps.reservations.document_intake_service.process_document_intake_job")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._send_batch_text_ack")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
-    def test_quiet_elapsed_sends_interactive_prompt(self, mock_fetch, mock_schedule, mock_send):
+    def test_quiet_elapsed_sends_interactive_prompt(
+        self,
+        mock_fetch,
+        mock_schedule,
+        mock_send,
+        mock_text_ack,
+        mock_process,
+        mock_rematch,
+        mock_eval,
+    ):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
         mock_send.return_value = {"messages": [{"id": "wamid.out.prompt"}]}
+        mock_text_ack.return_value = {"status": "sent"}
+        self._mock_ocr_preview_complete(mock_process, mock_rematch, mock_eval)
         message = self._image_message(pk_suffix="1", wamid="wamid.in.1")
         on_whatsapp_document_received(message.pk)
 
@@ -123,8 +166,10 @@ class WhatsAppDocumentBatchTests(TestCase):
 
         result = document_batch_quiet_elapsed(session.pk)
 
-        self.assertEqual(result["status"], "prompted")
+        self.assertEqual(result["status"], "assessed")
+        self.assertEqual(result["preview"], "complete")
         mock_send.assert_called_once()
+        mock_text_ack.assert_called_once()
         session.refresh_from_db()
         self.assertEqual(session.status, WhatsAppDocumentBatchStatus.AWAITING_CONFIRM)
         self.assertEqual(session.prompt_count, 1)
@@ -332,6 +377,163 @@ class WhatsAppDocumentBatchTests(TestCase):
             WhatsAppDocumentBatchSession.objects.filter(reservation=self.reservation).exists()
         )
         self.assertFalse(DocumentIntakeJob.objects.filter(reservation=self.reservation).exists())
+
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._send_batch_additional_photo_ack")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
+    def test_image_during_awaiting_confirm_sends_ack(self, mock_fetch, mock_schedule, mock_ack):
+        mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
+        mock_ack.return_value = {"status": "sent"}
+        message = self._image_message(pk_suffix="ack1", wamid="wamid.in.ack1")
+        on_whatsapp_document_received(message.pk)
+        session = WhatsAppDocumentBatchSession.objects.get(reservation=self.reservation)
+        session.status = WhatsAppDocumentBatchStatus.AWAITING_CONFIRM
+        session.prompt_count = 1
+        session.prompt_sent_at = timezone.now()
+        session.save(update_fields=["status", "prompt_count", "prompt_sent_at", "updated_at"])
+
+        message2 = self._image_message(pk_suffix="ack2", wamid="wamid.in.ack2")
+        result = on_whatsapp_document_received(message2.pk)
+
+        self.assertEqual(result["status"], "collected")
+        self.assertTrue(result.get("confirm_interrupted"))
+        mock_ack.assert_called_once()
+        session.refresh_from_db()
+        self.assertEqual(session.status, WhatsAppDocumentBatchStatus.COLLECTING)
+        self.assertIsNotNone(session.confirm_interrupted_at)
+        self.assertEqual(session.job.images.count(), 2)
+
+    @patch("apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._send_batch_additional_photo_ack")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
+    @patch("apps.core.tasks.notify_guest_message_inbound.delay")
+    def test_yes_after_late_images_finalizes(
+        self,
+        mock_notify,
+        mock_fetch,
+        mock_schedule,
+        mock_ack,
+        mock_finalize,
+    ):
+        mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
+        mock_ack.return_value = {"status": "sent"}
+        mock_finalize.return_value = {"status": "docs_saved", "job_id": 1}
+
+        message = self._image_message(pk_suffix="m1", wamid="wamid.in.m1")
+        on_whatsapp_document_received(message.pk)
+        session = WhatsAppDocumentBatchSession.objects.get(reservation=self.reservation)
+        session.status = WhatsAppDocumentBatchStatus.AWAITING_CONFIRM
+        session.prompt_count = 1
+        session.prompt_sent_at = timezone.now()
+        session.save(update_fields=["status", "prompt_count", "prompt_sent_at", "updated_at"])
+
+        for idx, suffix in enumerate(("m2", "m3"), start=2):
+            on_whatsapp_document_received(
+                self._image_message(pk_suffix=suffix, wamid=f"wamid.in.{suffix}").pk
+            )
+
+        yes_message = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.in.mauro.yes",
+            wa_id="385911111111",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="interactive",
+            body="Da",
+            raw_payload={
+                "type": "interactive",
+                "interactive": {
+                    "type": "button_reply",
+                    "button_reply": {"id": "docs_all_yes", "title": "Da"},
+                },
+            },
+        )
+
+        result = handle_whatsapp_document_batch_reply(yes_message.pk)
+
+        self.assertEqual(result["status"], "docs_saved")
+        mock_finalize.assert_called_once()
+        session.refresh_from_db()
+        self.assertEqual(session.status, WhatsAppDocumentBatchStatus.DONE)
+
+    @patch("apps.reservations.document_intake_completeness.evaluate_completeness")
+    @patch("apps.reservations.document_intake_audit.rematch_and_audit_job")
+    @patch("apps.reservations.document_intake_service.process_document_intake_job")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._send_batch_text_ack")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.send_interactive_button_message")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
+    def test_quiet_runs_ocr_preview_incomplete(
+        self,
+        mock_fetch,
+        mock_schedule,
+        mock_send,
+        mock_text_ack,
+        mock_process,
+        mock_rematch,
+        mock_eval,
+    ):
+        mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
+        mock_send.return_value = {"messages": [{"id": "wamid.out.prompt"}]}
+        mock_text_ack.return_value = {"status": "sent"}
+        self._mock_ocr_preview_incomplete(mock_process, mock_rematch, mock_eval)
+        message = self._image_message(pk_suffix="inc", wamid="wamid.in.inc")
+        on_whatsapp_document_received(message.pk)
+        session = WhatsAppDocumentBatchSession.objects.get(reservation=self.reservation)
+        session.last_media_at = timezone.now() - timezone.timedelta(seconds=QUIET_SECONDS + 1)
+        session.save(update_fields=["last_media_at", "updated_at"])
+
+        with patch(
+            "apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job"
+        ) as mock_finalize:
+            result = document_batch_quiet_elapsed(session.pk)
+
+        self.assertEqual(result["status"], "assessed")
+        self.assertEqual(result["preview"], "incomplete")
+        mock_finalize.assert_not_called()
+        mock_text_ack.assert_called_once()
+        mock_send.assert_called_once()
+
+    @patch("apps.reservations.document_intake_completeness.evaluate_completeness")
+    @patch("apps.reservations.document_intake_audit.rematch_and_audit_job")
+    @patch("apps.reservations.document_intake_service.process_document_intake_job")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._send_batch_text_ack")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.send_interactive_button_message")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
+    def test_quiet_runs_ocr_preview_complete_reprompts(
+        self,
+        mock_fetch,
+        mock_schedule,
+        mock_send,
+        mock_text_ack,
+        mock_process,
+        mock_rematch,
+        mock_eval,
+    ):
+        mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
+        mock_send.return_value = {"messages": [{"id": "wamid.out.prompt"}]}
+        mock_text_ack.return_value = {"status": "sent"}
+        self._mock_ocr_preview_complete(mock_process, mock_rematch, mock_eval)
+        message = self._image_message(pk_suffix="cmp", wamid="wamid.in.cmp")
+        on_whatsapp_document_received(message.pk)
+        session = WhatsAppDocumentBatchSession.objects.get(reservation=self.reservation)
+        session.last_media_at = timezone.now() - timezone.timedelta(seconds=QUIET_SECONDS + 1)
+        session.save(update_fields=["last_media_at", "updated_at"])
+
+        with patch(
+            "apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job"
+        ) as mock_finalize:
+            result = document_batch_quiet_elapsed(session.pk)
+
+        self.assertEqual(result["status"], "assessed")
+        self.assertEqual(result["preview"], "complete")
+        mock_finalize.assert_not_called()
+        mock_text_ack.assert_called_once()
+        mock_send.assert_called_once()
 
 
 class WhatsAppDocumentBatchTimerTests(TestCase):

@@ -13,6 +13,7 @@ from apps.integrations.whatsapp.whatsapp_document_batch import (
     _ACTIVE_STATUSES,
     _prompt_and_await_confirm,
     _run_finalize,
+    assess_batch_after_quiet,
 )
 from apps.reservations.document_intake_audit import rematch_and_audit_job, try_apply_complete_job
 from apps.reservations.document_intake_completeness import evaluate_completeness
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 STUCK_CONFIRM_MINUTES = 10
 STUCK_JOB_MINUTES = 5
+STUCK_COLLECTING_AFTER_PROMPT_MINUTES = 5
 
 
 def reconcile_guest_document_batch(
@@ -109,6 +111,22 @@ def reconcile_guest_document_batch(
                     finalize_result = _run_finalize(session)
                     entry["action"] = "finalize_collecting"
                     entry["finalize"] = finalize_result
+            elif (
+                session.status == WhatsAppDocumentBatchStatus.COLLECTING
+                and (session.prompt_count or 0) > 0
+                and session.last_media_at
+                and session.last_media_at <= now - timedelta(minutes=STUCK_COLLECTING_AFTER_PROMPT_MINUTES)
+            ):
+                integration_row, runtime = get_active_whatsapp_integration(session.tenant)
+                if integration_row and runtime:
+                    if apply:
+                        finalize_result = _run_finalize(session)
+                        entry["action"] = "finalize_stuck_collecting"
+                        entry["finalize"] = finalize_result
+                    else:
+                        assess_result = assess_batch_after_quiet(session)
+                        entry["action"] = "assess_stuck_collecting"
+                        entry["assess"] = assess_result
         if "action" in entry:
             results.append(entry)
 

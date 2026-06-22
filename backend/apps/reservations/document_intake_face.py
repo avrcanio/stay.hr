@@ -172,8 +172,8 @@ def _select_best_face(
 
     # WhatsApp passport photos often show two open pages; Haar false positives on the
     # eagle/header sit above the real biodata portrait on the left strip.
-    portrait_passport = image_h / max(image_w, 1) > 1.25
-    if portrait_passport:
+    open_book_photo = image_h > image_w
+    if open_book_photo:
         left_portraits = [
             box
             for _, box in candidates
@@ -270,11 +270,14 @@ def _detect_face_with_portrait_rotation(
         bgr = cv2.cvtColor(np.array(working.convert("RGB")), cv2.COLOR_RGB2BGR)
         iw = bgr.shape[1]
         ih = bgr.shape[0]
-        for face_px in _detect_faces_in_bgr_all(bgr):
-            x, y, fw, fh = face_px
-            score = _score_face_box(x, y, fw, fh, image_w=iw, image_h=ih)
-            if best is None or score > best[0]:
-                best = (score, face_px, angle)
+        faces = _detect_faces_in_bgr_all(bgr)
+        face_px = _select_best_face(faces, image_w=iw, image_h=ih)
+        if face_px is None:
+            continue
+        x, y, fw, fh = face_px
+        score = _score_face_box(x, y, fw, fh, image_w=iw, image_h=ih)
+        if best is None or score > best[0]:
+            best = (score, face_px, angle)
 
     if best is None:
         return None, 0

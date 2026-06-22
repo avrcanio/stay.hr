@@ -143,6 +143,25 @@ class AutoCheckoutTaskTests(TestCase):
         skipped = mock_summary_push.call_args.args[1]
         self.assertEqual(len(skipped), 1)
         self.assertEqual(skipped[0]["reason"], "evisitor_incomplete")
+        self.assertEqual(skipped[0]["reservation_id"], reservation.pk)
+
+    @patch("apps.core.tasks.notify_auto_checkout_summary.delay")
+    @patch("apps.reservations.checkout.checkout_reservation_guests_in_evisitor")
+    def test_evisitor_incomplete_skipped_notifies_once_per_checkout_day(
+        self,
+        mock_evisitor_checkout,
+        mock_summary_push,
+    ):
+        self._create_reservation(guest_evisitor_status=EvisitorGuestStatus.NOT_SENT)
+
+        self._run_task()
+        mock_summary_push.assert_called_once()
+        mock_summary_push.reset_mock()
+
+        result = self._run_task()
+
+        self.assertEqual(result["skipped"], 1)
+        mock_summary_push.assert_not_called()
 
     @patch("apps.core.tasks.notify_auto_checkout_summary.delay")
     @patch("apps.reservations.checkout.checkout_reservation_guests_in_evisitor")
