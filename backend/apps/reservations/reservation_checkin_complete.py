@@ -43,6 +43,10 @@ def mark_reservation_checked_in(reservation: Reservation) -> dict:
     reservation.status = Reservation.Status.CHECKED_IN
     reservation.save(update_fields=["status", "updated_at"])
 
+    from apps.integrations.whatsapp.apply_reply import waive_whatsapp_autocheckin
+
+    waive_whatsapp_autocheckin(reservation)
+
     from apps.core.tasks import notify_reservation_status_changed
 
     notify_reservation_status_changed.delay(

@@ -131,6 +131,34 @@ _BOOKING_MATCHED_NOT_CHECKIN_DAY = {
     ),
 }
 
+_ALREADY_CHECKED_IN = {
+    "hr": (
+        "Bok {name}! Već ste prijavljeni — check-in je gotov.\n\n"
+        "Ne trebate ponovno slati dokumente niti pritiskati Auto check-in. "
+        "Uživajte u boravku!"
+    ),
+    "en": (
+        "Hi {name}! You are already checked in.\n\n"
+        "You do not need to send documents again or tap Auto check-in. "
+        "Enjoy your stay!"
+    ),
+    "de": (
+        "Guten Tag {name}! Sie sind bereits eingecheckt.\n\n"
+        "Bitte senden Sie keine Dokumente erneut und tippen Sie nicht erneut auf Autocheck-in. "
+        "Genießen Sie Ihren Aufenthalt!"
+    ),
+    "es": (
+        "¡Hola {name}! Ya está registrado — el check-in está completado.\n\n"
+        "No hace falta enviar documentos de nuevo ni pulsar Auto check-in. "
+        "¡Disfrute de su estancia!"
+    ),
+    "fr": (
+        "Bonjour {name} ! Vous êtes déjà enregistré(e) — le check-in est terminé.\n\n"
+        "Inutile de renvoyer des documents ou d’appuyer à nouveau sur Auto check-in. "
+        "Bon séjour !"
+    ),
+}
+
 _AUTOCHECKIN_GREETING = {
     "hr": (
         "Bok {name}! Vidim rezervaciju {booking_code} "
@@ -353,6 +381,30 @@ def _send_autocheckin_prompt(
     return {"status": "autocheckin_prompt_sent", "outbound_wamid": outbound_wamid}
 
 
+def reply_already_checked_in_autocheckin(
+    *,
+    integration_row: IntegrationConfig,
+    runtime: WhatsAppRuntimeConfig,
+    row: WhatsAppMessage,
+    reservation: Reservation,
+) -> dict:
+    """Guest tapped Auto check-in but reservation is already checked in."""
+    from apps.integrations.whatsapp.apply_reply import waive_whatsapp_autocheckin
+
+    waive_whatsapp_autocheckin(reservation)
+    lang = compose_language_for_reservation(reservation)
+    raw_name = (reservation.booker_name or "").strip()
+    first_name = raw_name.split()[0] if raw_name else ("gost" if lang == "hr" else "guest")
+    body = _text_for_lang(_ALREADY_CHECKED_IN, lang).format(name=first_name)
+    return _send_whatsapp_text(
+        integration_row=integration_row,
+        runtime=runtime,
+        row=row,
+        reservation=reservation,
+        body=body,
+    )
+
+
 def _is_autocheckin_day(reservation: Reservation) -> bool:
     prop = reservation.property
     if not prop.whatsapp_autocheckin_enabled:
@@ -476,6 +528,13 @@ def _handle_matched_reservation(
             return _skip_auto_reply(reason="no_matching_handler")
 
     if is_guest_checkin_acknowledged(reservation):
+        if is_guest_auto_checkin_button(text=action_text):
+            return reply_already_checked_in_autocheckin(
+                integration_row=integration_row,
+                runtime=runtime,
+                row=row,
+                reservation=reservation,
+            )
         if (
             guest_message_needs_post_checkin_reply(action_text)
             and not post_checkin_auto_reply_already_sent_today(reservation)

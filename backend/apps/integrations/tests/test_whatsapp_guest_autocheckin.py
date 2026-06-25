@@ -426,6 +426,52 @@ class WhatsAppGuestAutocheckinTests(TestCase):
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
+    def test_checked_in_autocheckin_button_replies_already_checked_in(
+        self,
+        mock_interactive,
+        mock_send,
+    ):
+        mock_send.return_value = {"messages": [{"id": "wamid.out.already"}]}
+        self.reservation.status = Reservation.Status.CHECKED_IN
+        self.reservation.save(update_fields=["status", "updated_at"])
+        inbound = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.in.autocheckin.checked",
+            wa_id="385922222222",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="interactive",
+            body="Auto check-in",
+            raw_payload={
+                "type": "interactive",
+                "interactive": {
+                    "type": "button_reply",
+                    "button_reply": {"id": "guest_auto_checkin", "title": "Auto check-in"},
+                },
+            },
+        )
+
+        result = handle_guest_autocheckin_inbound(
+            row=inbound,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text="Auto check-in",
+            reservation=self.reservation,
+        )
+
+        self.assertEqual(result["status"], "sent")
+        mock_send.assert_called_once()
+        mock_interactive.assert_not_called()
+        body = mock_send.call_args.kwargs["body"]
+        self.assertIn("već ste prijavljeni", body.lower())
+        self.reservation.refresh_from_db()
+        self.assertIsNotNone(self.reservation.whatsapp_autocheckin_waived_at)
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
     def test_checked_in_unrecognized_question_skips_auto_reply(
         self,
         mock_interactive,

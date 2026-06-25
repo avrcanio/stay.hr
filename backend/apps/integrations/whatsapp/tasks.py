@@ -32,6 +32,7 @@ from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 from apps.integrations.whatsapp.whatsapp_guest_autocheckin import (
     handle_guest_autocheckin_inbound,
     is_guest_auto_checkin_button,
+    reply_already_checked_in_autocheckin,
     resolve_guest_reservation,
 )
 from apps.integrations.whatsapp.whatsapp_operator import is_operator_wa_id
@@ -173,7 +174,18 @@ def _maybe_send_autocheckin_documents_reply(
     if reservation is None:
         return {"status": "skipped", "reason": "no_reservation"}
 
-    from apps.integrations.whatsapp.apply_reply import is_whatsapp_autocheckin_waived
+    from apps.integrations.whatsapp.apply_reply import (
+        is_guest_checkin_acknowledged,
+        is_whatsapp_autocheckin_waived,
+    )
+
+    if is_guest_checkin_acknowledged(reservation):
+        return reply_already_checked_in_autocheckin(
+            integration_row=integration_row,
+            runtime=runtime,
+            row=row,
+            reservation=reservation,
+        )
 
     if is_whatsapp_autocheckin_waived(reservation):
         return {"status": "skipped", "reason": "autocheckin_waived"}
@@ -293,31 +305,40 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
             reservation = resolve_guest_reservation(row=row, action_text=action_text)
             row.refresh_from_db()
         if reservation is not None:
+            from apps.integrations.whatsapp.apply_reply import is_guest_checkin_acknowledged
             from apps.integrations.whatsapp.whatsapp_document_batch import (
                 handle_autocheckin_during_document_batch,
             )
 
-            batch_guard = handle_autocheckin_during_document_batch(
-                reservation=reservation,
-                integration_row=integration_row,
-                runtime=runtime,
-                row=row,
-            )
-            if batch_guard is not None:
-                reply_result = batch_guard
-            else:
-                mark_autocheckin_engaged(reservation)
-                reply_result = _maybe_send_autocheckin_documents_reply(
-                    row=row,
+            if is_guest_checkin_acknowledged(reservation):
+                reply_result = reply_already_checked_in_autocheckin(
                     integration_row=integration_row,
                     runtime=runtime,
+                    row=row,
                     reservation=reservation,
                 )
-                from apps.integrations.whatsapp.autocheckin_docs_deadline import (
-                    schedule_autocheckin_docs_deadline,
+            else:
+                batch_guard = handle_autocheckin_during_document_batch(
+                    reservation=reservation,
+                    integration_row=integration_row,
+                    runtime=runtime,
+                    row=row,
                 )
+                if batch_guard is not None:
+                    reply_result = batch_guard
+                else:
+                    mark_autocheckin_engaged(reservation)
+                    reply_result = _maybe_send_autocheckin_documents_reply(
+                        row=row,
+                        integration_row=integration_row,
+                        runtime=runtime,
+                        reservation=reservation,
+                    )
+                    from apps.integrations.whatsapp.autocheckin_docs_deadline import (
+                        schedule_autocheckin_docs_deadline,
+                    )
 
-                schedule_autocheckin_docs_deadline(reservation)
+                    schedule_autocheckin_docs_deadline(reservation)
         else:
             reply_result = handle_guest_autocheckin_inbound(
                 row=row,
