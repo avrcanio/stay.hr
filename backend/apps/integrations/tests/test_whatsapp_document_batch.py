@@ -174,6 +174,43 @@ class WhatsAppDocumentBatchTests(TestCase):
         self.assertEqual(session.status, WhatsAppDocumentBatchStatus.AWAITING_CONFIRM)
         self.assertEqual(session.prompt_count, 1)
 
+    @patch("apps.reservations.document_intake_completeness.evaluate_completeness")
+    @patch("apps.reservations.document_intake_audit.rematch_and_audit_job")
+    @patch("apps.reservations.document_intake_service.process_document_intake_job")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._send_batch_text_ack")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.send_interactive_button_message")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
+    def test_quiet_elapsed_runs_assess_once(
+        self,
+        mock_fetch,
+        mock_schedule,
+        mock_send,
+        mock_text_ack,
+        mock_process,
+        mock_rematch,
+        mock_eval,
+    ):
+        mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
+        mock_send.return_value = {"messages": [{"id": "wamid.out.prompt"}]}
+        mock_text_ack.return_value = {"status": "sent"}
+        self._mock_ocr_preview_complete(mock_process, mock_rematch, mock_eval)
+        message = self._image_message(pk_suffix="dup", wamid="wamid.in.dup")
+        on_whatsapp_document_received(message.pk)
+
+        session = WhatsAppDocumentBatchSession.objects.get(reservation=self.reservation)
+        session.last_media_at = timezone.now() - timezone.timedelta(seconds=QUIET_SECONDS + 1)
+        session.save(update_fields=["last_media_at", "updated_at"])
+
+        first = document_batch_quiet_elapsed(session.pk)
+        second = document_batch_quiet_elapsed(session.pk)
+
+        self.assertEqual(first["status"], "assessed")
+        self.assertEqual(second["status"], "skipped")
+        self.assertEqual(second["reason"], "not_collecting")
+        mock_send.assert_called_once()
+        mock_text_ack.assert_called_once()
+
     @patch("apps.integrations.whatsapp.document_intake_finalize.finalize_document_intake_job")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.whatsapp_document_batch._schedule_task")

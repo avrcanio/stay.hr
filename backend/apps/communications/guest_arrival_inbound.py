@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Literal
 
 from django.utils import timezone
@@ -26,9 +26,8 @@ from apps.communications.guest_message_send import send_guest_message
 from apps.communications.models import GuestMessageChannel, GuestMessageDraft, GuestMessageIntent
 from apps.core.timezone import property_local_now
 from apps.integrations.whatsapp.arrival_time_parse import parse_guest_stated_arrival
-from apps.integrations.whatsapp.operator_arrival_confirm import schedule_arrival_confirm_prompt
 from apps.integrations.whatsapp.whatsapp_post_checkin_reply import guest_message_mentions_arrival
-from apps.reservations.models import Reservation, WhatsAppArrivalConfirmTrigger
+from apps.reservations.models import Reservation
 
 logger = logging.getLogger(__name__)
 
@@ -234,21 +233,11 @@ def _finalize_arrival_handling(
             used_llm=used_llm,
         )
 
-    schedule_result = None
-    if kind == "time_stated" and parsed is not None:
-        run_at = parsed + timedelta(minutes=30)
-        schedule_result = schedule_arrival_confirm_prompt(
-            reservation,
-            trigger=WhatsAppArrivalConfirmTrigger.GUEST_DEADLINE_PLUS_30,
-            run_at=run_at,
-        )
-
     return {
         "status": "guest_arrival_handled",
         "kind": kind,
         "parsed_at": parsed.isoformat() if parsed else None,
         "reply": reply_result,
-        "schedule": schedule_result,
         "used_llm": used_llm,
     }
 

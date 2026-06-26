@@ -25,7 +25,15 @@ _TIME_H_SUFFIX = re.compile(
     re.IGNORECASE,
 )
 _TIME_HOUR_ONLY = re.compile(
-    r"(?<!\d)(?P<h>\d{1,2})(?!\d(?:[:.]\d{2}|\s*h))",
+    r"(?<!\d)(?P<h>\d{1,2})(?!\d(?:[:.]\d{2}|\s*h|\s*(?:\.)?\s*(?:a|p)\.?\s*m\.?|am|pm))",
+)
+_TIME_AMPM = re.compile(
+    r"(?<!\d)"
+    r"(?P<h>\d{1,2})"
+    r"(?:[:.](?P<m>\d{2}))?"
+    r"\s*"
+    r"(?P<ampm>(?:a|p)\.?\s*m\.?|am|pm)\b",
+    re.IGNORECASE,
 )
 
 
@@ -50,6 +58,20 @@ def _parse_clock(hour: int, minute: int | None) -> tuple[int, int] | None:
     return hour, minute
 
 
+def _apply_ampm(hour: int, minute: int, ampm: str) -> tuple[int, int] | None:
+    """Convert 12-hour clock + am/pm to 24-hour (supports 5pm, 5 p.m., 5p.m)."""
+    if hour < 1 or hour > 12:
+        return None
+    raw = re.sub(r"[\s.]", "", (ampm or "").lower())
+    if raw in {"am", "a"}:
+        hour = 0 if hour == 12 else hour
+    elif raw in {"pm", "p"}:
+        hour = 12 if hour == 12 else hour + 12
+    else:
+        return None
+    return _parse_clock(hour, minute)
+
+
 def _extract_times(text: str) -> list[tuple[int, int]]:
     normalized = (text or "").strip()
     if not normalized:
@@ -65,6 +87,16 @@ def _extract_times(text: str) -> list[tuple[int, int]]:
         second = _parse_clock(h2, m2)
         if first and second:
             return [first, second]
+
+    ampm_match = _TIME_AMPM.search(normalized)
+    if ampm_match:
+        parsed = _apply_ampm(
+            int(ampm_match.group("h")),
+            int(ampm_match.group("m") or 0),
+            ampm_match.group("ampm"),
+        )
+        if parsed:
+            return [parsed]
 
     for pattern in (_TIME_EXPLICIT, _TIME_H_SUFFIX, _TIME_HOUR_ONLY):
         match = pattern.search(normalized)

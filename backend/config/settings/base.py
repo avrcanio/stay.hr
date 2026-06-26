@@ -190,10 +190,6 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.communications.whatsapp_autocheckin_tasks.run_whatsapp_autocheckin_welcome",
         "schedule": 900.0,
     },
-    "nightly-arrival-confirm-prompts": {
-        "task": "apps.integrations.whatsapp.operator_arrival_confirm.send_nightly_arrival_confirm_prompts",
-        "schedule": crontab(hour="*", minute=0),
-    },
     "channex-messages-upcoming-checkins": {
         "task": "apps.integrations.channex.message_tasks.sync_channex_messages_for_upcoming_checkins",
         "schedule": 900.0,

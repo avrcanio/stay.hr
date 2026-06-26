@@ -99,3 +99,28 @@ class ArrivalTimeParseTests(TestCase):
         self.reservation.guest_stated_arrival_text = ""
         self.reservation.guest_stated_arrival_at = None
         self.assertEqual(format_guest_stated_arrival_for_operator(self.reservation), "15:00")
+
+    def test_5pm_dotted(self):
+        parsed = parse_guest_stated_arrival(
+            "Hello! We will be here around 5p.m today! Réservation : 5954089114",
+            self.reservation,
+        )
+        self.assertEqual(parsed, datetime(2026, 6, 7, 17, 0, tzinfo=ZAGREB))
+
+    def test_11pm(self):
+        parsed = parse_guest_stated_arrival("We arrive around 11pm", self.reservation)
+        self.assertEqual(parsed, datetime(2026, 6, 7, 23, 0, tzinfo=ZAGREB))
+
+    def test_5_30_pm(self):
+        parsed = parse_guest_stated_arrival("around 5:30 p.m.", self.reservation)
+        self.assertEqual(parsed, datetime(2026, 6, 7, 17, 30, tzinfo=ZAGREB))
+
+    def test_12pm_and_12am(self):
+        self.assertEqual(
+            parse_guest_stated_arrival("noon 12pm", self.reservation),
+            datetime(2026, 6, 7, 12, 0, tzinfo=ZAGREB),
+        )
+        self.assertEqual(
+            parse_guest_stated_arrival("12am", self.reservation),
+            datetime(2026, 6, 7, 0, 0, tzinfo=ZAGREB),
+        )

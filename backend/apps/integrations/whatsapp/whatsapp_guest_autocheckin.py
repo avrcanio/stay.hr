@@ -562,6 +562,13 @@ def _handle_matched_reservation(
     if batch_guard is not None:
         return batch_guard
 
+    if (
+        reservation.whatsapp_autocheckin_engaged_at is not None
+        and reservation.status == Reservation.Status.EXPECTED
+        and not is_document_checkin_complete(reservation)
+    ):
+        return _skip_auto_reply(reason="autocheckin_awaiting_documents")
+
     mark_autocheckin_engaged(reservation)
     if _is_autocheckin_day(reservation):
         return _send_autocheckin_prompt(

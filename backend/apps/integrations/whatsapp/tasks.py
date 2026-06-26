@@ -40,6 +40,10 @@ from apps.integrations.whatsapp.whatsapp_operator_service import handle_operator
 
 logger = logging.getLogger(__name__)
 
+_NON_ACTIONABLE_MESSAGE_TYPES = frozenset(
+    {"unsupported", "unknown", "reaction", "sticker", "location", "contacts"},
+)
+
 _WHATSAPP_NON_TEXT_PREVIEW = "Poruka (WhatsApp)"
 
 _AUTO_CHECKIN_REPLY_TEXTS = frozenset(
@@ -296,6 +300,8 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
     if row.message_type in ("image", "document"):
         on_whatsapp_document_received.delay(row.pk)
         reply_result = {"status": "auto_reply_skipped", "reason": "media"}
+    elif row.message_type in _NON_ACTIONABLE_MESSAGE_TYPES:
+        reply_result = {"status": "auto_reply_skipped", "reason": row.message_type}
     elif is_documents_all_yes_reply(button_id=button_id, text=action_text) or is_documents_all_no_reply(
         button_id=button_id, text=action_text
     ):

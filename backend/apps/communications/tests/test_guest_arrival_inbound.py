@@ -146,11 +146,9 @@ class GuestArrivalInboundTests(TestCase):
         self.assertEqual(self.reservation.guest_stated_arrival_at, parsed)
 
     @patch("apps.communications.guest_arrival_inbound.llm_configured", return_value=False)
-    @patch("apps.communications.guest_arrival_inbound.schedule_arrival_confirm_prompt")
     @patch("apps.communications.guest_arrival_inbound.send_guest_message")
-    def test_handle_time_stated_sends_reply(self, mock_send, mock_schedule, _mock_llm):
+    def test_handle_time_stated_sends_reply(self, mock_send, _mock_llm):
         mock_send.return_value = object()
-        mock_schedule.return_value = {"status": "scheduled"}
 
         result = maybe_handle_guest_arrival_inbound(
             self.reservation,
@@ -257,12 +255,10 @@ class GuestArrivalLlmTests(TestCase):
         )
 
     @patch("apps.communications.guest_arrival_inbound.llm_configured", return_value=True)
-    @patch("apps.communications.guest_arrival_inbound.schedule_arrival_confirm_prompt")
     @patch("apps.communications.guest_arrival_inbound.send_guest_message")
     @patch("apps.communications.guest_arrival_inbound.analyze_and_compose_arrival_reply")
-    def test_llm_time_stated(self, mock_analyze, mock_send, mock_schedule, _llm_on):
+    def test_llm_time_stated(self, mock_analyze, mock_send, _llm_on):
         mock_send.return_value = object()
-        mock_schedule.return_value = {"status": "scheduled"}
         mock_analyze.return_value = ArrivalLlmResult(
             is_arrival_related=True,
             scenario="time_stated",

@@ -252,10 +252,27 @@ def _send_batch_additional_photo_ack(session: WhatsAppDocumentBatchSession) -> d
 
 def assess_batch_after_quiet(session: WhatsAppDocumentBatchSession) -> dict:
     """OCR preview after quiet period; notify guest then re-prompt Ja/Ne."""
+    with transaction.atomic():
+        locked = (
+            WhatsAppDocumentBatchSession.objects.select_for_update()
+            .select_related("reservation", "job", "tenant", "reservation__property")
+            .filter(pk=session.pk)
+            .first()
+        )
+        if locked is None:
+            return {"status": "missing"}
+        if locked.status != WhatsAppDocumentBatchStatus.COLLECTING:
+            return {"status": "skipped", "reason": "not_collecting"}
+        locked.status = WhatsAppDocumentBatchStatus.PROCESSING
+        locked.save(update_fields=["status", "updated_at"])
+        session = locked
+
     reservation = session.reservation
     job = session.job
     integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None:
+        session.status = WhatsAppDocumentBatchStatus.COLLECTING
+        session.save(update_fields=["status", "updated_at"])
         return {"status": "skipped", "reason": "no_integration"}
 
     from apps.reservations.document_intake_audit import rematch_and_audit_job
@@ -266,6 +283,8 @@ def assess_batch_after_quiet(session: WhatsAppDocumentBatchSession) -> dict:
     job.refresh_from_db()
 
     if job.status == DocumentIntakeJobStatus.FAILED:
+        session.status = WhatsAppDocumentBatchStatus.COLLECTING
+        session.save(update_fields=["status", "updated_at"])
         return {"status": "ocr_failed", "job_id": job.pk}
 
     matches = rematch_and_audit_job(job, reservation=reservation)

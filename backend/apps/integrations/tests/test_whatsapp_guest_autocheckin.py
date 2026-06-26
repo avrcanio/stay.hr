@@ -472,6 +472,42 @@ class WhatsAppGuestAutocheckinTests(TestCase):
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
+    def test_engaged_reservation_skips_repeat_autocheckin_prompt(
+        self,
+        mock_interactive,
+        mock_send,
+    ):
+        self.reservation.whatsapp_autocheckin_engaged_at = timezone.now()
+        self.reservation.save(update_fields=["whatsapp_autocheckin_engaged_at", "updated_at"])
+        inbound = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.in.engaged.skip",
+            wa_id="385922222222",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="",
+            raw_payload={"type": "text", "text": {"body": ""}},
+        )
+
+        result = handle_guest_autocheckin_inbound(
+            row=inbound,
+            integration_row=self.integration,
+            runtime=self.runtime,
+            action_text="",
+            reservation=self.reservation,
+        )
+
+        self.assertEqual(result["status"], "auto_reply_skipped")
+        self.assertEqual(result["reason"], "autocheckin_awaiting_documents")
+        mock_send.assert_not_called()
+        mock_interactive.assert_not_called()
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
     def test_checked_in_unrecognized_question_skips_auto_reply(
         self,
         mock_interactive,

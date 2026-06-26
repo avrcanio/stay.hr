@@ -37,6 +37,12 @@ ZAGREB = ZoneInfo("Europe/Zagreb")
 )
 class OperatorArrivalConfirmTests(TestCase):
     def setUp(self):
+        self._prompts_enabled = patch(
+            "apps.integrations.whatsapp.operator_arrival_confirm.WHATSAPP_ARRIVAL_CONFIRM_PROMPTS_ENABLED",
+            True,
+        )
+        self._prompts_enabled.start()
+        self.addCleanup(self._prompts_enabled.stop)
         self.tenant = Tenant.objects.create(slug="uzorita", name="Uzorita", default_language="hr")
         TenantReceptionSettings.objects.create(
             tenant=self.tenant,
@@ -481,3 +487,15 @@ class OperatorArrivalConfirmTests(TestCase):
         self.assertEqual(closed, 1)
         session = WhatsAppArrivalConfirmSession.objects.get(reservation=self.reservation)
         self.assertEqual(session.status, WhatsAppArrivalConfirmSessionStatus.DONE)
+
+    def test_send_prompt_disabled_by_default(self):
+        with patch(
+            "apps.integrations.whatsapp.operator_arrival_confirm.WHATSAPP_ARRIVAL_CONFIRM_PROMPTS_ENABLED",
+            False,
+        ):
+            result = send_arrival_confirm_prompt(
+                self.reservation,
+                trigger=WhatsAppArrivalConfirmTrigger.GUEST_DEADLINE_PLUS_30,
+            )
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "disabled")

@@ -38,6 +38,9 @@ from apps.reservations.models import (
 
 logger = logging.getLogger(__name__)
 
+# Toni WhatsApp "Došli svi gosti?" prompts (Celery + operator WA) — disabled; check-in via reception.
+WHATSAPP_ARRIVAL_CONFIRM_PROMPTS_ENABLED = False
+
 OPERATOR_ARRIVED_YES_PREFIX = "op_arrived_yes"
 OPERATOR_ARRIVED_NO_PREFIX = "op_arrived_no"
 OPERATOR_ARRIVED_YES_LABEL = "Da"
@@ -403,6 +406,9 @@ def send_arrival_confirm_prompt(
     integration_row: IntegrationConfig | None = None,
     runtime: WhatsAppRuntimeConfig | None = None,
 ) -> dict:
+    if not WHATSAPP_ARRIVAL_CONFIRM_PROMPTS_ENABLED:
+        return {"status": "skipped", "reason": "disabled"}
+
     reservation = Reservation.objects.select_related("property", "tenant").get(pk=reservation.pk)
     _close_obsolete_arrival_sessions(reservation_id=reservation.pk)
     skip = _should_skip_arrival_prompt(reservation)
@@ -511,6 +517,9 @@ def schedule_arrival_confirm_prompt(
     run_at=None,
 ) -> dict:
     """Schedule Celery task for Toni prompt; revokes any prior timer for this reservation."""
+    if not WHATSAPP_ARRIVAL_CONFIRM_PROMPTS_ENABLED:
+        return {"status": "skipped", "reason": "disabled"}
+
     _revoke_scheduled_timer(reservation.pk)
     now = property_local_now(reservation.property)
     if run_at is None:
@@ -568,6 +577,9 @@ def arrival_confirm_guest_deadline_elapsed(
 
 @shared_task
 def send_nightly_arrival_confirm_prompts() -> dict:
+    if not WHATSAPP_ARRIVAL_CONFIRM_PROMPTS_ENABLED:
+        return {"status": "skipped", "reason": "disabled", "prompted": 0, "skipped": 0, "failed": 0}
+
     from apps.integrations.whatsapp.apply_reply import (
         is_document_checkin_complete,
         is_whatsapp_autocheckin_waived,

@@ -258,3 +258,26 @@ class WhatsAppAutocheckinInboundTests(TestCase):
         self.reservation.refresh_from_db()
         self.assertIsNotNone(self.reservation.whatsapp_autocheckin_waived_at)
         self.assertIsNone(self.reservation.whatsapp_autocheckin_engaged_at)
+
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
+    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
+    def test_unsupported_inbound_skips_autocheckin_prompt(self, mock_send, mock_interactive):
+        inbound = WhatsAppMessage.objects.create(
+            tenant=self.tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.in.unsupported",
+            wa_id="385911111111",
+            phone_number_id="1068791909660300",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="unsupported",
+            body="",
+            raw_payload={"type": "unsupported", "errors": [{"code": 131051}]},
+        )
+
+        result = process_inbound_message(inbound.pk)
+
+        self.assertEqual(result["status"], "auto_reply_skipped")
+        self.assertEqual(result["reason"], "unsupported")
+        mock_send.assert_not_called()
+        mock_interactive.assert_not_called()
