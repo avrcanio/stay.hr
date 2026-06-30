@@ -32,10 +32,21 @@ class Command(BaseCommand):
         if row is None:
             raise CommandError(f"No active Channex IntegrationConfig for tenant {tenant_slug}")
 
-        reservations = process_channex_booking_revisions_feed(row)
-        if not reservations:
+        result = process_channex_booking_revisions_feed(row)
+        reservations = result["ingested"]
+        ack_only = int(result.get("ack_only") or 0)
+        errors = int(result.get("errors") or 0)
+
+        if not reservations and not ack_only:
             self.stdout.write(self.style.WARNING("No new revisions to process."))
             return
+
+        if ack_only:
+            self.stdout.write(
+                self.style.SUCCESS(f"Acknowledged {ack_only} orphan cancel revision(s).")
+            )
+        if errors:
+            self.stdout.write(self.style.WARNING(f"{errors} revision(s) failed to process."))
 
         for reservation in reservations:
             self.stdout.write(

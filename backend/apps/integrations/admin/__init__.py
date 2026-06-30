@@ -238,7 +238,9 @@ class ChannexAriOutboxAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
 @admin.register(ChannexBookingRevision)
 class ChannexBookingRevisionAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("revision_id", "booking_id", "channex_status", "reservation", "acknowledged_at")
+    list_filter = ("channex_status",)
     search_fields = ("revision_id", "booking_id")
+    readonly_fields = ("revision_id", "booking_id", "channex_status", "acknowledged_at")
 
 
 @admin.register(ChannexMessage)

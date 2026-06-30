@@ -199,6 +199,32 @@ def _customer_country_iso2(customer: dict[str, Any]) -> str:
     return str(customer.get("country") or "").strip().upper()[:2]
 
 
+def _extract_booking_code(attrs: dict[str, Any]) -> str:
+    return str(
+        attrs.get("ota_reservation_code") or attrs.get("unique_id") or attrs.get("system_id") or ""
+    ).strip()
+
+
+def _find_existing_channex_reservation(
+    tenant: Tenant,
+    booking_id: str,
+    booking_code: str,
+) -> Reservation | None:
+    if booking_id:
+        found = Reservation.objects.filter(
+            tenant=tenant,
+            external_id=channex_external_id(booking_id),
+        ).first()
+        if found is not None:
+            return found
+    if booking_code:
+        return Reservation.objects.filter(
+            tenant=tenant,
+            booking_code=booking_code,
+        ).first()
+    return None
+
+
 def _map_reservation_status(channex_status: str) -> str:
     status = (channex_status or "").strip().lower()
     if status == "cancelled":
@@ -265,13 +291,11 @@ def _upsert_reservation_from_revision(
     if not booking_id:
         raise ChannexBookingIngestError("Booking revision missing booking_id.")
 
+    booking_code = _extract_booking_code(attrs)
     check_in = _parse_date(attrs.get("arrival_date"))
     check_out = _parse_date(attrs.get("departure_date"))
 
-    existing_for_dates = Reservation.objects.filter(
-        tenant=tenant,
-        external_id=channex_external_id(booking_id),
-    ).first()
+    existing_for_dates = _find_existing_channex_reservation(tenant, booking_id, booking_code)
     if not check_in or not check_out:
         if existing_for_dates is not None:
             check_in = check_in or existing_for_dates.check_in
@@ -284,10 +308,6 @@ def _upsert_reservation_from_revision(
     nights = (check_out - check_in).days
     if nights < 0:
         nights = 0
-
-    booking_code = str(
-        attrs.get("ota_reservation_code") or attrs.get("unique_id") or attrs.get("system_id") or ""
-    ).strip()
 
     adults = int(occupancy.get("adults") or 0)
     child_count = int(occupancy.get("children") or 0)
@@ -302,10 +322,7 @@ def _upsert_reservation_from_revision(
         }
 
     incoming_status = _map_reservation_status(str(attrs.get("status") or ""))
-    existing = Reservation.objects.filter(
-        tenant=tenant,
-        external_id=channex_external_id(booking_id),
-    ).first()
+    existing = _find_existing_channex_reservation(tenant, booking_id, booking_code)
     mapped_status = incoming_status
     if (
         existing is not None
@@ -340,15 +357,30 @@ def _upsert_reservation_from_revision(
     }
     defaults.update(_channex_financial_fields(attrs))
 
-    reservation, created = Reservation.objects.update_or_create(
-        tenant=tenant,
-        external_id=channex_external_id(booking_id),
-        defaults=defaults,
-    )
-
-    if booking_code and reservation.booking_code != booking_code:
-        reservation.booking_code = booking_code
-        reservation.save(update_fields=["booking_code", "updated_at"])
+    channex_ext_id = channex_external_id(booking_id)
+    if existing is not None:
+        preserved_booked_at = existing.booked_at
+        for key, value in defaults.items():
+            setattr(existing, key, value)
+        if preserved_booked_at is not None:
+            # load_future_reservations sets inserted_at to pull time, not OTA book date
+            existing.booked_at = preserved_booked_at
+        if existing.external_id != channex_ext_id:
+            existing.external_id = channex_ext_id
+        if booking_code and existing.booking_code != booking_code:
+            existing.booking_code = booking_code
+        existing.save()
+        reservation = existing
+        created = False
+    else:
+        create_defaults = dict(defaults)
+        if booking_code:
+            create_defaults["booking_code"] = booking_code
+        reservation, created = Reservation.objects.update_or_create(
+            tenant=tenant,
+            external_id=channex_ext_id,
+            defaults=create_defaults,
+        )
 
     rooms = attrs.get("rooms") or []
     if not isinstance(rooms, list):
@@ -467,7 +499,7 @@ def process_channex_booking_revision(
     revision_id: str,
     *,
     client: ChannexClient | None = None,
-) -> Reservation:
+) -> Reservation | None:
     revision_id = revision_id.strip()
     if not revision_id:
         raise ChannexBookingIngestError("revision_id is required.")
@@ -495,6 +527,33 @@ def process_channex_booking_revision(
         attrs = revision.get("attributes") or {}
         booking_id = str(attrs.get("booking_id") or "").strip()
         channex_status = str(attrs.get("status") or "")
+        booking_code = _extract_booking_code(attrs)
+        check_in = _parse_date(attrs.get("arrival_date"))
+        check_out = _parse_date(attrs.get("departure_date"))
+        existing = _find_existing_channex_reservation(tenant, booking_id, booking_code)
+
+        if (
+            channex_status.strip().lower() == "cancelled"
+            and (not check_in or not check_out)
+            and existing is None
+        ):
+            client.acknowledge_booking_revision(revision_id)
+            ChannexBookingRevision.objects.create(
+                tenant=tenant,
+                revision_id=revision_id,
+                booking_id=booking_id,
+                reservation=None,
+                channex_status=channex_status,
+            )
+            logger.info(
+                "channex booking revision ack-only (orphan cancel)",
+                extra={
+                    "revision_id": revision_id,
+                    "booking_id": booking_id,
+                    "booking_code": booking_code,
+                },
+            )
+            return None
 
         with transaction.atomic():
             reservation, created = _upsert_reservation_from_revision(
@@ -566,16 +625,20 @@ def process_channex_booking_revisions_feed(
     integration_row: IntegrationConfig,
     *,
     client: ChannexClient | None = None,
-) -> list[Reservation]:
+) -> dict[str, Any]:
     """
     Process non-acknowledged revisions from Channex feed (missed webhook fallback).
+
+    Returns ``{"ingested": [...], "ack_only": N, "errors": N}``.
     """
     config = ChannexRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
     owns_client = client is None
     if owns_client:
         client = ChannexClient(config)
 
-    processed: list[Reservation] = []
+    ingested: list[Reservation] = []
+    ack_only = 0
+    errors = 0
     try:
         revision_ids = client.list_booking_revisions_feed()
         logger.info(
@@ -589,16 +652,47 @@ def process_channex_booking_revisions_feed(
                     extra={"revision_id": revision_id},
                 )
                 continue
-            reservation = process_channex_booking_revision(
-                integration_row,
-                revision_id,
-                client=client,
-            )
-            processed.append(reservation)
+            try:
+                reservation = process_channex_booking_revision(
+                    integration_row,
+                    revision_id,
+                    client=client,
+                )
+            except ChannexBookingIngestError:
+                logger.exception(
+                    "channex feed revision ingest failed",
+                    extra={"revision_id": revision_id},
+                )
+                errors += 1
+                continue
+            except ChannexApiError:
+                logger.exception(
+                    "channex feed revision API error",
+                    extra={"revision_id": revision_id},
+                )
+                errors += 1
+                continue
+            except Exception:
+                logger.exception(
+                    "channex feed revision unexpected error",
+                    extra={"revision_id": revision_id},
+                )
+                errors += 1
+                continue
+            if reservation is None:
+                ack_only += 1
+            else:
+                ingested.append(reservation)
     finally:
         if owns_client and client is not None:
             client.close()
-    return processed
+
+    if ack_only or errors:
+        logger.info(
+            "channex booking revisions feed summary",
+            extra={"ingested": len(ingested), "ack_only": ack_only, "errors": errors},
+        )
+    return {"ingested": ingested, "ack_only": ack_only, "errors": errors}
 
 
 def backfill_channex_financial_fields(

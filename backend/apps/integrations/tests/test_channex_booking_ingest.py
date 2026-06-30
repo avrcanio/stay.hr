@@ -325,10 +325,111 @@ class ChannexBookingIngestTests(TestCase):
             client=mock_client,
         )
 
-        self.assertEqual(len(processed), 1)
-        self.assertEqual(processed[0].external_id, channex_external_id(other_booking_id))
+        self.assertEqual(len(processed["ingested"]), 1)
+        self.assertEqual(processed["ack_only"], 0)
+        self.assertEqual(processed["ingested"][0].external_id, channex_external_id(other_booking_id))
         mock_client.get_booking_revision.assert_called_once_with(other_revision_id)
         mock_client.acknowledge_booking_revision.assert_called_once_with(other_revision_id)
+
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_orphan_cancelled_revision_ack_only_without_reservation(self, mock_client_cls):
+        orphan_revision_id = "533c748d-aaaa-bbbb-cccc-533c748d0001"
+        orphan_booking_id = "11111111-1111-1111-1111-111111111111"
+        orphan_payload = {
+            "id": orphan_revision_id,
+            "attributes": {
+                "booking_id": orphan_booking_id,
+                "status": "cancelled",
+                "ota_reservation_code": "6262102168",
+                "arrival_date": None,
+                "departure_date": None,
+            },
+        }
+
+        mock_client = MagicMock()
+        mock_client.get_booking_revision.return_value = orphan_payload
+        mock_client_cls.return_value = mock_client
+
+        result = process_channex_booking_revision(
+            self.integration,
+            orphan_revision_id,
+        )
+
+        self.assertIsNone(result)
+        self.assertFalse(
+            Reservation.objects.filter(
+                external_id=channex_external_id(orphan_booking_id)
+            ).exists()
+        )
+        revision_row = ChannexBookingRevision.objects.get(revision_id=orphan_revision_id)
+        self.assertIsNone(revision_row.reservation_id)
+        self.assertEqual(revision_row.booking_id, orphan_booking_id)
+        self.assertEqual(revision_row.channex_status, "cancelled")
+        mock_client.acknowledge_booking_revision.assert_called_once_with(orphan_revision_id)
+
+    @patch(
+        "apps.integrations.channex.reservation_availability_service.push_channex_inventory_after_ingest"
+    )
+    @patch("apps.integrations.channex.booking_service.ChannexClient")
+    def test_feed_continues_after_orphan_cancel(self, mock_client_cls, mock_push_inventory):
+        orphan_revision_id = "5146f513-aaaa-bbbb-cccc-5146f5130001"
+        orphan_booking_id = "22222222-2222-2222-2222-222222222222"
+        normal_revision_id = "fb3ddd6b-bbbb-cccc-dddd-fb3ddd6b0001"
+        normal_booking_id = "33333333-3333-3333-3333-333333333333"
+
+        orphan_payload = {
+            "id": orphan_revision_id,
+            "attributes": {
+                "booking_id": orphan_booking_id,
+                "status": "cancelled",
+                "ota_reservation_code": "5034902027",
+                "arrival_date": None,
+                "departure_date": None,
+            },
+        }
+        normal_payload = {
+            "id": normal_revision_id,
+            "attributes": {
+                **self.revision_payload["attributes"],
+                "booking_id": normal_booking_id,
+                "status": "modified",
+                "ota_reservation_code": "6860894044",
+            },
+        }
+
+        mock_client = MagicMock()
+        mock_client.list_booking_revisions_feed.return_value = [
+            orphan_revision_id,
+            normal_revision_id,
+        ]
+
+        def get_revision(revision_id: str):
+            if revision_id == orphan_revision_id:
+                return orphan_payload
+            return normal_payload
+
+        mock_client.get_booking_revision.side_effect = get_revision
+        mock_client_cls.return_value = mock_client
+
+        result = process_channex_booking_revisions_feed(
+            self.integration,
+            client=mock_client,
+        )
+
+        self.assertEqual(result["ack_only"], 1)
+        self.assertEqual(len(result["ingested"]), 1)
+        self.assertEqual(result["errors"], 0)
+        self.assertEqual(
+            result["ingested"][0].external_id,
+            channex_external_id(normal_booking_id),
+        )
+        self.assertEqual(mock_client.acknowledge_booking_revision.call_count, 2)
+        self.assertTrue(
+            ChannexBookingRevision.objects.filter(
+                revision_id=orphan_revision_id,
+                reservation__isnull=True,
+            ).exists()
+        )
 
     @patch("apps.core.notifications.send_tenant_reception_push")
     @patch(

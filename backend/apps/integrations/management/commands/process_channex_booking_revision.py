@@ -29,6 +29,14 @@ class Command(BaseCommand):
             raise CommandError(f"No active Channex IntegrationConfig for tenant {tenant_slug}")
 
         reservation = process_channex_booking_revision(row, revision_id)
+        if reservation is None:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Acknowledged orphan cancel revision {revision_id} (no reservation)."
+                )
+            )
+            return
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"Ingested reservation id={reservation.id} "

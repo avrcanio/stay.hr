@@ -76,7 +76,9 @@ class ChannexBookingRevision(TenantScopedModel):
     booking_id = models.CharField(max_length=36, db_index=True)
     reservation = models.ForeignKey(
         "reservations.Reservation",
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="channex_revisions",
     )
     channex_status = models.CharField(max_length=32, blank=True)
@@ -89,7 +91,9 @@ class ChannexBookingRevision(TenantScopedModel):
         ]
 
     def __str__(self) -> str:
-        return f"Channex revision {self.revision_id} → reservation {self.reservation_id}"
+        if self.reservation_id:
+            return f"Channex revision {self.revision_id} → reservation {self.reservation_id}"
+        return f"Channex revision {self.revision_id} (ack-only, booking {self.booking_id})"
 
 
 class SalesChannel(models.TextChoices):
