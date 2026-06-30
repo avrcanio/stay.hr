@@ -23,7 +23,8 @@ from apps.communications.guest_email import (
     _send_guest_email,
 )
 from apps.communications.guest_email_html import prepare_guest_email_bodies
-from apps.communications.guest_compose_language import compose_language_for_reservation
+from apps.communications.guest_language_context import LanguageMode
+from apps.communications.guest_language_resolver import GuestLanguageResolver
 from apps.communications.models import (
     GuestMessageChannel,
     GuestMessageDraft,
@@ -310,12 +311,15 @@ def send_guest_email_with_timeline_record(
     recipient = _guest_recipient(reservation) or ""
 
     if draft is None:
+        ctx = GuestLanguageResolver.resolve(reservation, mode=LanguageMode.PROACTIVE)
         draft = GuestMessageDraft.objects.create(
             tenant_id=reservation.tenant_id,
             reservation=reservation,
             intent=intent,
             hint=hint,
-            language=compose_language_for_reservation(reservation),
+            language=ctx.language,
+            language_source=ctx.source.value,
+            language_reason=(ctx.reason or "")[:255],
             llm_body_text=(body_text or "").strip(),
             final_body_text="",
             channel=GuestMessageChannel.EMAIL,

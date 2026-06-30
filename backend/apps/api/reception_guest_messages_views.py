@@ -194,6 +194,8 @@ class ReceptionGuestMessageComposeView(ReceptionWriteView, APIView):
                 "draft_id": draft.pk,
                 "body_text": draft.llm_body_text,
                 "language": draft.language,
+                "language_source": draft.language_source or "",
+                "language_reason": draft.language_reason or "",
                 "body_text_tenant": preview["body_text_tenant"],
                 "tenant_language": preview["tenant_language"],
                 "llm_used": llm_used,

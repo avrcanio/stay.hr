@@ -7,7 +7,8 @@ import logging
 from dataclasses import dataclass
 
 from apps.ai.provider import GuestComposeError, complete_chat_json, llm_model, prompt_version
-from apps.communications.guest_compose_language import resolve_parking_reply_language
+from apps.communications.guest_language_context import LanguageMode
+from apps.communications.guest_language_resolver import GuestLanguageResolver
 from apps.communications.guest_parking_patterns import classify_parking_only
 from apps.properties.guest_info import build_guest_facts_for_llm, render_parking_reply_text
 from apps.reservations.models import Reservation
@@ -31,7 +32,12 @@ def build_parking_llm_context(
     channel: str,
 ) -> dict:
     prop = reservation.property
-    lang = resolve_parking_reply_language(reservation, message_text=body)
+    ctx = GuestLanguageResolver.resolve(
+        reservation,
+        mode=LanguageMode.REACTIVE,
+        message_text=body,
+    )
+    lang = ctx.language
     return {
         "guest_message": (body or "").strip(),
         "channel": channel,
@@ -77,11 +83,13 @@ def _parse_llm_response(
 ) -> ParkingLlmResult:
     is_parking = bool(raw.get("is_parking_related"))
     reply_text = (raw.get("reply_text") or "").strip()
-    reply_language = resolve_parking_reply_language(
+    ctx = GuestLanguageResolver.resolve(
         reservation,
-        llm_language=str(raw.get("reply_language") or ""),
+        mode=LanguageMode.REACTIVE,
+        reply_language=str(raw.get("reply_language") or ""),
         message_text=body,
     )
+    reply_language = ctx.language
 
     if is_parking and not reply_text:
         raise GuestComposeError("LLM marked parking-related but returned empty reply_text")
@@ -122,7 +130,13 @@ def build_parking_auto_reply(
     *,
     language: str | None = None,
 ) -> str:
-    lang = language or resolve_parking_reply_language(reservation, message_text=body)
+    ctx = GuestLanguageResolver.resolve(
+        reservation,
+        mode=LanguageMode.REACTIVE,
+        reply_language=language,
+        message_text=body,
+    )
+    lang = ctx.language
     return render_parking_reply_text(
         reservation.property,
         lang,

@@ -19,6 +19,8 @@ from apps.communications.guest_parking_patterns import (
     guest_message_mentions_arrival_for_parking_split,
     guest_message_mentions_parking,
 )
+from apps.communications.guest_language_context import LanguageMode
+from apps.communications.guest_language_resolver import GuestLanguageResolver
 from apps.communications.models import GuestMessageChannel, GuestMessageDraft, GuestMessageIntent
 from apps.core.timezone import property_local_now
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
@@ -98,7 +100,13 @@ def send_post_checkin_whatsapp_auto_reply(
         mentions_parking=mentions_parking,
         evening_welcome=evening_welcome,
     )
-    lang = (reservation.property.tenant.default_language or "en")[:2]
+    action_text = (row.body or "").strip()
+    ctx = GuestLanguageResolver.resolve(
+        reservation,
+        mode=LanguageMode.REACTIVE,
+        message_text=action_text,
+    )
+    lang = ctx.language
 
     text_draft = GuestMessageDraft.objects.create(
         tenant_id=reservation.tenant_id,
@@ -108,6 +116,8 @@ def send_post_checkin_whatsapp_auto_reply(
         llm_body_text=body,
         final_body_text=body,
         language=lang,
+        language_source=ctx.source.value,
+        language_reason=(ctx.reason or "")[:255],
         channel=GuestMessageChannel.WHATSAPP,
     )
 
@@ -131,6 +141,8 @@ def send_post_checkin_whatsapp_auto_reply(
         llm_body_text=caption,
         final_body_text=caption,
         language=lang,
+        language_source=ctx.source.value,
+        language_reason=(ctx.reason or "")[:255],
         channel=GuestMessageChannel.WHATSAPP,
     )
 
@@ -161,7 +173,13 @@ def send_arrival_thanks_only(
     del row  # send_guest_message resolves phone from reservation
 
     body = render_arrival_thanks_message(reservation)
-    lang = (reservation.property.tenant.default_language or "en")[:2]
+    action_text = (row.body or "").strip()
+    ctx = GuestLanguageResolver.resolve(
+        reservation,
+        mode=LanguageMode.REACTIVE,
+        message_text=action_text,
+    )
+    lang = ctx.language
 
     draft = GuestMessageDraft.objects.create(
         tenant_id=reservation.tenant_id,
@@ -171,6 +189,8 @@ def send_arrival_thanks_only(
         llm_body_text=body,
         final_body_text=body,
         language=lang,
+        language_source=ctx.source.value,
+        language_reason=(ctx.reason or "")[:255],
         channel=GuestMessageChannel.WHATSAPP,
     )
 

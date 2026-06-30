@@ -15,6 +15,7 @@ UZORITA_AI_NOTES = (
 )
 
 UZORITA_GUEST_INFO: dict = {
+    "canonical_language": "en",
     "links": {
         "maps_url": MAPS_LINK,
     },

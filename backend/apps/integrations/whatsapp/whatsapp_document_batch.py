@@ -74,6 +74,7 @@ def _extension_for_mime(mime_type: str) -> str:
 _ACTIVE_STATUSES = frozenset(
     {
         WhatsAppDocumentBatchStatus.COLLECTING,
+        WhatsAppDocumentBatchStatus.PROCESSING,
         WhatsAppDocumentBatchStatus.AWAITING_CONFIRM,
         WhatsAppDocumentBatchStatus.AFTER_NO,
     }
@@ -287,6 +288,10 @@ def assess_batch_after_quiet(session: WhatsAppDocumentBatchSession) -> dict:
         session.save(update_fields=["status", "updated_at"])
         return {"status": "ocr_failed", "job_id": job.pk}
 
+    session.refresh_from_db()
+    if session.status != WhatsAppDocumentBatchStatus.PROCESSING:
+        return {"status": "skipped", "reason": "session_interrupted", "job_id": job.pk}
+
     matches = rematch_and_audit_job(job, reservation=reservation)
     persons = (job.ocr_result or {}).get("persons") or []
     images = list(job.images.order_by("sort_order", "id"))
@@ -305,6 +310,7 @@ def assess_batch_after_quiet(session: WhatsAppDocumentBatchSession) -> dict:
             hint=HINT_DOCUMENTS_BATCH_COMPLETE_REPROMPT,
         )
         preview = "complete"
+        send_result = _prompt_and_await_confirm(session)
     else:
         body = render_document_intake_incomplete_message(
             reservation,
@@ -317,8 +323,10 @@ def assess_batch_after_quiet(session: WhatsAppDocumentBatchSession) -> dict:
             hint=HINT_ID_MISSING_SIDES,
         )
         preview = "incomplete"
+        session.status = WhatsAppDocumentBatchStatus.COLLECTING
+        session.save(update_fields=["status", "updated_at"])
+        send_result = {"status": "skipped", "reason": "awaiting_more_documents"}
 
-    send_result = _prompt_and_await_confirm(session)
     return {
         "status": "assessed",
         "preview": preview,

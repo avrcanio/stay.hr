@@ -324,6 +324,19 @@ def _maybe_notify_channex_guest_message(row: ChannexMessage, *, created: bool) -
         and row.sender == ChannexMessage.Sender.GUEST
         and (row.body or "").strip()
     ):
+        from apps.communications.guest_language_inbound import on_guest_inbound_message
+        from apps.reservations.models import Reservation
+
+        reservation = Reservation.objects.select_related("property", "tenant").get(
+            pk=row.reservation_id,
+        )
+        on_guest_inbound_message(
+            reservation,
+            body=row.body or "",
+            channel="booking",
+            received_at=row.created_at,
+        )
+
         from apps.core.tasks import notify_guest_message_inbound
 
         notify_guest_message_inbound.delay(

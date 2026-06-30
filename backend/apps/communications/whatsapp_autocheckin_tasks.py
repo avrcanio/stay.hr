@@ -10,10 +10,11 @@ from django.utils import timezone
 from apps.communications.guest_compose import (
     HINT_AUTOCHECKIN_WHATSAPP_INTRO,
     autocheckin_wa_me_prefill,
-    compose_language_for_reservation,
     render_autocheckin_whatsapp_intro_email,
     render_autocheckin_whatsapp_intro_email_html,
 )
+from apps.communications.guest_language_context import LanguageMode
+from apps.communications.guest_language_resolver import GuestLanguageResolver
 from apps.communications.guest_email import _guest_recipient
 from apps.communications.guest_message_send import (
     build_wa_me_url,
@@ -88,7 +89,8 @@ def _build_intro_email_context(reservation: Reservation) -> tuple[str, str] | No
     business_digits = normalize_phone(display_phone or runtime.phone_number_id)
     if not business_digits:
         return None
-    lang = compose_language_for_reservation(reservation)
+    ctx = GuestLanguageResolver.resolve(reservation, mode=LanguageMode.PROACTIVE)
+    lang = ctx.language
     prefill = autocheckin_wa_me_prefill(lang)
     wa_link = build_wa_me_url(business_digits, prefill)
     return wa_link, display_phone or business_digits

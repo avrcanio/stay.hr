@@ -29,13 +29,14 @@ class GuestMessageDraftAdmin(
         "intent",
         "channel",
         "language",
+        "language_source",
         "edited_display",
         "api_application",
         "created_at",
         "sent_at",
         "tenant",
     )
-    list_filter = ("tenant", "intent", "channel", "language")
+    list_filter = ("tenant", "intent", "channel", "language", "language_source")
     search_fields = (
         "reservation__booking_code",
         "reservation__external_id",
@@ -52,6 +53,8 @@ class GuestMessageDraftAdmin(
         "llm_body_text",
         "final_body_text",
         "language",
+        "language_source",
+        "language_reason",
         "channel",
         "llm_model",
         "prompt_version",

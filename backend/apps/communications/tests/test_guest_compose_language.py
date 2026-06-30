@@ -43,8 +43,16 @@ class GuestComposeLanguageTests(TestCase):
         self.assertEqual(language_from_country("FR"), "fr")
 
     def test_language_from_country_default_en(self):
-        self.assertEqual(language_from_country("NL"), "en")
-        self.assertEqual(language_from_country("RO"), "en")
+        self.assertEqual(language_from_country("US"), "en")
+
+    def test_language_from_country_nl(self):
+        self.assertEqual(language_from_country("NL"), "nl")
+
+    def test_language_from_country_ro(self):
+        self.assertEqual(language_from_country("RO"), "ro")
+
+    def test_language_from_country_it(self):
+        self.assertEqual(language_from_country("IT"), "it")
 
     def test_compose_language_api_override(self):
         self.reservation.booker_country = "DE"

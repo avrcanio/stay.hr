@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from apps.communications.guest_compose import build_compose_context
-from apps.communications.guest_compose_language import compose_language_for_reservation
+from apps.communications.guest_language_context import LanguageMode
+from apps.communications.guest_language_resolver import GuestLanguageResolver
 from apps.communications.guest_email import _email_context
 from apps.reservations.models import Reservation
 
@@ -46,7 +47,8 @@ def _first_name(reservation: Reservation) -> str:
 
 def build_welcome_template_parameters(reservation: Reservation) -> tuple[str, list[str]]:
     """Return (language_code, five positional body parameters for stay_welcome_* templates)."""
-    lang = compose_language_for_reservation(reservation)
+    ctx = GuestLanguageResolver.resolve(reservation, mode=LanguageMode.PROACTIVE)
+    lang = ctx.language
     ctx = build_compose_context(reservation, language=lang)
     email_ctx = _email_context(reservation)
 

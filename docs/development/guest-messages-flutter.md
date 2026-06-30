@@ -248,6 +248,10 @@ Zatim standardni `POST .../send/` s `channel: booking` ili `email`.
   "draft_id": 55,
   "body_text": "Poštovani Wolfgang Gross…",
   "language": "de",
+  "language_source": "country",
+  "language_reason": "reservation country = DE",
+  "body_text_tenant": "…",
+  "tenant_language": "hr",
   "llm_used": false,
   "channels": {
     "email": {
@@ -387,6 +391,8 @@ class GuestMessageComposeResult {
   final int draftId;
   final String bodyText;
   final String language;
+  final String? languageSource;
+  final String? languageReason;
   final bool llmUsed;
   final GuestMessageChannels channels;
 }

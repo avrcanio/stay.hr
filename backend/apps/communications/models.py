@@ -32,6 +32,16 @@ class GuestOutboundMessageStatus(models.TextChoices):
     FAILED = "failed", "Failed"
 
 
+class ConversationLanguageSource(models.TextChoices):
+    OVERRIDE = "override", "Override"
+    REPLY_LANGUAGE = "reply_language", "Reply language"
+    MESSAGE = "message", "Message"
+    CONVERSATION = "conversation", "Conversation"
+    COUNTRY = "country", "Country"
+    TENANT_DEFAULT = "tenant_default", "Tenant default"
+    FALLBACK = "fallback", "Fallback"
+
+
 class GuestMessageDraft(TenantScopedModel):
     """LLM compose attempt and optional send audit for a reservation."""
 
@@ -48,6 +58,8 @@ class GuestMessageDraft(TenantScopedModel):
     llm_body_text = models.TextField(blank=True, default="")
     final_body_text = models.TextField(blank=True, default="")
     language = models.CharField(max_length=8, blank=True, default="")
+    language_source = models.CharField(max_length=32, blank=True, default="")
+    language_reason = models.CharField(max_length=255, blank=True, default="")
     channel = models.CharField(
         max_length=16,
         choices=GuestMessageChannel.choices,
@@ -190,6 +202,14 @@ class GuestMessageThreadState(TenantScopedModel):
         related_name="guest_message_thread_state",
     )
     reply_dismissed_at = models.DateTimeField(null=True, blank=True)
+    conversation_language = models.CharField(max_length=8, blank=True, default="")
+    conversation_language_source = models.CharField(
+        max_length=32,
+        choices=ConversationLanguageSource.choices,
+        blank=True,
+        default="",
+    )
+    conversation_language_updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name = "Guest message thread state"

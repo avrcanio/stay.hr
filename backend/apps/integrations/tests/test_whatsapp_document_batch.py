@@ -532,7 +532,9 @@ class WhatsAppDocumentBatchTests(TestCase):
         self.assertEqual(result["preview"], "incomplete")
         mock_finalize.assert_not_called()
         mock_text_ack.assert_called_once()
-        mock_send.assert_called_once()
+        mock_send.assert_not_called()
+        session.refresh_from_db()
+        self.assertEqual(session.status, WhatsAppDocumentBatchStatus.COLLECTING)
 
     @patch("apps.reservations.document_intake_completeness.evaluate_completeness")
     @patch("apps.reservations.document_intake_audit.rematch_and_audit_job")

@@ -7,7 +7,8 @@ import logging
 from django.utils import timezone
 
 from apps.communications.guest_compose import HINT_AUTOCHECKIN_WAIVED, render_autocheckin_waived_message
-from apps.communications.guest_compose_language import compose_language_for_reservation
+from apps.communications.guest_language_context import LanguageMode
+from apps.communications.guest_language_resolver import GuestLanguageResolver
 from apps.communications.guest_message_send import send_guest_message
 from apps.communications.models import (
     GuestMessageChannel,
@@ -30,7 +31,8 @@ def send_autocheckin_waived_whatsapp(
     reservation.refresh_from_db()
 
     body = render_autocheckin_waived_message(reservation)
-    lang = compose_language_for_reservation(reservation)
+    ctx = GuestLanguageResolver.resolve(reservation, mode=LanguageMode.PROACTIVE)
+    lang = ctx.language
 
     draft = GuestMessageDraft.objects.create(
         tenant_id=reservation.tenant_id,
@@ -38,6 +40,8 @@ def send_autocheckin_waived_whatsapp(
         intent=GuestMessageIntent.CHECKIN,
         hint=HINT_AUTOCHECKIN_WAIVED,
         language=lang,
+        language_source=ctx.source.value,
+        language_reason=(ctx.reason or "")[:255],
         llm_body_text=body,
         final_body_text="",
         channel=GuestMessageChannel.WHATSAPP,

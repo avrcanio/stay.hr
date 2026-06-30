@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 
 from apps.ai.provider import GuestComposeError, complete_chat, llm_configured
-from apps.api.language import SUPPORTED_APP_LANGS, normalize_app_language
+from apps.api.language import normalize_app_language
+from apps.communications.guest_language_constants import TRANSLATION_LANGS
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,9 @@ LANG_NAMES: dict[str, str] = {
     "fr": "French",
     "de": "German",
     "it": "Italian",
+    "sk": "Slovak",
+    "pl": "Polish",
+    "ro": "Romanian",
 }
 
 
@@ -27,15 +31,20 @@ def translation_available() -> bool:
     return llm_configured()
 
 
+def _normalize_target_lang(raw: str) -> str:
+    base = (raw or "").split("-")[0].strip().lower()
+    if base in TRANSLATION_LANGS:
+        return base
+    return normalize_app_language(raw)
+
+
 def translate_text(text: str, target_lang: str) -> str:
     """Translate text to target_lang; return original on failure or empty input."""
     cleaned = (text or "").strip()
     if not cleaned:
         return text
 
-    lang = normalize_app_language(target_lang)
-    if lang not in SUPPORTED_APP_LANGS:
-        lang = "en"
+    lang = _normalize_target_lang(target_lang)
 
     if not llm_configured():
         return text

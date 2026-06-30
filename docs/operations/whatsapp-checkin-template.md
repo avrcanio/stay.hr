@@ -6,9 +6,9 @@ Operativni predložak za traženje dokumenata i slanje detalja dolaska **prije**
 
 **Povezano:** [ai-runbook-ocr-checkin-evisitor-2026-06.md](./ai-runbook-ocr-checkin-evisitor-2026-06.md), [id-document-import.md](../development/id-document-import.md)
 
-**Backend:** `backend/apps/communications/guest_compose.py`, `guest_compose_language.py`
+**Backend:** `backend/apps/communications/guest_compose.py`, `guest_language_resolver.py`
 
-**Izvor teksta:** `Property.guest_info` (JSON) — parking, ulaz, dokumenti, post-check-in odgovori. Uzorita seed:
+**Izvor teksta:** `Property.guest_info` (JSON) — parking, ulaz, dokumenti, post-check-in odgovori. Opcionalni ključ `canonical_language` (ISO 639-1, default `en`) određuje bazni jezik predloška kad gostov reply jezik nema lokalizirani tekst u `guest_info`. Uzorita seed:
 
 ```bash
 python manage.py seed_uzorita_guest_info --tenant-slug uzorita --property-slug uzorita
@@ -43,9 +43,11 @@ Oba check-in koraka vraćaju `llm_used: false`. **Ista pravila jezika** za poruk
 
 ## Odabir jezika (automatski)
 
-Vrijedi **jednako** za `intent: checkin` i za `intent: reply` + `hint: checkin ready` (`compose_language_for_reservation` u backendu).
+Centralizirano u `GuestLanguageResolver` (`backend/apps/communications/guest_language_resolver.py`).
 
-Prioritet: API `language` → `booker_country` → nacionalnost primarnog gosta → default objekta → **en**.
+### Proactive (check-in prije poruke gosta)
+
+Prioritet: API `language` → `booker_country` / nacionalnost → tenant/property default → **en**.
 
 | Template | Države (ISO2) |
 |----------|----------------|
@@ -53,9 +55,24 @@ Prioritet: API `language` → `booker_country` → nacionalnost primarnog gosta 
 | **de** | DE, AT, CH, LI |
 | **es** | ES, MX, AR, CO, CL, PE, VE, EC, UY, PY, BO, CR, PA, DO, GT, HN, NI, SV, CU, PR |
 | **fr** | FR, MC, LU |
-| **en** | sve ostalo (NL, IT, RO, PL, …) |
+| **it** | IT |
+| **pl** | PL |
+| **ro** | RO |
+| **nl** | NL |
+| **cs** | CZ |
+| **hu** | HU |
+| **pt** | PT |
+| **el** | GR |
+| **sk** | SK |
+| **en** | sve ostalo |
 
-Podržani template jezici: **hr, en, de, es, fr**.
+Podržani template jezici u `guest_info`: **hr, en, de, es, fr, sk**. Ostali reply jezici koriste `canonical_language` + LLM prijevod.
+
+### Reactive (odgovor na poruku gosta)
+
+Prioritet: API override → LLM `reply_language` → detekcija iz inbound poruke → spremljeni conversation language → country → tenant default → **en**.
+
+Inbound poruke ažuriraju `conversation_language` na thread state kad je confidence ≥ 0.65 (kratki odgovori poput „OK” ili 👍 ne mijenjaju jezik).
 
 ---
 

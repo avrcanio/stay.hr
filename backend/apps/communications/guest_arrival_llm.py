@@ -13,7 +13,8 @@ from apps.communications.guest_arrival_policy import (
     evaluate_arrival_time,
     format_time_hm,
 )
-from apps.communications.guest_compose_language import resolve_arrival_reply_language
+from apps.communications.guest_language_context import LanguageMode
+from apps.communications.guest_language_resolver import GuestLanguageResolver
 from apps.integrations.whatsapp.arrival_time_parse import parse_guest_stated_arrival
 from apps.properties.guest_info import build_guest_facts_for_llm
 from apps.reservations.models import Reservation
@@ -41,7 +42,12 @@ def build_arrival_llm_context(
     channel: str,
 ) -> dict:
     prop = reservation.property
-    lang = resolve_arrival_reply_language(reservation, message_text=body)
+    ctx = GuestLanguageResolver.resolve(
+        reservation,
+        mode=LanguageMode.REACTIVE,
+        message_text=body,
+    )
+    lang = ctx.language
     parsed = parse_guest_stated_arrival(body, reservation)
     window_status = evaluate_arrival_time(reservation, parsed) if parsed else None
 
@@ -113,11 +119,13 @@ def _parse_llm_response(
 
     reply_text = (raw.get("reply_text") or "").strip()
     stated_time_raw = (raw.get("stated_time_raw") or "").strip()
-    reply_language = resolve_arrival_reply_language(
+    ctx = GuestLanguageResolver.resolve(
         reservation,
-        llm_language=str(raw.get("reply_language") or ""),
+        mode=LanguageMode.REACTIVE,
+        reply_language=str(raw.get("reply_language") or ""),
         message_text=body,
     )
+    reply_language = ctx.language
 
     if is_arrival and scenario is None:
         scenario = "late_inquiry" if not stated_time_raw else "time_stated"

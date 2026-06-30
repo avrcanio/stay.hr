@@ -24,9 +24,11 @@ from apps.communications.guest_arrival_policy import (
     is_after_hours_not_allowed,
     is_late_arrival,
 )
-from apps.communications.guest_compose_language import (
-    SUPPORTED_COMPOSE_LANGS,
-    compose_language_for_reservation,
+from apps.communications.guest_language_constants import TEMPLATE_LANGS
+from apps.communications.guest_language_context import GuestLanguageContext, LanguageMode
+from apps.communications.guest_language_resolver import (
+    GuestLanguageResolver,
+    canonical_language_for_property,
 )
 from apps.communications.guest_email import _email_context
 from apps.communications.guest_message_send import build_message_channels, channels_with_reply_default
@@ -200,8 +202,55 @@ def _normalize_hint(hint: str) -> str:
     return " ".join((hint or "").strip().lower().split())
 
 
+def _draft_language_fields(ctx: GuestLanguageContext) -> dict[str, str]:
+    return {
+        "language": ctx.language[:8],
+        "language_source": ctx.source.value,
+        "language_reason": (ctx.reason or "")[:255],
+    }
+
+
+def _resolve_language(
+    reservation: Reservation,
+    *,
+    override: str | None = None,
+    mode: LanguageMode = LanguageMode.PROACTIVE,
+    message_text: str = "",
+    reply_language: str | None = None,
+) -> GuestLanguageContext:
+    return GuestLanguageResolver.resolve(
+        reservation,
+        mode=mode,
+        override=override,
+        reply_language=reply_language,
+        message_text=message_text,
+    )
+
+
+def render_guest_template(
+    reservation: Reservation,
+    render_fn,
+    ctx: GuestLanguageContext,
+) -> str:
+    """
+    Render guest template text for ctx.language.
+
+    Fast path when localized guest_info exists; otherwise render canonical then translate.
+    """
+    lang = ctx.language
+    if lang in TEMPLATE_LANGS:
+        text = render_fn(lang)
+        if (text or "").strip():
+            return text
+    canonical = canonical_language_for_property(reservation.property)
+    body = render_fn(canonical)
+    if lang != canonical and translation_available():
+        return translate_text(body, lang)
+    return body
+
+
 def _lang_key(reservation: Reservation, override: str | None = None) -> str:
-    return compose_language_for_reservation(reservation, override)
+    return _resolve_language(reservation, override=override).language
 
 
 def tenant_language_for_reservation(reservation: Reservation) -> str:
@@ -306,14 +355,19 @@ def build_compose_context(
     reservation: Reservation,
     *,
     language: str | None = None,
+    mode: LanguageMode = LanguageMode.PROACTIVE,
 ) -> dict:
     email_ctx = _email_context(reservation)
-    lang = _lang_key(reservation, language)
+    ctx = _resolve_language(reservation, override=language, mode=mode)
+    lang = ctx.language
     prop = reservation.property
     contact = prop.contact if isinstance(prop.contact, dict) else {}
+    canonical = canonical_language_for_property(prop)
+    facts_lang = lang if lang in TEMPLATE_LANGS else canonical
 
     return {
         "language": lang,
+        "language_context": ctx,
         "guest_name": reservation.booker_name or "",
         "booking_code": reservation.booking_code or reservation.external_id or "",
         "property_name": reservation.property.name,
@@ -329,7 +383,7 @@ def build_compose_context(
         "payment_text": _payment_text(reservation, lang),
         "address": _property_address(reservation),
         "maps_link": guest_maps_url(prop),
-        "guest_facts": build_guest_facts_for_llm(prop, lang),
+        "guest_facts": build_guest_facts_for_llm(prop, facts_lang),
         "notes": (reservation.notes or "").strip(),
         "contact_phone": (contact.get("phone") or "").strip(),
         "message_history": _message_history(reservation),
@@ -704,7 +758,7 @@ def render_autocheckin_whatsapp_intro_email_html(
 
 def _lang_key_from_code(language: str) -> str:
     base = (language or "en").split("-")[0].lower()
-    if base in SUPPORTED_COMPOSE_LANGS:
+    if base in TEMPLATE_LANGS:
         return base
     return "en"
 
@@ -984,15 +1038,28 @@ def _arrival_window_params(reservation: Reservation) -> dict[str, str]:
     }
 
 
-def render_arrival_late_inquiry_message(reservation: Reservation) -> str:
+def render_arrival_late_inquiry_message(
+    reservation: Reservation,
+    *,
+    message_text: str = "",
+) -> str:
     """Reply when guest asks about late check-in without stating a time."""
-    lang = compose_language_for_reservation(reservation)
+    ctx = _resolve_language(
+        reservation,
+        mode=LanguageMode.REACTIVE,
+        message_text=message_text,
+    )
+    lang = ctx.language
     params = _arrival_window_params(reservation)
     if params["check_in_latest_time"]:
         body = _text_for_lang(ARRIVAL_WINDOW_INFO, lang).format(**params)
     else:
         body = _text_for_lang(ARRIVAL_WINDOW_FROM_ONLY, lang).format(**params)
-    ask = _property_guest_text(reservation, "checkin_complete_ask_arrival", lang)
+    ask = render_guest_template(
+        reservation,
+        lambda l: _property_guest_text(reservation, "checkin_complete_ask_arrival", l),
+        ctx,
+    )
     return "\n".join([body, "", ask, *_arrival_reply_footer(reservation, lang)])
 
 
@@ -1001,8 +1068,14 @@ def render_arrival_time_saved_message(
     *,
     stated_time: str,
     parsed_late: bool,
+    message_text: str = "",
 ) -> str:
-    lang = compose_language_for_reservation(reservation)
+    ctx = _resolve_language(
+        reservation,
+        mode=LanguageMode.REACTIVE,
+        message_text=message_text,
+    )
+    lang = ctx.language
     params = {**_arrival_window_params(reservation), "stated_time": stated_time}
     prop = reservation.property
 
@@ -1023,7 +1096,9 @@ def _system_prompt() -> str:
     return (
         "You are a professional hotel reception assistant drafting short guest messages. "
         "Use ONLY facts from the JSON context. Never invent prices, dates, room names, or policies. "
-        "Match the requested language. Keep a warm, concise reception tone. "
+        "Reply in the language given in the context. "
+        "Match the guest's latest inbound message language when present in message_history. "
+        "Keep a warm, concise reception tone. "
         "End with the property name and this footer on its own line: "
         "Managed by stay.hr — https://stay.hr/"
     )
@@ -1053,7 +1128,8 @@ def _generate_body(
     hint: str,
     language: str | None,
 ) -> tuple[str, bool, str]:
-    context = build_compose_context(reservation, language=language)
+    mode = LanguageMode.REACTIVE if intent == GuestMessageIntent.REPLY else LanguageMode.PROACTIVE
+    context = build_compose_context(reservation, language=language, mode=mode)
 
     if intent == GuestMessageIntent.CHECKIN:
         return _render_checkin_fallback(reservation, context), False, ""
@@ -1108,6 +1184,7 @@ def create_draft_from_body_text(
         raise ValueError("body_text is required")
 
     lang = _lang_key(reservation, None)
+    ctx = _resolve_language(reservation)
     channels = channels_with_reply_default(
         reservation,
         build_message_channels(reservation),
@@ -1120,7 +1197,7 @@ def create_draft_from_body_text(
         hint="resend",
         llm_body_text=text,
         final_body_text="",
-        language=lang,
+        **_draft_language_fields(ctx),
         llm_model="",
         prompt_version=prompt_version(),
         api_application=api_application,
@@ -1143,7 +1220,8 @@ def compose_guest_message(
         raise ValueError(f"Invalid intent: {intent}")
 
     body, llm_used, model_name = _generate_body(reservation, intent, hint, language)
-    lang = _lang_key(reservation, language)
+    mode = LanguageMode.REACTIVE if intent == GuestMessageIntent.REPLY else LanguageMode.PROACTIVE
+    ctx = _resolve_language(reservation, override=language, mode=mode)
     channels = channels_with_reply_default(
         reservation,
         build_message_channels(reservation),
@@ -1157,7 +1235,7 @@ def compose_guest_message(
         hint=(hint or "").strip(),
         llm_body_text=body,
         final_body_text="",
-        language=lang,
+        **_draft_language_fields(ctx),
         llm_model=model_name,
         prompt_version=prompt_version(),
         api_application=api_application,

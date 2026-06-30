@@ -295,6 +295,16 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
     button_id = inbound_interactive_button_id(row)
     action_text = _inbound_action_text(row)
 
+    if reservation is not None and action_text and row.message_type in ("text", "interactive"):
+        from apps.communications.guest_language_inbound import on_guest_inbound_message
+
+        on_guest_inbound_message(
+            reservation,
+            body=action_text,
+            channel="whatsapp",
+            received_at=row.created_at,
+        )
+
     reply_result: dict | None = None
 
     if row.message_type in ("image", "document"):

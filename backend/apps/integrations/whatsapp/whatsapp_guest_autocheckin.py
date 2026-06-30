@@ -7,7 +7,8 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from apps.communications.guest_compose import compose_language_for_reservation
+from apps.communications.guest_language_context import LanguageMode
+from apps.communications.guest_language_resolver import GuestLanguageResolver
 from apps.core.timezone import property_local_now
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
 from apps.integrations.whatsapp.client import (
@@ -340,7 +341,8 @@ def _send_autocheckin_prompt(
     row: WhatsAppMessage,
     reservation: Reservation,
 ) -> dict:
-    lang = compose_language_for_reservation(reservation)
+    ctx = GuestLanguageResolver.resolve(reservation, mode=LanguageMode.PROACTIVE)
+    lang = ctx.language
     name = (reservation.booker_name or "").strip() or ("gost" if lang == "hr" else "guest")
     check_in, check_out = _reservation_date_fmt(reservation, lang)
     body = _text_for_lang(_AUTOCHECKIN_GREETING, lang).format(
@@ -392,7 +394,8 @@ def reply_already_checked_in_autocheckin(
     from apps.integrations.whatsapp.apply_reply import waive_whatsapp_autocheckin
 
     waive_whatsapp_autocheckin(reservation)
-    lang = compose_language_for_reservation(reservation)
+    ctx = GuestLanguageResolver.resolve(reservation, mode=LanguageMode.PROACTIVE)
+    lang = ctx.language
     raw_name = (reservation.booker_name or "").strip()
     first_name = raw_name.split()[0] if raw_name else ("gost" if lang == "hr" else "guest")
     body = _text_for_lang(_ALREADY_CHECKED_IN, lang).format(name=first_name)
@@ -502,7 +505,12 @@ def _handle_matched_reservation(
         send_post_checkin_whatsapp_auto_reply,
     )
 
-    lang = compose_language_for_reservation(reservation)
+    ctx = GuestLanguageResolver.resolve(
+        reservation,
+        mode=LanguageMode.REACTIVE,
+        message_text=action_text,
+    )
+    lang = ctx.language
 
     from apps.integrations.whatsapp.autocheckin_docs_deadline import (
         maybe_reply_autocheckin_period_ended_inbound,

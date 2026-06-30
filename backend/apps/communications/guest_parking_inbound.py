@@ -8,7 +8,8 @@ from django.utils import timezone
 
 from apps.ai.provider import GuestComposeError, llm_configured
 from apps.communications.guest_compose import FOOTER, GREETING, HINT_PARKING_AUTO_REPLY, SIGN_OFF
-from apps.communications.guest_compose_language import resolve_parking_reply_language
+from apps.communications.guest_language_context import LanguageMode
+from apps.communications.guest_language_resolver import GuestLanguageResolver
 from apps.communications.guest_message_send import send_guest_message
 from apps.communications.guest_parking_llm import (
     analyze_and_compose_parking_reply,
@@ -71,7 +72,13 @@ def send_parking_auto_reply(
     language: str | None = None,
     used_llm: bool = False,
 ) -> dict:
-    lang = language or resolve_parking_reply_language(reservation, message_text=body)
+    ctx = GuestLanguageResolver.resolve(
+        reservation,
+        mode=LanguageMode.REACTIVE,
+        reply_language=language,
+        message_text=body,
+    )
+    lang = ctx.language
     channel_enum = _CHANNEL_MAP.get(channel, GuestMessageChannel.EMAIL)
     full_body = _format_parking_reply_with_greeting(
         reservation,
@@ -87,6 +94,8 @@ def send_parking_auto_reply(
         llm_body_text=reply_body,
         final_body_text=full_body,
         language=lang,
+        language_source=ctx.source.value,
+        language_reason=(ctx.reason or "")[:255],
         channel=channel_enum,
         **(parking_llm_audit_fields() if used_llm else {}),
     )
@@ -125,7 +134,12 @@ def _handle_parking_fallback(
     if _parking_reply_sent_today(reservation):
         return {"status": "guest_parking_handled", "reply": {"status": "dedup_skipped"}}
 
-    lang = resolve_parking_reply_language(reservation, message_text=body)
+    ctx = GuestLanguageResolver.resolve(
+        reservation,
+        mode=LanguageMode.REACTIVE,
+        message_text=body,
+    )
+    lang = ctx.language
     reply_body = build_parking_auto_reply(reservation, body, language=lang)
     if not reply_body:
         return None

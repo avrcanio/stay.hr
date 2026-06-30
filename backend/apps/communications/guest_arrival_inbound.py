@@ -20,7 +20,8 @@ from apps.communications.guest_compose import (
     render_arrival_late_inquiry_message,
     render_arrival_time_saved_message,
 )
-from apps.communications.guest_compose_language import resolve_arrival_reply_language
+from apps.communications.guest_language_context import LanguageMode
+from apps.communications.guest_language_resolver import GuestLanguageResolver
 from apps.communications.guest_arrival_policy import is_late_arrival
 from apps.communications.guest_message_send import send_guest_message
 from apps.communications.models import GuestMessageChannel, GuestMessageDraft, GuestMessageIntent
@@ -122,12 +123,13 @@ def build_arrival_auto_reply(
     raw_text: str = "",
 ) -> str:
     if kind == "late_inquiry":
-        return render_arrival_late_inquiry_message(reservation)
+        return render_arrival_late_inquiry_message(reservation, message_text=raw_text)
     stated = _format_stated_time(reservation, parsed, raw_text)
     return render_arrival_time_saved_message(
         reservation,
         stated_time=stated,
         parsed_late=is_late_arrival(reservation, parsed),
+        message_text=raw_text,
     )
 
 
@@ -167,9 +169,13 @@ def send_arrival_auto_reply(
     if draft_channel is None:
         return {"status": "skipped", "reason": "unsupported_channel"}
 
-    lang = resolve_arrival_reply_language(reservation, message_text=body)
-    if language:
-        lang = resolve_arrival_reply_language(reservation, llm_language=language, message_text=body)
+    ctx = GuestLanguageResolver.resolve(
+        reservation,
+        mode=LanguageMode.REACTIVE,
+        reply_language=language,
+        message_text=body,
+    )
+    lang = ctx.language
 
     audit = arrival_llm_audit_fields() if used_llm else {"llm_model": "", "prompt_version": ""}
     draft = GuestMessageDraft.objects.create(
@@ -180,6 +186,8 @@ def send_arrival_auto_reply(
         llm_body_text=body,
         final_body_text=body,
         language=lang[:8],
+        language_source=ctx.source.value,
+        language_reason=(ctx.reason or "")[:255],
         channel=draft_channel,
         llm_model=audit["llm_model"],
         prompt_version=audit["prompt_version"],

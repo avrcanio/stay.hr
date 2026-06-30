@@ -1,4 +1,9 @@
-"""Property.guest_info schema, normalization, and text resolution for guest messages."""
+"""Property.guest_info schema, normalization, and text resolution for guest messages.
+
+Optional top-level key ``canonical_language`` (ISO 639-1) selects the base language for
+guest templates when the guest's reply language has no localized guest_info text.
+Falls back to ``property.language``, then tenant default, then ``en``.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +18,7 @@ from apps.communications.guest_compose_defaults import (
     DEFAULT_TEXTS,
     MAPS_LINK,
 )
-from apps.communications.guest_compose_language import SUPPORTED_COMPOSE_LANGS
+from apps.communications.guest_language_constants import TEMPLATE_LANGS
 from apps.properties.models import Property
 
 GUEST_INFO_TEXT_KEYS = frozenset(DEFAULT_TEXTS.keys())
@@ -57,7 +62,7 @@ def _normalize_localized(raw: Any) -> dict[str, str]:
         return {}
     return {
         lang: str(raw.get(lang) or "").strip()
-        for lang in SUPPORTED_COMPOSE_LANGS
+        for lang in TEMPLATE_LANGS
         if str(raw.get(lang) or "").strip()
     }
 

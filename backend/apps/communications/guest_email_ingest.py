@@ -236,6 +236,15 @@ def ingest_parsed_email(
         received_at=parsed.received_at,
     )
 
+    from apps.communications.guest_language_inbound import on_guest_inbound_message
+
+    on_guest_inbound_message(
+        reservation,
+        body=parsed.body_text,
+        channel="email",
+        received_at=parsed.received_at,
+    )
+
     if notify:
         from apps.core.tasks import notify_guest_message_inbound
 
