@@ -210,6 +210,25 @@ def _draft_language_fields(ctx: GuestLanguageContext) -> dict[str, str]:
     }
 
 
+def _language_context_for_llm(ctx: GuestLanguageContext) -> dict[str, str | float]:
+    return {
+        "language": ctx.language,
+        "source": ctx.source.value,
+        "confidence": ctx.confidence,
+        "mode": ctx.mode.value,
+        "reason": ctx.reason,
+    }
+
+
+def _compose_context_for_llm(context: dict) -> dict:
+    """Copy compose context with JSON-serializable values for LLM prompts."""
+    payload = dict(context)
+    language_context = payload.get("language_context")
+    if isinstance(language_context, GuestLanguageContext):
+        payload["language_context"] = _language_context_for_llm(language_context)
+    return payload
+
+
 def _resolve_language(
     reservation: Reservation,
     *,
@@ -1108,7 +1127,7 @@ def _user_prompt(intent: str, hint: str, context: dict) -> str:
     payload = {
         "intent": intent,
         "hint": hint,
-        "context": context,
+        "context": _compose_context_for_llm(context),
     }
     instructions = {
         GuestMessageIntent.REPLY: "Write a reply to the guest using message_history; address their latest inbound message.",

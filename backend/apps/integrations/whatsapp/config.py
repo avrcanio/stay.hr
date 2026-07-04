@@ -43,3 +43,15 @@ def webhook_verify_signature_from_env() -> bool:
 def is_360dialog_provider(provider: str | None = None) -> bool:
     value = (provider or provider_from_env()).strip().lower()
     return value in ("360dialog", "d360")
+
+
+def meta_app_id_from_env() -> str:
+    return os.getenv("META_APP_ID", "").strip()
+
+
+def waba_id_from_env() -> str:
+    return os.getenv("WHATSAPP_WABA_ID", "").strip()
+
+
+def access_token_from_env() -> str:
+    return os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
