@@ -24,6 +24,11 @@ from apps.reservations.document_intake_preprocess import (
     dedupe_image_bytes,
     remap_ocr_indices_to_original,
 )
+from apps.reservations.document_intake_pdf import (
+    expand_bytes_for_ocr,
+    remap_ocr_indices_to_source,
+    source_indices_to_ocr_slots,
+)
 from apps.reservations.document_intake_face import crop_face_jpeg, _coerce_bbox_dict
 from apps.reservations.document_intake_match import match_persons_to_guests, normalize_mrz_lines
 from apps.reservations.document_intake_sides import find_id_document_for_side_merge
@@ -116,22 +121,31 @@ def process_document_intake_job(job_id: int) -> None:
                 img.image.close()
             mimes.append(_mime_for_path(img.image.name))
 
-        unique_bytes, unique_to_original, dropped_dupes = dedupe_image_bytes(bytes_list)
-        ocr_input_bytes = unique_bytes if unique_bytes else bytes_list
+        ocr_bytes, ocr_mimes, ocr_to_source = expand_bytes_for_ocr(bytes_list, mimes)
+
+        unique_bytes, unique_to_ocr, dropped_dupes = dedupe_image_bytes(ocr_bytes)
+        ocr_input_bytes = unique_bytes if unique_bytes else ocr_bytes
         ocr_input_mimes = (
-            [mimes[i] for i in unique_to_original] if unique_to_original else mimes
+            [ocr_mimes[i] for i in unique_to_ocr] if unique_to_ocr else ocr_mimes
         )
 
         ocr_result = fixup_document_ocr_result(
             run_document_batch_ocr(image_bytes_list=ocr_input_bytes, mime_types=ocr_input_mimes)
         )
-        if unique_to_original and len(unique_to_original) < len(bytes_list):
-            ocr_result = remap_ocr_indices_to_original(ocr_result, unique_to_original)
+        if unique_to_ocr and len(unique_to_ocr) < len(ocr_bytes):
+            ocr_result = remap_ocr_indices_to_original(ocr_result, unique_to_ocr)
             preprocess = ocr_result.get("_preprocess") or {}
             if not isinstance(preprocess, dict):
                 preprocess = {}
             preprocess["dropped_duplicate_indices"] = dropped_dupes
             ocr_result["_preprocess"] = preprocess
+        ocr_result = remap_ocr_indices_to_source(ocr_result, ocr_to_source)
+        preprocess = ocr_result.get("_preprocess") or {}
+        if not isinstance(preprocess, dict):
+            preprocess = {}
+        preprocess["pdf_expand_source_count"] = len(bytes_list)
+        preprocess["pdf_expand_ocr_count"] = len(ocr_bytes)
+        ocr_result["_preprocess"] = preprocess
 
         persons = ocr_result.get("persons") or []
         if not isinstance(persons, list):
@@ -150,13 +164,15 @@ def process_document_intake_job(job_id: int) -> None:
             from apps.reservations.document_intake_completeness import unassigned_image_indices
 
             unassigned = unassigned_image_indices(persons=persons, image_count=len(images))
+            ocr_orphan_indices = source_indices_to_ocr_slots(unassigned, ocr_to_source)
             orphan_result = fixup_document_ocr_result(
                 run_orphan_document_ocr(
-                    image_bytes_list=bytes_list,
-                    mime_types=mimes,
-                    orphan_indices=unassigned,
+                    image_bytes_list=ocr_bytes,
+                    mime_types=ocr_mimes,
+                    orphan_indices=ocr_orphan_indices,
                 )
             )
+            orphan_result = remap_ocr_indices_to_source(orphan_result, ocr_to_source)
             extra_persons = orphan_result.get("persons") or []
             if extra_persons:
                 persons = merge_persons(persons, extra_persons)

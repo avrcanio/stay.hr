@@ -26,6 +26,7 @@ from apps.integrations.whatsapp.whatsapp_document_batch import (
 )
 from apps.integrations.whatsapp import operator_arrival_confirm  # noqa: F401 — register Celery beat tasks
 from apps.integrations.whatsapp import whatsapp_operator_batch  # noqa: F401 — register operator quiet timer task
+from apps.integrations.whatsapp import guest_document_batch_reconcile  # noqa: F401 — register reconcile beat task
 from apps.integrations.whatsapp.reply import build_greeting
 from apps.integrations.whatsapp.reservation_lookup import find_reservation_for_wa_id
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
@@ -329,9 +330,26 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
 
     reply_result: dict | None = None
 
+    from apps.integrations.whatsapp.autocheckin_maintenance import (
+        send_autocheckin_maintenance_reply,
+        whatsapp_autocheckin_maintenance_enabled,
+    )
+
+    maintenance_active = whatsapp_autocheckin_maintenance_enabled()
+
     if row.message_type in ("image", "document"):
-        on_whatsapp_document_received.delay(row.pk)
-        reply_result = {"status": "auto_reply_skipped", "reason": "media"}
+        if maintenance_active and reservation is not None:
+            reply_result = send_autocheckin_maintenance_reply(
+                row=row,
+                integration_row=integration_row,
+                runtime=runtime,
+                reservation=reservation,
+            )
+        elif not maintenance_active:
+            on_whatsapp_document_received.delay(row.pk)
+            reply_result = {"status": "auto_reply_skipped", "reason": "media"}
+        else:
+            reply_result = {"status": "maintenance", "reason": "no_reservation"}
     elif row.message_type in _NON_ACTIONABLE_MESSAGE_TYPES:
         reply_result = {"status": "auto_reply_skipped", "reason": row.message_type}
     elif is_documents_all_yes_reply(button_id=button_id, text=action_text) or is_documents_all_no_reply(
@@ -339,7 +357,16 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
     ):
         reply_result = handle_whatsapp_document_batch_reply(row.pk)
     elif is_guest_auto_checkin_button(button_id=button_id, text=action_text):
-        if reservation is None:
+        if maintenance_active and reservation is not None:
+            reply_result = send_autocheckin_maintenance_reply(
+                row=row,
+                integration_row=integration_row,
+                runtime=runtime,
+                reservation=reservation,
+            )
+        elif maintenance_active:
+            reply_result = {"status": "maintenance", "reason": "no_reservation"}
+        elif reservation is None:
             reservation = resolve_guest_reservation(row=row, action_text=action_text)
             row.refresh_from_db()
         if reservation is not None:
@@ -415,13 +442,21 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
                     reply_result = parking_result
 
         if reply_result is None:
-            reply_result = handle_guest_autocheckin_inbound(
-                row=row,
-                integration_row=integration_row,
-                runtime=runtime,
-                action_text=action_text,
-                reservation=reservation,
-            )
+            if maintenance_active and reservation is not None:
+                reply_result = send_autocheckin_maintenance_reply(
+                    row=row,
+                    integration_row=integration_row,
+                    runtime=runtime,
+                    reservation=reservation,
+                )
+            elif not maintenance_active:
+                reply_result = handle_guest_autocheckin_inbound(
+                    row=row,
+                    integration_row=integration_row,
+                    runtime=runtime,
+                    action_text=action_text,
+                    reservation=reservation,
+                )
         if reservation is None and row.reservation_id is not None:
             reservation = row.reservation
 

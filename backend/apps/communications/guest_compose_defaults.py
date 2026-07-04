@@ -409,6 +409,29 @@ AUTOCHECKIN_EXPIRED_SHORT = {
     ),
 }
 
+WHATSAPP_AUTOCHECKIN_MAINTENANCE_BODY = {
+    "hr": (
+        "Automatska obrada dokumenata privremeno nije dostupna. "
+        "Pošaljite dokumente na recepciju ili pokušajte ponovno za nekoliko sati."
+    ),
+    "en": (
+        "Automatic document processing is temporarily unavailable. "
+        "Please send your documents to reception or try again in a few hours."
+    ),
+    "de": (
+        "Die automatische Dokumentenverarbeitung ist vorübergehend nicht verfügbar. "
+        "Bitte senden Sie Ihre Dokumente an die Rezeption oder versuchen Sie es in einigen Stunden erneut."
+    ),
+    "es": (
+        "El procesamiento automático de documentos no está disponible temporalmente. "
+        "Envíe los documentos a recepción o inténtelo de nuevo dentro de unas horas."
+    ),
+    "fr": (
+        "Le traitement automatique des documents est temporairement indisponible. "
+        "Veuillez envoyer vos documents à la réception ou réessayer dans quelques heures."
+    ),
+}
+
 CHECKIN_AUTOMATION_FAILED = {
     "hr": (
         "Automatski check-in nije uspio — podatke ćemo upisati na recepciji kad stignete.\n\n"
@@ -846,6 +869,7 @@ DEFAULT_TEXTS: dict[str, dict[str, str]] = {
     "autocheckin_waived": AUTOCHECKIN_WAIVED_BODY,
     "autocheckin_period_ended": AUTOCHECKIN_PERIOD_ENDED,
     "autocheckin_expired_short": AUTOCHECKIN_EXPIRED_SHORT,
+    "whatsapp_autocheckin_maintenance": WHATSAPP_AUTOCHECKIN_MAINTENANCE_BODY,
     "checkin_automation_failed": CHECKIN_AUTOMATION_FAILED,
     "checkin_ready": CHECKIN_READY_BODY,
     "post_checkin_arrival_thanks": POST_CHECKIN_ARRIVAL_THANKS,

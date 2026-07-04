@@ -57,6 +57,7 @@ HINT_AUTOCHECKIN_ARRIVAL_THANKS = "autocheckin arrival thanks"
 HINT_DOCS_AWAITING_ARRIVAL = "docs awaiting arrival"
 HINT_ARRIVAL_AUTO_REPLY = "arrival auto reply"
 HINT_PARKING_AUTO_REPLY = "parking auto reply"
+HINT_WHATSAPP_AUTOCHECKIN_MAINTENANCE = "whatsapp autocheckin maintenance"
 
 FOOTER = "Managed by stay.hr — https://stay.hr/"
 
@@ -992,6 +993,22 @@ def _render_checkin_automation_failed_fallback(reservation: Reservation, context
 def render_checkin_automation_failed_message(reservation: Reservation) -> str:
     context = build_compose_context(reservation)
     return _render_checkin_automation_failed_fallback(reservation, context)
+
+
+def render_whatsapp_autocheckin_maintenance_message(reservation: Reservation) -> str:
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    body = _property_guest_text(reservation, "whatsapp_autocheckin_maintenance", lang)
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
 
 
 def _render_autocheckin_waived_fallback(reservation: Reservation, context: dict) -> str:

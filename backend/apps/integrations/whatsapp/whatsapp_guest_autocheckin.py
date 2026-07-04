@@ -624,6 +624,19 @@ def handle_guest_autocheckin_inbound(
     action_text: str,
     reservation: Reservation | None,
 ) -> dict:
+    from apps.integrations.whatsapp.autocheckin_maintenance import (
+        send_autocheckin_maintenance_reply,
+        whatsapp_autocheckin_maintenance_enabled,
+    )
+
+    if whatsapp_autocheckin_maintenance_enabled() and reservation is not None:
+        return send_autocheckin_maintenance_reply(
+            row=row,
+            integration_row=integration_row,
+            runtime=runtime,
+            reservation=reservation,
+        )
+
     if reservation is not None:
         resolve_result = GuestReservationResolveResult(
             reservation=reservation,

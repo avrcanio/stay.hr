@@ -517,6 +517,22 @@ def on_whatsapp_document_received(message_id: int) -> dict:
     if is_document_checkin_complete(reservation):
         return {"status": "skipped", "reason": "docs_complete"}
 
+    from apps.integrations.whatsapp.autocheckin_maintenance import (
+        send_autocheckin_maintenance_reply,
+        whatsapp_autocheckin_maintenance_enabled,
+    )
+
+    if whatsapp_autocheckin_maintenance_enabled():
+        integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
+        if integration_row is not None and runtime is not None:
+            return send_autocheckin_maintenance_reply(
+                row=row,
+                integration_row=integration_row,
+                runtime=runtime,
+                reservation=reservation,
+            )
+        return {"status": "maintenance", "reason": "no_integration"}
+
     integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None:
         return {"status": "skipped", "reason": "no_integration"}
