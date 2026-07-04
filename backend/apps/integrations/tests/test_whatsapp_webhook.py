@@ -273,8 +273,9 @@ class WhatsAppWebhookTests(TestCase):
         self.assertEqual(inbound.tenant_id, self.tenant_b.id)
         self.assertNotEqual(inbound.tenant_id, self.tenant_a.id)
 
-        greeting = mock_send.call_args.kwargs["body"]
-        self.assertIn("booking code", greeting.lower())
+        mock_send.assert_not_called()
+        routing = inbound.inbound_routing
+        self.assertEqual(routing.status, "unrouted")
 
     def test_reservation_match_from_db(self):
         reservation = find_reservation_for_wa_id(

@@ -4,7 +4,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from apps.integrations.models import IntegrationConfig, WhatsAppMessage
+from django.db import IntegrityError
+
+from apps.communications.models import GuestOutboundDeliveryStatus, GuestOutboundMessage
+from apps.integrations.models import IntegrationConfig, WhatsAppInboundRouting, WhatsAppMessage
+from apps.integrations.whatsapp.platform_inbound_router import route_inbound_message
 from apps.integrations.whatsapp.tasks import process_inbound_message
 
 from apps.integrations.whatsapp.media_download import extract_media_from_message
@@ -85,30 +89,83 @@ def record_inbound_whatsapp_message(
     if not parsed.wamid:
         return {"status": "ignored", "reason": "missing_wamid"}
 
-    if WhatsAppMessage.objects.filter(wamid=parsed.wamid).exists():
+    try:
+        row, created = WhatsAppMessage.objects.get_or_create(
+            wamid=parsed.wamid,
+            defaults={
+                "tenant_id": integration_row.tenant_id,
+                "integration": integration_row,
+                "wa_id": parsed.wa_id,
+                "phone_number_id": parsed.phone_number_id,
+                "direction": WhatsAppMessage.Direction.INBOUND,
+                "message_type": parsed.message_type,
+                "body": parsed.body,
+                "raw_payload": parsed.raw_message,
+            },
+        )
+    except IntegrityError:
         return {"status": "duplicate", "wamid": parsed.wamid}
 
-    row = WhatsAppMessage.objects.create(
-        tenant_id=integration_row.tenant_id,
-        integration=integration_row,
-        wamid=parsed.wamid,
-        wa_id=parsed.wa_id,
-        phone_number_id=parsed.phone_number_id,
-        direction=WhatsAppMessage.Direction.INBOUND,
-        message_type=parsed.message_type,
-        body=parsed.body,
-        raw_payload=parsed.raw_message,
-    )
+    if not created:
+        return {"status": "duplicate", "wamid": parsed.wamid}
+
+    routing = route_inbound_message(message=row, integration=integration_row)
     process_inbound_message.delay(row.pk, profile_name=parsed.profile_name)
-    return {"status": "queued", "message_id": row.pk, "wamid": parsed.wamid}
+    return {
+        "status": "queued",
+        "message_id": row.pk,
+        "wamid": parsed.wamid,
+        "routing_status": routing.status,
+    }
+
+
+def extract_status_updates(body: dict[str, Any]) -> list[dict[str, str]]:
+    if body.get("object") != "whatsapp_business_account":
+        return []
+    updates: list[dict[str, str]] = []
+    for entry in body.get("entry") or []:
+        for change in entry.get("changes") or []:
+            value = change.get("value") or {}
+            for item in value.get("statuses") or []:
+                wamid = str(item.get("id") or "").strip()
+                status = str(item.get("status") or "").strip().lower()
+                if wamid and status:
+                    updates.append({"wamid": wamid, "status": status})
+    return updates
+
+
+def apply_outbound_status_update(*, wamid: str, status: str) -> dict[str, Any]:
+    mapping = {
+        "sent": GuestOutboundDeliveryStatus.SENT,
+        "delivered": GuestOutboundDeliveryStatus.DELIVERED,
+        "read": GuestOutboundDeliveryStatus.READ,
+        "failed": GuestOutboundDeliveryStatus.FAILED,
+    }
+    delivery_status = mapping.get(status)
+    if not delivery_status:
+        return {"status": "ignored", "wamid": wamid}
+
+    updated = GuestOutboundMessage.objects.filter(provider_message_id=wamid).update(
+        delivery_status=delivery_status,
+    )
+    if updated:
+        return {"status": "updated", "wamid": wamid, "delivery_status": delivery_status}
+    return {"status": "not_found", "wamid": wamid}
 
 
 def process_whatsapp_webhook(body: dict[str, Any]) -> dict[str, Any]:
+    status_updates = extract_status_updates(body)
+    status_results = [apply_outbound_status_update(**item) for item in status_updates]
+
     parsed_messages = extract_inbound_messages(body)
     if not parsed_messages:
-        return {"status": "ok", "processed": 0}
+        return {
+            "status": "ok",
+            "processed": len(status_results),
+            "status_results": status_results,
+        }
 
-    results: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = list(status_results)
     for parsed in parsed_messages:
         integration_row = None
         if parsed.phone_number_id:

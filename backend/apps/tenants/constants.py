@@ -1,0 +1,1 @@
+PLATFORM_TENANT_SLUG = "platform"

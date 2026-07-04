@@ -76,6 +76,13 @@ export type GuestLite = {
 
 export type EvisitorSummary = "none" | "incomplete" | "complete" | "checked_out";
 
+export type EvisitorProgress = {
+  required: number;
+  sent: number;
+  failed: number;
+  pending: number;
+};
+
 export type InvoiceSummary = {
   id: number;
   invoice_number: string;
@@ -109,6 +116,8 @@ export type GuestMessageChannelInfo = {
   phone_raw?: string;
   phone_wa?: string;
   wa_me_url?: string;
+  api_send?: boolean;
+  session_open?: boolean;
 };
 
 export type GuestMessageChannels = Record<string, GuestMessageChannelInfo> & {
@@ -184,6 +193,7 @@ export type ReservationDetail = Reservation & {
   xls_imported_at: string | null;
   confirmation_pdf_url: string;
   evisitor_summary?: EvisitorSummary;
+  evisitor_progress?: EvisitorProgress;
   check_in_allowed?: boolean;
   check_in_blocked_code?: "wrong_date" | "room_occupied" | "no_unit" | null;
   payment_status?: string;

@@ -19,7 +19,7 @@ from apps.communications.models import (
 from apps.integrations.evisitor.summary import evisitor_summary_for_reservation
 from apps.integrations.models import WhatsAppMessage
 from apps.integrations.whatsapp.client import WhatsAppApiError, extract_outbound_wamid, send_text_message
-from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
+from apps.integrations.whatsapp.integration_lookup import resolve_whatsapp_integration
 from apps.reservations.models import Reservation
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ def _send_reservation_whatsapp_text(
     if not wa_id:
         return {"status": "skipped", "reason": "no_wa_id"}
 
-    integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+    integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None or not runtime.send_credentials_ok():
         return {"status": "skipped", "reason": "no_credentials"}
 
@@ -71,8 +71,6 @@ def _send_reservation_whatsapp_text(
             access_token=runtime.access_token,
             to_wa_id=wa_id,
             body=body,
-            provider=runtime.provider,
-            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning(

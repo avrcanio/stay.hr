@@ -1,4 +1,7 @@
 # Whatsapp business API gambling application
+
+> **Superseded (2026-07):** Meta Cloud API only. See [../operations/whatsapp-setup.md](../operations/whatsapp-setup.md).
+
 _Exported on 6/6/2026 at 07:15:07 GMT+2 from Cursor (3.6.31)_
 
 ---

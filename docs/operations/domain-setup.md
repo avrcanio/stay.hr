@@ -268,6 +268,8 @@ git pull
 
 Inače samo `docker compose restart`. Na kraju pokreće `python manage.py check`.
 
+Ako je u `.env` postavljen `DEMO_EVISITOR_USERNAME`, deploy zatim pokreće [`scripts/verify-demo-evisitor.sh`](../../scripts/verify-demo-evisitor.sh): `seed_evisitor_config` + `smoke_evisitor --login-only --json`. Bez tih varijabli korak se preskače.
+
 **Važno:** samo `docker compose restart` **ne** deploya code-only promjene — kod je u Docker imageu. Očekuj `Rebuild required (backend source changed since last image build)` nakon pull-a s API izmjenama.
 
 **Ručni fallback** ako rebuild nije pokrenut:

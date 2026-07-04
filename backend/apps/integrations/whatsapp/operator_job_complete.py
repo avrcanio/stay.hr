@@ -9,7 +9,7 @@ from apps.integrations.whatsapp.whatsapp_operator_service import GuestNotifyMode
 
 from apps.integrations.evisitor.summary import evisitor_summary_for_reservation
 from apps.integrations.models import IntegrationConfig
-from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
+from apps.integrations.whatsapp.integration_lookup import resolve_whatsapp_integration
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 from apps.integrations.whatsapp.whatsapp_operator import operator_name_for_wa_id
 from apps.integrations.whatsapp.whatsapp_operator_service import (
@@ -176,7 +176,7 @@ def _notify_operator(
     runtime: WhatsAppRuntimeConfig | None = None,
 ) -> dict:
     if integration_row is None or runtime is None:
-        integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+        integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None:
         return {"status": "skipped", "reason": "no_whatsapp_integration"}
     return _send_operator_text(

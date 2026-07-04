@@ -2,11 +2,13 @@
 
 Operativna uputa za slanje fotografija dokumenata gosta s mobitela na poslovni WhatsApp broj.
 
-**Poslovni broj (360dialog):** `+385 97 678 9626`  
+**Poslovni broj (Meta Cloud API / platform):** `+385 97 661 5439` (Finestar WABA)  
 **Ne koristiti:** stari `+385 99 838 8513` (WhatsApp Business app — ne ide u Hospiru).
 
 **Whitelist operatori:** Toni Šupe `+385998388513`, Ante Vrcan `+385976713511`  
 Seed: `python manage.py seed_uzorita_whatsapp_operators --tenant-id 2`
+
+> Setup: vidi [whatsapp-setup.md](whatsapp-setup.md) — samo Meta Graph API, token u `.env`.
 
 ---
 

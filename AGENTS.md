@@ -87,3 +87,86 @@ Set `STAY_API_INTERNAL_URL` and `STAY_BOOKING_API_TOKEN` in `.env` / shell. See 
 - Reception app: `web/reception/`
 - Django API: `backend/`
 - Ops runbook: `docs/operations/domain-setup.md`
+
+## Backend testing
+
+Backend testovi idu na **dedicated PostGIS bazu**, ne na produkcijsku `stay_platform_db` i ne na SQLite.
+
+| | |
+|--|--|
+| **PostGIS container** | `postgis` (mreža `postgis`) |
+| **Test baza** | `stay_platform_test_db` (owner `stay`) |
+| **Settings** | `DJANGO_SETTINGS_MODULE=config.settings.test_postgis` |
+| **Referenca** | PostGIS za `apps.integrations.tests` — ne SQLite |
+| **Detalji** | [test-suite.md](docs/development/test-suite.md), [integrations-test-triage.md](docs/development/integrations-test-triage.md) |
+
+Kod **nije** bind-mountan u `stay_django` — nakon izmjena u `backend/` uvijek rebuild prije testova:
+
+```bash
+docker compose build django
+```
+
+### Brzi start (recommended workflow)
+
+```bash
+./scripts/ensure-test-db.sh
+docker compose build django
+./scripts/run-tests-postgis.sh          # default: apps.integrations.tests (CI smoke)
+```
+
+Proizvoljni moduli:
+
+```bash
+./scripts/run-tests-postgis.sh apps.tenants.tests apps.integrations.tests -v 2
+```
+
+Uži eVisitor smoke:
+
+```bash
+./scripts/run-tests-postgis.sh \
+  apps.integrations.tests.test_smoke_evisitor \
+  apps.integrations.tests.test_seed_evisitor_config \
+  -v 2
+```
+
+Ručno:
+
+```bash
+docker compose run --rm \
+  -e DJANGO_SETTINGS_MODULE=config.settings.test_postgis \
+  -e TEST_DB_NAME=stay_platform_test_db \
+  django python manage.py test apps.tenants.tests.test_seed_demo_guest --keepdb -v 2
+```
+
+Za čistu test bazu: `docker exec postgis psql -U postgres -c 'DROP DATABASE stay_platform_test_db;'`, zatim `./scripts/ensure-test-db.sh`.
+
+Integration suite: **335/335** na PostGIS-u (stabilizacija 2026-07). Povijest burn-downa: [integrations-test-triage.md](docs/development/integrations-test-triage.md). Novi PR-ovi moraju zadržati zeleni smoke — ne sužavati suite.
+
+### Pre-merge checklist (backend, integracije)
+
+Svaki backend PR koji dira `backend/apps/integrations/`, eVisitor, Channex, WhatsApp ili povezane API/view slojeve:
+
+```bash
+./scripts/ensure-test-db.sh
+docker compose build django
+./scripts/run-tests-postgis.sh
+```
+
+Ako PR dira eVisitor bootstrap ili deployment:
+
+```bash
+./scripts/verify-demo-evisitor.sh
+```
+
+Cilj: **335/335** prije mergea. Ne sužavati default smoke da bi testovi prošli.
+
+### Načela razvoja (nakon stabilizacije 2026-07)
+
+Fokus je na poslovnim funkcionalnostima uz očuvanje kvalitete platforme:
+
+- **Jedan PR = jedna odgovornost** (kao burn-down PR-A … PR-F)
+- **Dokumentacija ide uz funkcionalnost** (ne odvojeni docs-only PR osim ako je namjerno)
+- **Testovi dolaze s implementacijom** — PostGIS integration smoke za integracijski sloj
+- **Bez usputnih refaktora** osim ako su nužni za taj PR
+
+Referenca stabilizacije: [test-suite.md — Integration Suite Stabilization (2026-07)](docs/development/test-suite.md#integration-suite-stabilization-2026-07).

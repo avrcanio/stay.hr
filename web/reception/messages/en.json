@@ -18,6 +18,7 @@
     "calendar": "Calendar",
     "newReservation": "New booking",
     "reviews": "Reviews",
+    "whatsapp": "WhatsApp",
     "logout": "Log out"
   },
   "language": {
@@ -213,6 +214,7 @@
     "checkOutSuccess": "Guest checked out.",
     "statusChangeFailed": "Status change failed.",
     "checkoutEvisitorHint": "All adult guests must be registered in eVisitor before checkout.",
+    "evisitorProgress": "eVisitor: {sent}/{required} submitted",
     "checkInBlockedWrongDate": "Check-in is not possible before the arrival date.",
     "checkInBlockedRoomOccupied": "The room is occupied — another guest is already checked in.",
     "checkInBlockedNoUnit": "The reservation has no assigned room.",
@@ -305,7 +307,20 @@
     "evisitorSubmitSuccess": "Guest submitted to eVisitor.",
     "evisitorRecovered": "Guest was already registered in eVisitor.",
     "evisitorSubmitFailed": "eVisitor submission failed.",
-    "evisitorSubmitFailedWithReason": "eVisitor submission failed: {reason}"
+    "evisitorSubmitFailedWithReason": "eVisitor submission failed: {reason}",
+    "evisitorUnregistered": "Not registered",
+    "evisitorValidationFailed": "Guest data is incomplete for eVisitor registration.",
+    "evisitorFieldFirstName": "First name",
+    "evisitorFieldLastName": "Last name",
+    "evisitorFieldSex": "Sex",
+    "evisitorFieldDateOfBirth": "Date of birth",
+    "evisitorFieldNationality": "Nationality",
+    "evisitorFieldDocumentType": "Document type",
+    "evisitorFieldDocumentNumber": "Document number",
+    "evisitorFieldFacility": "Facility code",
+    "evisitorFieldStayDates": "Stay dates",
+    "evisitorFieldAddress": "Address",
+    "evisitorFieldDateOfExpiry": "Document expiry date"
   },
   "source": {
     "stay": "stay.hr"
@@ -365,6 +380,7 @@
     "channelEmailHint": "Recipient: {email}",
     "channelWhatsapp": "WhatsApp",
     "channelWhatsappHint": "Opens WhatsApp with suggested text ({phone})",
+    "channelWhatsappApiHint": "Sends via WhatsApp Cloud API",
     "noChannel": "No channel available for sending.",
     "hintLabel": "Hint (optional)",
     "hintReplyPlaceholder": "e.g. checkin ready",
@@ -408,5 +424,52 @@
     "showOriginal": "Show original",
     "showTranslation": "Show translation",
     "translatedLabel": "Auto-translated (OpenAI)"
+  },
+  "whatsapp": {
+    "nav": {
+      "overview": "Overview",
+      "templates": "Templates",
+      "settings": "Settings"
+    },
+    "overview": {
+      "title": "WhatsApp integration",
+      "loadFailed": "Could not load integration status.",
+      "connected": "Connected",
+      "notConnected": "Not connected",
+      "phone": "Phone",
+      "provider": "Provider",
+      "waba": "WABA ID",
+      "quality": "Quality",
+      "messagingLimit": "Messaging limit",
+      "businessNotVerified": "Business account is not verified on Meta.",
+      "connectHint": "Embedded Signup will be available here."
+    },
+    "templates": {
+      "title": "WhatsApp templates",
+      "loadFailed": "Could not load templates.",
+      "sync": "Sync from Meta",
+      "syncFailed": "Sync failed.",
+      "syncSuccess": "Templates refreshed.",
+      "syncedAt": "Last sync",
+      "empty": "No templates.",
+      "colName": "Name",
+      "colLanguage": "Language",
+      "colCategory": "Category",
+      "colStatus": "Status",
+      "createTitle": "New template",
+      "fieldName": "Name (a-z, 0-9, _)",
+      "fieldLanguage": "Language",
+      "fieldBody": "Body text",
+      "createAction": "Submit for approval",
+      "createFailed": "Could not create template.",
+      "createSuccess": "Template submitted for approval (Pending)."
+    },
+    "settings": {
+      "title": "WhatsApp settings",
+      "connected": "Connected",
+      "phone": "Phone",
+      "waba": "WABA ID",
+      "disconnectHint": "Disconnect will be available in a future release."
+    }
   }
 }

@@ -39,12 +39,13 @@ class WholePropertyAvailabilityTests(TestCase):
             booker_name="Susanne Mayer",
             units_count=4,
         )
-        for code in ("R1", "R3"):
+        for sort_order, code in enumerate(("R1", "R3")):
             ReservationUnit.objects.create(
                 tenant=self.tenant,
                 reservation=reservation,
                 unit=self.units[code],
                 room_name=code,
+                sort_order=sort_order,
             )
         self.assertTrue(qualifies_for_whole_property_sync(reservation))
 

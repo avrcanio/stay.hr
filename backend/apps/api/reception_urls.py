@@ -36,6 +36,12 @@ from apps.api.reception_guest_messages_views import (
     WhatsAppMessageMediaView,
 )
 from apps.api.reception_message_threads_views import ReceptionMessageThreadsListView
+from apps.api.reception_whatsapp_views import (
+    ReceptionWhatsAppConnectView,
+    ReceptionWhatsAppIntegrationView,
+    ReceptionWhatsAppTemplatesSyncView,
+    ReceptionWhatsAppTemplatesView,
+)
 from apps.api.reception_reviews_views import (
     ReceptionReservationReviewsView,
     ReceptionReviewComposeReplyView,
@@ -215,6 +221,26 @@ urlpatterns = [
         "message-threads/",
         ReceptionMessageThreadsListView.as_view(),
         name="reception-message-threads-list",
+    ),
+    path(
+        "whatsapp/integration/",
+        ReceptionWhatsAppIntegrationView.as_view(),
+        name="reception-whatsapp-integration",
+    ),
+    path(
+        "whatsapp/connect/",
+        ReceptionWhatsAppConnectView.as_view(),
+        name="reception-whatsapp-connect",
+    ),
+    path(
+        "whatsapp/templates/",
+        ReceptionWhatsAppTemplatesView.as_view(),
+        name="reception-whatsapp-templates",
+    ),
+    path(
+        "whatsapp/templates/sync/",
+        ReceptionWhatsAppTemplatesSyncView.as_view(),
+        name="reception-whatsapp-templates-sync",
     ),
     path(
         "reviews/",

@@ -37,4 +37,4 @@ class DocumentIntakeIncompleteMessageTests(TestCase):
         )
         self.assertIn("11", body)
         self.assertIn("9", body)
-        self.assertIn("ID card", body)
+        self.assertIn("Personalausweis", body)

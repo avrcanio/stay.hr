@@ -13,6 +13,7 @@ def send_push_notification(
     body: str,
     data: dict[str, str] | None = None,
 ) -> str:
+    # Unused in codebase; if ever called, route through send_tenant_reception_push instead.
     from apps.core.firebase import send_fcm_message
 
     return send_fcm_message(token=token, title=title, body=body, data=data)

@@ -52,6 +52,14 @@ def _channel_manager_for_tenant(tenant) -> str:
     return get_channel_manager(tenant)
 
 
+def _public_booking_tenant(request):
+    """Booking BFF resolves tenant from Host; shared API token only authenticates."""
+    tenant_domain = getattr(request, "tenant_domain", None)
+    if tenant_domain is not None:
+        return tenant_domain.tenant
+    return request.tenant
+
+
 class TenantAPIView(APIView):
     authentication_classes = [AppKeyAuthentication, StaffSessionAuthentication]
     permission_classes = [HasApiApplication, DenyAdminScopes]
@@ -106,7 +114,8 @@ class PublicPropertiesView(TenantAPIView):
     permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
 
     def get(self, request):
-        properties = Property.objects.for_tenant(request.tenant).order_by("name")
+        tenant = _public_booking_tenant(request)
+        properties = Property.objects.for_tenant(tenant).order_by("name")
         serializer = PublicPropertySerializer(properties, many=True)
         return Response({"results": serializer.data})
 
@@ -116,7 +125,8 @@ class PublicUnitsView(TenantAPIView):
     permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
 
     def get(self, request):
-        units = _units_with_details_queryset(request.tenant).filter(
+        tenant = _public_booking_tenant(request)
+        units = _units_with_details_queryset(tenant).filter(
             is_active=True,
         )
         property_slug = request.query_params.get("property")
@@ -135,6 +145,8 @@ class PublicAvailabilityView(TenantAPIView):
         from_str = request.query_params.get("from")
         to_str = request.query_params.get("to")
         property_slug = request.query_params.get("property")
+
+        tenant = _public_booking_tenant(request)
 
         if not from_str or not to_str:
             return Response(
@@ -157,7 +169,7 @@ class PublicAvailabilityView(TenantAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        units = Unit.objects.for_tenant(request.tenant).filter(
+        units = Unit.objects.for_tenant(tenant).filter(
             is_active=True,
         ).select_related("property")
         if property_slug:
@@ -170,7 +182,7 @@ class PublicAvailabilityView(TenantAPIView):
         if unit_ids:
             reservation_units = (
                 ReservationUnit.objects.filter(
-                    tenant=request.tenant,
+                    tenant=tenant,
                     unit_id__in=unit_ids,
                     reservation__status__in=BLOCKING_RESERVATION_STATUSES,
                     reservation__check_in__lt=to_date,
@@ -192,7 +204,7 @@ class PublicAvailabilityView(TenantAPIView):
                 )
 
             manual_blocks = UnitAvailabilityBlock.objects.filter(
-                tenant=request.tenant,
+                tenant=tenant,
                 unit_id__in=unit_ids,
                 check_in__lt=to_date,
                 check_out__gt=from_date,
@@ -208,7 +220,7 @@ class PublicAvailabilityView(TenantAPIView):
                 )
 
             closed_ari_days = UnitAvailabilityDay.objects.filter(
-                tenant=request.tenant,
+                tenant=tenant,
                 unit_id__in=unit_ids,
                 date__gte=from_date,
                 date__lt=to_date,
@@ -250,9 +262,10 @@ class PublicReservationCreateView(TenantAPIView):
     permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
 
     def post(self, request):
+        tenant = _public_booking_tenant(request)
         serializer = PublicReservationCreateSerializer(
             data=request.data,
-            context={"tenant": request.tenant},
+            context={"tenant": tenant},
         )
         serializer.is_valid(raise_exception=True)
         reservation = serializer.save()
@@ -274,12 +287,13 @@ class PublicReservationStatusView(TenantAPIView):
     permission_classes = [HasApiApplication, HasScope, DenyAdminScopes]
 
     def get(self, request, booking_code: str):
+        tenant = _public_booking_tenant(request)
         code = (booking_code or "").strip().upper()
         if not code:
             raise NotFound("Reservation not found.")
 
         reservation = (
-            Reservation.objects.for_tenant(request.tenant)
+            Reservation.objects.for_tenant(tenant)
             .filter(booking_code__iexact=code)
             .select_related("property")
             .prefetch_related("units__unit")

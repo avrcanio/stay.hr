@@ -133,7 +133,7 @@ class IntegrationConfigAdminFormTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("room_types_json", form.errors)
 
-    def test_whatsapp_access_token_and_routing_key_sync(self):
+    def test_whatsapp_routing_key_sync_on_create(self):
         row = IntegrationConfig.objects.create(
             tenant=self.tenant,
             provider=IntegrationConfig.Provider.WHATSAPP,
@@ -146,7 +146,6 @@ class IntegrationConfigAdminFormTests(TestCase):
                 "provider": IntegrationConfig.Provider.WHATSAPP,
                 "routing_key": "",
                 "is_active": True,
-                "access_token": "meta-token",
                 "phone_number_id": "123456789",
                 "display_phone_number": "+385911234567",
                 "waba_id": "waba-1",
@@ -157,8 +156,8 @@ class IntegrationConfigAdminFormTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         saved = form.save()
         config = saved.get_config_dict()
-        self.assertEqual(config["access_token"], "meta-token")
         self.assertEqual(config["phone_number_id"], "123456789")
+        self.assertNotIn("access_token", config)
         self.assertEqual(saved.routing_key, "123456789")
 
     def test_evisitor_password_blank_keeps_existing(self):

@@ -11,6 +11,7 @@ type DetailRow = {
   value: string | null | undefined;
   fullWidth?: boolean;
   isError?: boolean;
+  preserveWhitespace?: boolean;
 };
 
 type EvisitorSubmitResponse = {
@@ -18,6 +19,13 @@ type EvisitorSubmitResponse = {
   message?: string;
   user_message?: string;
   recovered?: boolean;
+  field_errors?: Record<string, string>;
+};
+
+type GuestMessage = {
+  type: "success" | "error";
+  text: string;
+  fieldErrors?: Record<string, string>;
 };
 
 type Props = {
@@ -30,6 +38,20 @@ type Props = {
 const EVISITOR_SUBMITTABLE_STATUSES = new Set<ReservationStatus>(["expected", "checked_in"]);
 const EVISITOR_DONE_STATUSES = new Set(["sent", "checked_out"]);
 
+const EVISITOR_FIELD_LABEL_KEYS: Record<string, string> = {
+  first_name: "evisitorFieldFirstName",
+  last_name: "evisitorFieldLastName",
+  sex: "evisitorFieldSex",
+  date_of_birth: "evisitorFieldDateOfBirth",
+  nationality: "evisitorFieldNationality",
+  document_type: "evisitorFieldDocumentType",
+  document_number: "evisitorFieldDocumentNumber",
+  facility: "evisitorFieldFacility",
+  stay_dates: "evisitorFieldStayDates",
+  address: "evisitorFieldAddress",
+  date_of_expiry: "evisitorFieldDateOfExpiry",
+};
+
 export function GuestList({
   reservationId,
   guests,
@@ -39,9 +61,7 @@ export function GuestList({
   const t = useTranslations("guest");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [submittingGuestId, setSubmittingGuestId] = useState<number | null>(null);
-  const [guestMessages, setGuestMessages] = useState<
-    Record<number, { type: "success" | "error"; text: string }>
-  >({});
+  const [guestMessages, setGuestMessages] = useState<Record<number, GuestMessage>>({});
 
   function evisitorStatusLabel(status: string): string {
     const map: Record<string, string> = {
@@ -64,6 +84,9 @@ export function GuestList({
     if (!guestRequiresEvisitor(guest)) {
       return t("evisitorNotRequired");
     }
+    if (status === "not_sent") {
+      return t("evisitorUnregistered");
+    }
     return evisitorStatusLabel(status);
   }
 
@@ -81,7 +104,13 @@ export function GuestList({
     if (!guestRequiresEvisitor(guest)) {
       return true;
     }
-    return status === "sent" || status === "failed" || status === "checked_out";
+    return (
+      status === "sent" ||
+      status === "failed" ||
+      status === "checked_out" ||
+      status === "not_sent" ||
+      status === "pending"
+    );
   }
 
   function evisitorStatusBadgeClass(guest: GuestLite, status: string): string {
@@ -97,7 +126,15 @@ export function GuestList({
     if (status === "pending") {
       return "badge badge-expected text-xs";
     }
+    if (status === "not_sent") {
+      return "badge text-xs bg-amber-50 text-amber-800 ring-1 ring-amber-200";
+    }
     return "";
+  }
+
+  function evisitorFieldLabel(field: string): string {
+    const key = EVISITOR_FIELD_LABEL_KEYS[field];
+    return key ? t(key) : field;
   }
 
   function formatEvisitorSubmitError(reason: string | undefined): string {
@@ -137,6 +174,7 @@ export function GuestList({
         value: guest.evisitor_error,
         fullWidth: true,
         isError: true,
+        preserveWhitespace: true,
       });
     }
 
@@ -178,6 +216,17 @@ export function GuestList({
           },
         });
         await onGuestUpdated?.();
+        return;
+      }
+
+      if (data?.status === "validation_failed" && data.field_errors) {
+        setGuestMessages({
+          [guest.id]: {
+            type: "error",
+            text: data.message?.trim() || t("evisitorValidationFailed"),
+            fieldErrors: data.field_errors,
+          },
+        });
         return;
       }
 
@@ -264,7 +313,11 @@ export function GuestList({
                     {detailRows.map((row) => (
                       <div key={row.label} className={row.fullWidth ? "sm:col-span-2" : undefined}>
                         <dt className="text-muted">{row.label}</dt>
-                        <dd className={`font-medium ${row.isError ? "text-red-700" : ""}`}>
+                        <dd
+                          className={`font-medium ${row.isError ? "text-red-700" : ""} ${
+                            row.preserveWhitespace ? "whitespace-pre-wrap" : ""
+                          }`}
+                        >
                           {row.value}
                         </dd>
                       </div>
@@ -275,13 +328,22 @@ export function GuestList({
                 )}
 
                 {guestMessage ? (
-                  <p
+                  <div
                     className={`mt-3 text-sm ${
                       guestMessage.type === "success" ? "text-emerald-700" : "text-red-600"
                     }`}
                   >
-                    {guestMessage.text}
-                  </p>
+                    <p>{guestMessage.text}</p>
+                    {guestMessage.fieldErrors ? (
+                      <ul className="mt-2 list-disc space-y-1 pl-5">
+                        {Object.entries(guestMessage.fieldErrors).map(([field, error]) => (
+                          <li key={field}>
+                            <span className="font-medium">{evisitorFieldLabel(field)}:</span> {error}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
                 ) : null}
 
                 {showSubmit ? (

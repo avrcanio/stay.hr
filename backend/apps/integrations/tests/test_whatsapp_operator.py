@@ -284,7 +284,7 @@ class WhatsAppOperatorTests(TestCase):
         job = session.job
 
         confirm_result = self._send_operator_checkin("wamid.in.op.checkin")
-        self.assertEqual(confirm_result["status"], "awaiting_confirm")
+        self.assertEqual(confirm_result["status"], "prompted")
         session.refresh_from_db()
         self.assertEqual(session.status, WhatsAppOperatorSessionStatus.AWAITING_CONFIRM)
         mock_finalize_job.assert_not_called()
@@ -922,8 +922,14 @@ class OperatorReservationPickFlowTests(TestCase):
         mock_process,
     ):
         mock_fetch.return_value = (b"fake-image-bytes", "image/jpeg")
-        mock_interactive.side_effect = lambda **kwargs: {"messages": [{"id": "wamid.out.i"}]}
-        mock_send.return_value = {"messages": [{"id": "wamid.out.t"}]}
+        mock_interactive.side_effect = lambda **kwargs: {"messages": [{"id": "wamid.out.pick.flow.interactive"}]}
+        send_seq = {"n": 0}
+
+        def _unique_text_send(**kwargs):
+            send_seq["n"] += 1
+            return {"messages": [{"id": f"wamid.out.pick.flow.text.{send_seq['n']}"}]}
+
+        mock_send.side_effect = _unique_text_send
 
         image_message = WhatsAppMessage.objects.create(
             tenant=self.tenant,
@@ -1060,7 +1066,7 @@ class OperatorDocsConfirmPriorityTests(TestCase):
     @patch("apps.integrations.whatsapp.whatsapp_operator_service.send_text_message")
     def test_docs_yes_finalizes_instead_of_time_parse(self, mock_send, mock_finalize):
         mock_finalize.return_value = {"status": "ambiguous_reservation", "job_id": self.session.job_id}
-        mock_send.return_value = {"messages": [{"id": "wamid.out.t"}]}
+        mock_send.return_value = {"messages": [{"id": "wamid.out.docs.yes.priority"}]}
 
         message = WhatsAppMessage.objects.create(
             tenant=self.tenant,

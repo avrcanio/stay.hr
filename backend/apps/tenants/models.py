@@ -43,6 +43,10 @@ class Tenant(models.Model):
     )
     timezone = models.CharField(max_length=64, default="UTC")
     default_language = models.CharField(max_length=10, default="en")
+    is_system = models.BooleanField(
+        default=False,
+        help_text="System tenant (e.g. platform WhatsApp); hidden from default admin lists.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

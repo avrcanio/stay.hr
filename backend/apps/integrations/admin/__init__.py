@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from apps.core.admin import TenantScopedAdminMixin
+from apps.core.admin import SuperuserOnlyAdminMixin, TenantScopedAdminMixin
 from apps.integrations.admin.forms import IntegrationConfigAdminForm
 from apps.integrations.config_secrets import (
     credentials_complete,
@@ -16,6 +16,7 @@ from apps.integrations.models import (
     IntegrationConfig,
     RatePlanDay,
     UnitAvailabilityDay,
+    WhatsAppInboundRouting,
 )
 
 CHANNEL_MANAGER_HELP = (
@@ -41,6 +42,7 @@ class IntegrationConfigAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         "tenant",
         "property",
         "routing_key",
+        "is_platform_default",
         "credentials_status_short",
         "is_active",
         "updated_at",
@@ -134,7 +136,7 @@ class IntegrationConfigAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             return ()
         mapping = {
             IntegrationConfig.Provider.CHANNEX: ("api_key", "webhook_secret"),
-            IntegrationConfig.Provider.WHATSAPP: ("access_token",),
+            IntegrationConfig.Provider.WHATSAPP: (),
             IntegrationConfig.Provider.EVISITOR: ("password", "api_key"),
         }
         return mapping.get(provider, ())
@@ -274,6 +276,58 @@ class ChannexMessageAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(WhatsAppInboundRouting)
+class WhatsAppInboundRoutingAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
+    list_display = (
+        "id",
+        "status",
+        "routing_method",
+        "message",
+        "resolved_tenant",
+        "resolved_reservation",
+        "created_at",
+    )
+    list_filter = ("status", "routing_method")
+    search_fields = ("message__wamid", "message__wa_id", "message__body", "notes")
+    readonly_fields = (
+        "message",
+        "tenant",
+        "status",
+        "routing_method",
+        "candidate_reservations",
+        "resolved_tenant",
+        "resolved_reservation",
+        "resolved_at",
+        "resolved_by",
+        "notes",
+        "created_at",
+        "updated_at",
+    )
+    raw_id_fields = ("resolved_tenant", "resolved_reservation", "resolved_by")
+    actions = ["manual_link_selected"]
+
+    def has_add_permission(self, request):
+        return False
+
+    @admin.action(description="Manual link to reservation (set resolved_reservation first)")
+    def manual_link_selected(self, request, queryset):
+        from apps.integrations.whatsapp.platform_inbound_router import manual_link_routing
+        from apps.integrations.whatsapp.tasks import process_inbound_message
+
+        linked = 0
+        for routing in queryset.select_related("message", "resolved_reservation"):
+            if routing.resolved_reservation_id is None:
+                continue
+            manual_link_routing(
+                routing=routing,
+                reservation=routing.resolved_reservation,
+                user=request.user,
+            )
+            process_inbound_message.delay(routing.message_id)
+            linked += 1
+        self.message_user(request, f"Linked {linked} routing row(s).")
 
 
 @admin.register(ChannexReview)

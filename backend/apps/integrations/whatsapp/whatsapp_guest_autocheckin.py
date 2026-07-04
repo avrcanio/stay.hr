@@ -310,8 +310,6 @@ def _send_whatsapp_text(
             access_token=runtime.access_token,
             to_wa_id=row.wa_id,
             body=body,
-            provider=runtime.provider,
-            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning("Guest autocheckin text failed message_id=%s: %s", row.pk, exc)
@@ -359,8 +357,6 @@ def _send_autocheckin_prompt(
             to_wa_id=row.wa_id,
             body=body,
             buttons=[(GUEST_AUTO_CHECKIN_BUTTON_ID, _button_title(lang))],
-            provider=runtime.provider,
-            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning("Guest autocheckin prompt failed message_id=%s: %s", row.pk, exc)

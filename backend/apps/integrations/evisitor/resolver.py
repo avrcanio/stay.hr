@@ -11,26 +11,34 @@ from apps.properties.models import Property
 from apps.tenants.models import Tenant
 
 
-def resolve_evisitor_config(tenant: Tenant, property: Property | None) -> EvisitorRuntimeConfig:
-    """
-    Resolve active eVisitor credentials for a tenant/property pair.
-
-    Precedence: property-specific IntegrationConfig, then tenant default (property=NULL).
-    """
+def get_evisitor_config_row(
+    tenant: Tenant, property: Property | None
+) -> IntegrationConfig | None:
+    """Active EVISITOR row; property-specific wins over tenant default."""
     filters = Q(property__isnull=True)
     if property is not None:
         filters |= Q(property=property)
 
-    row = (
+    return (
         IntegrationConfig.objects.filter(
             tenant=tenant,
             provider=IntegrationConfig.Provider.EVISITOR,
             is_active=True,
         )
         .filter(filters)
+        .select_related("tenant", "property")
         .order_by(F("property_id").desc(nulls_last=True))
         .first()
     )
+
+
+def resolve_evisitor_config(tenant: Tenant, property: Property | None) -> EvisitorRuntimeConfig:
+    """
+    Resolve active eVisitor credentials for a tenant/property pair.
+
+    Precedence: property-specific IntegrationConfig, then tenant default (property=NULL).
+    """
+    row = get_evisitor_config_row(tenant, property)
     if row is None:
         scope = property.slug if property else "tenant"
         raise EvisitorConfigError(

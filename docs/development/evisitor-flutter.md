@@ -1,5 +1,7 @@
 # eVisitor — Flutter (Hospira) upute
 
+Opća arhitektura, statusi, recovery, checkout i audit opisani su u [evisitor.md](evisitor.md). Ovaj dokument pokriva Flutter/Hospira klijent i prikaz u UI-u.
+
 ## API: prijava gosta
 
 ```http

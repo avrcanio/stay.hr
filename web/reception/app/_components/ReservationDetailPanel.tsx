@@ -86,6 +86,10 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
     reservation.evisitor_summary != null &&
     reservation.evisitor_summary !== "complete" &&
     reservation.evisitor_summary !== "checked_out";
+  const showEvisitorProgress =
+    reservation?.evisitor_progress != null &&
+    reservation.evisitor_progress.required > 0 &&
+    reservation.evisitor_summary === "incomplete";
   const showCheckInHint = reservation ? showCheckInBlockedHint(reservation) : false;
   const checkInHintKey = reservation
     ? checkInBlockedMessageKey(reservation.check_in_blocked_code)
@@ -212,6 +216,14 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
             <span className={`badge ${reservationStatusClass(reservation.status)}`}>
               {statusLabel(reservation.status)}
             </span>
+            {showEvisitorProgress && reservation.evisitor_progress ? (
+              <span className="badge badge-expected ml-2 text-xs">
+                {t("evisitorProgress", {
+                  sent: reservation.evisitor_progress.sent,
+                  required: reservation.evisitor_progress.required,
+                })}
+              </span>
+            ) : null}
           </dd>
         </div>
         <div>

@@ -30,7 +30,7 @@ from apps.integrations.whatsapp.client import (
     extract_outbound_wamid,
     send_interactive_button_message,
 )
-from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
+from apps.integrations.whatsapp.integration_lookup import resolve_whatsapp_integration
 from apps.integrations.whatsapp.media_download import (
     WhatsAppMediaError,
     extract_media_from_message,
@@ -270,7 +270,7 @@ def assess_batch_after_quiet(session: WhatsAppDocumentBatchSession) -> dict:
 
     reservation = session.reservation
     job = session.job
-    integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+    integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None:
         session.status = WhatsAppDocumentBatchStatus.COLLECTING
         session.save(update_fields=["status", "updated_at"])
@@ -365,7 +365,7 @@ def _schedule_after_no_quiet(session: WhatsAppDocumentBatchSession) -> None:
 
 def _send_batch_confirm_prompt(session: WhatsAppDocumentBatchSession) -> dict:
     reservation = session.reservation
-    integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+    integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None or not runtime.send_credentials_ok():
         return {"status": "skipped", "reason": "no_credentials"}
 
@@ -378,8 +378,6 @@ def _send_batch_confirm_prompt(session: WhatsAppDocumentBatchSession) -> dict:
             to_wa_id=session.wa_id,
             body=body,
             buttons=[("docs_all_yes", yes_label), ("docs_all_no", no_label)],
-            provider=runtime.provider,
-            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning("WhatsApp batch confirm failed session_id=%s: %s", session.pk, exc)
@@ -441,7 +439,7 @@ def _run_finalize(session: WhatsAppDocumentBatchSession) -> dict:
         return {"status": "already_finalized", "session_id": session.pk}
 
     reservation = session.reservation
-    integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+    integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None:
         return {"status": "skipped", "reason": "no_integration"}
 
@@ -519,7 +517,7 @@ def on_whatsapp_document_received(message_id: int) -> dict:
     if is_document_checkin_complete(reservation):
         return {"status": "skipped", "reason": "docs_complete"}
 
-    integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+    integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None:
         return {"status": "skipped", "reason": "no_integration"}
 
@@ -553,8 +551,7 @@ def on_whatsapp_document_received(message_id: int) -> dict:
     try:
         content, downloaded_mime = fetch_whatsapp_media(
             media_id=media_id,
-            api_key=runtime.access_token,
-            api_base_url=runtime.api_base_url,
+            access_token=runtime.access_token,
         )
     except WhatsAppMediaError as exc:
         logger.warning("WhatsApp media download failed message_id=%s: %s", row.pk, exc)

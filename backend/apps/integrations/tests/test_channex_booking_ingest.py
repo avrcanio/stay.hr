@@ -13,6 +13,7 @@ from apps.integrations.channex.booking_service import (
 )
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.models import ChannexBookingRevision, IntegrationConfig
+from apps.integrations.tests.test_booking_room_mismatch import _assert_single_reception_push
 from apps.properties.models import Property, Unit
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.tenants.models import Tenant
@@ -250,10 +251,11 @@ class ChannexBookingIngestTests(TestCase):
         }
         mock_client.get_booking_revision.return_value = cancelled
 
-        updated = process_channex_booking_revision(
-            self.integration,
-            "cancel-revision-id",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            updated = process_channex_booking_revision(
+                self.integration,
+                "cancel-revision-id",
+            )
 
         self.assertEqual(updated.pk, reservation.pk)
         self.assertEqual(updated.status, Reservation.Status.CANCELED)
@@ -471,7 +473,12 @@ class ChannexBookingIngestTests(TestCase):
         reservation.refresh_from_db()
         self.assertIn("OVERBOOKING:", reservation.notes)
         self.assertIn("6931685558", reservation.notes)
-        mock_reception_push.assert_called_once()
+        _assert_single_reception_push(
+            self,
+            mock_reception_push,
+            event_type="reservation.overbooking",
+            reservation_id=reservation.pk,
+        )
 
     @patch(
         "apps.integrations.channex.reservation_availability_service.push_channex_inventory_after_ingest"

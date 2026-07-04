@@ -127,7 +127,7 @@ class OperatorJobCompleteTests(TestCase):
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.operator_job_complete._notify_operator")
     @patch("apps.integrations.whatsapp.operator_job_complete.notify_guest_operator_checkin_complete")
-    @patch("apps.integrations.whatsapp.operator_job_complete.submit_guest_checkin")
+    @patch("apps.integrations.whatsapp.operator_job_complete.submit_evisitor_for_reservation")
     @patch("apps.integrations.whatsapp.operator_job_complete.apply_document_intake_job")
     def test_complete_applies_checkin_and_notifies(
         self,
@@ -140,11 +140,20 @@ class OperatorJobCompleteTests(TestCase):
             {"guest_id": self.primary.pk, "guest_name": "François Hartweg"},
             {"guest_id": self.companion.pk, "guest_name": "Anne Hartweg"},
         ]
-        mock_evisitor.return_value = type(
-            "Sub",
-            (),
-            {"status": "sent", "registration_id": "abc-123"},
-        )()
+        mock_evisitor.return_value = [
+            {
+                "guest_id": self.primary.pk,
+                "guest_name": "François Hartweg",
+                "status": "sent",
+                "registration_id": "abc-123",
+            },
+            {
+                "guest_id": self.companion.pk,
+                "guest_name": "Anne Hartweg",
+                "status": "sent",
+                "registration_id": "def-456",
+            },
+        ]
         mock_guest_notify.return_value = {"channel": "whatsapp", "status": "sent"}
         mock_operator_notify.return_value = {"status": "sent"}
 
@@ -155,7 +164,7 @@ class OperatorJobCompleteTests(TestCase):
 
         self.assertEqual(result["status"], "completed")
         mock_apply.assert_called_once()
-        self.assertEqual(mock_evisitor.call_count, 2)
+        mock_evisitor.assert_called_once()
         mock_guest_notify.assert_called_once()
         mock_operator_notify.assert_called_once()
 
@@ -165,35 +174,39 @@ class OperatorJobCompleteTests(TestCase):
         session = WhatsAppOperatorSession.objects.get(job=self.job)
         self.assertEqual(session.status, WhatsAppOperatorSessionStatus.DONE)
 
-    @patch("apps.integrations.whatsapp.evisitor_reply._send_reservation_whatsapp_text")
+    @patch(
+        "apps.integrations.whatsapp.guest_welcome_sequence.send_guest_welcome_entrance_and_ask_arrival"
+    )
     @patch("apps.integrations.whatsapp.whatsapp_operator_service._send_guest_operator_checkin_email")
-    def test_notify_guest_whatsapp_first_email_fallback(self, mock_email, mock_wa):
+    def test_notify_guest_whatsapp_first_email_fallback(self, mock_email, mock_welcome):
         from apps.integrations.whatsapp.whatsapp_operator_service import (
             notify_guest_operator_checkin_complete,
         )
 
-        mock_wa.return_value = {"status": "skipped", "reason": "no_wa_id"}
+        mock_welcome.return_value = {"status": "skipped", "reason": "no_wa_id"}
         mock_email.return_value = {"sent": True, "to": "guest@example.com"}
 
         result = notify_guest_operator_checkin_complete(self.reservation)
 
         self.assertEqual(result["channel"], "email")
         self.assertTrue(result["sent"])
-        mock_wa.assert_called_once()
+        mock_welcome.assert_called_once()
         mock_email.assert_called_once()
 
-    @patch("apps.integrations.whatsapp.evisitor_reply._send_reservation_whatsapp_text")
+    @patch(
+        "apps.integrations.whatsapp.guest_welcome_sequence.send_guest_welcome_entrance_and_ask_arrival"
+    )
     @patch("apps.integrations.whatsapp.whatsapp_operator_service._send_guest_operator_checkin_email")
-    def test_notify_guest_whatsapp_only_when_available(self, mock_email, mock_wa):
+    def test_notify_guest_whatsapp_only_when_available(self, mock_email, mock_welcome):
         from apps.integrations.whatsapp.whatsapp_operator_service import (
             notify_guest_operator_checkin_complete,
         )
 
-        mock_wa.return_value = {"status": "sent", "wamid": "wamid.test"}
+        mock_welcome.return_value = {"status": "sent", "wamid": "wamid.test"}
         result = notify_guest_operator_checkin_complete(self.reservation)
 
         self.assertEqual(result["channel"], "whatsapp")
-        mock_wa.assert_called_once()
+        mock_welcome.assert_called_once()
         mock_email.assert_not_called()
 
     def test_management_command_dry_run(self):

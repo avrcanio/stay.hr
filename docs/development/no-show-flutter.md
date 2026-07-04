@@ -207,5 +207,6 @@ Stari Flutter app bez no-show gumba i dalje radi; nema breaking change na postoj
 ## Povezano
 
 - [channex-uzorita-booking-channel.md](../integrations/channex-uzorita-booking-channel.md) — Channex prava (no-show, commission waiver)
+- [evisitor.md](evisitor.md) — eVisitor arhitektura, statusi, checkout
 - [evisitor-flutter.md](evisitor-flutter.md) — eVisitor submit iz Hospire
 - [Channex Bookings API — No Show Report](https://docs.channex.io/api-v.1-documentation/bookings-collection)

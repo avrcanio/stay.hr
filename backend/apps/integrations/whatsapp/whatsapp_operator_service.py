@@ -374,8 +374,6 @@ def _send_operator_text(
             access_token=runtime.access_token,
             to_wa_id=operator_wa_id,
             body=body,
-            provider=runtime.provider,
-            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning("Operator WhatsApp reply failed wa_id=%s: %s", operator_wa_id, exc)
@@ -413,8 +411,6 @@ def _send_operator_checkin_prompt(
             to_wa_id=operator_wa_id,
             body=body,
             buttons=[(OPERATOR_CHECKIN_BUTTON_ID, OPERATOR_CHECKIN_BUTTON_TITLE)],
-            provider=runtime.provider,
-            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning("Operator check-in prompt failed wa_id=%s: %s", operator_wa_id, exc)
@@ -455,8 +451,6 @@ def _send_operator_docs_confirm_prompt(
                 (OPERATOR_DOCS_ALL_YES_ID, yes_label),
                 (OPERATOR_DOCS_ALL_NO_ID, no_label),
             ],
-            provider=runtime.provider,
-            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning("Operator docs confirm failed wa_id=%s: %s", operator_wa_id, exc)
@@ -644,8 +638,7 @@ def _collect_operator_image(
     try:
         content, downloaded_mime = fetch_whatsapp_media(
             media_id=media_id,
-            api_key=runtime.access_token,
-            api_base_url=runtime.api_base_url,
+            access_token=runtime.access_token,
         )
     except WhatsAppMediaError as exc:
         logger.warning("Operator media download failed message_id=%s: %s", row.pk, exc)

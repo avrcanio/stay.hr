@@ -98,6 +98,8 @@ def serialize_outbound(outbound: GuestOutboundMessage) -> dict:
         "body_text": format_timeline_body_text(outbound.body_text),
         "created_at": outbound.created_at.isoformat(),
         "status": outbound.status,
+        "provider_message_id": outbound.provider_message_id or None,
+        "delivery_status": outbound.delivery_status or None,
         "sent_by_name": app.name if app else None,
         "from_email": None,
         "wa_me_url": outbound.wa_me_url or None,

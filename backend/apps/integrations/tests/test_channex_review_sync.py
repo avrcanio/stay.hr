@@ -67,12 +67,13 @@ class ChannexReviewSyncTests(TestCase):
         mock_sync.assert_not_called()
 
     def test_reservation_should_auto_sync_recent_checkout(self):
+        recent_checkout = timezone.localdate() - timedelta(days=1)
         reservation = Reservation.objects.create(
             tenant=self.tenant,
             property=self.property,
             booking_code="5856279283",
-            check_in=date(2026, 6, 7),
-            check_out=date(2026, 6, 8),
+            check_in=recent_checkout - timedelta(days=1),
+            check_out=recent_checkout,
             status=Reservation.Status.CHECKED_OUT,
         )
         self.assertTrue(reservation_should_auto_sync_reviews(reservation))

@@ -37,6 +37,8 @@ docker compose run --rm django python manage.py check
 
 ```bash
 docker compose run --rm django python manage.py seed_demo_tenant
+docker compose run --rm django python manage.py seed_evisitor_config   # optional: DEMO_EVISITOR_* in .env
+./scripts/bootstrap-demo-evisitor.sh                                   # optional: full demo eVisitor QA
 docker compose run --rm django python manage.py create_api_app --tenant demo --name "Demo Flutter"
 ```
 

@@ -54,6 +54,9 @@ function channelHint(
     return t("channelEmailHint", { email: channels.email.to });
   }
   if (channel === "whatsapp" && channels.whatsapp?.available) {
+    if (channels.whatsapp.api_send) {
+      return t("channelWhatsappApiHint");
+    }
     const phone = channels.whatsapp.phone_raw || channels.whatsapp.phone_wa || "";
     if (phone) {
       return t("channelWhatsappHint", { phone });
@@ -194,7 +197,14 @@ export function GuestMessagesPanel({ reservationId }: Props) {
         throw new Error(String(detail));
       }
 
-      if (selectedChannel === "whatsapp" && data && "wa_me_url" in data && data.wa_me_url) {
+      if (
+        selectedChannel === "whatsapp" &&
+        data &&
+        "status" in data &&
+        data.status === "handoff_whatsapp" &&
+        "wa_me_url" in data &&
+        data.wa_me_url
+      ) {
         window.open(data.wa_me_url, "_blank", "noopener,noreferrer");
         setActionMessage(t("whatsappHandoff"));
       } else {

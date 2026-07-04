@@ -4,7 +4,11 @@ from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 
-from apps.core.notifications import send_tenant_reception_push, tenant_fcm_tokens
+from apps.core.notifications import (
+    reception_push_allowed,
+    send_tenant_reception_push,
+    tenant_fcm_tokens,
+)
 from apps.core.tasks import (
     notify_guest_message_inbound,
     notify_guest_review_inbound,
@@ -37,7 +41,11 @@ class TenantFcmTokensTests(TestCase):
         self.assertEqual(tenant_fcm_tokens(self.tenant.pk), [])
 
 
-@override_settings(FIREBASE_SERVICE_ACCOUNT_PATH="/run/secrets/firebase-service-account.json")
+@override_settings(
+    FIREBASE_SERVICE_ACCOUNT_PATH="/run/secrets/firebase-service-account.json",
+    FCM_PUSH_ENABLED=True,
+    FCM_PUSH_ALLOWED_TENANT_SLUGS=["demo"],
+)
 class SendTenantReceptionPushTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Demo", slug="demo")
@@ -59,6 +67,115 @@ class SendTenantReceptionPushTests(TestCase):
             data={"type": "reservation.created"},
         )
         self.assertEqual(ids, ["msg-1"])
+        mock_send.assert_called_once()
+
+
+class ReceptionPushAllowedTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Demo", slug="demo")
+
+    @override_settings(FCM_PUSH_ENABLED=False, FCM_PUSH_ALLOWED_TENANT_SLUGS=["demo"])
+    def test_push_disabled(self):
+        decision = reception_push_allowed(tenant_id=self.tenant.pk)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.block_reason, "push_disabled")
+
+    @override_settings(FCM_PUSH_ENABLED=True, FCM_PUSH_ALLOWED_TENANT_SLUGS=[])
+    def test_allowlist_empty(self):
+        decision = reception_push_allowed(tenant_id=self.tenant.pk)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.block_reason, "allowlist_empty")
+        self.assertEqual(decision.allowed_count, 0)
+
+    @override_settings(FCM_PUSH_ENABLED=True, FCM_PUSH_ALLOWED_TENANT_SLUGS=["demo"])
+    def test_slug_in_allowlist(self):
+        decision = reception_push_allowed(tenant_id=self.tenant.pk)
+        self.assertTrue(decision.allowed)
+        self.assertIsNone(decision.block_reason)
+        self.assertEqual(decision.tenant_slug, "demo")
+        self.assertEqual(decision.allowed_count, 1)
+
+    @override_settings(FCM_PUSH_ENABLED=True, FCM_PUSH_ALLOWED_TENANT_SLUGS=["other"])
+    def test_slug_not_in_allowlist(self):
+        decision = reception_push_allowed(tenant_id=self.tenant.pk)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.block_reason, "tenant_not_allowed")
+        self.assertEqual(decision.tenant_slug, "demo")
+        self.assertEqual(decision.allowed_count, 1)
+
+    @override_settings(FCM_PUSH_ENABLED=True, FCM_PUSH_ALLOWED_TENANT_SLUGS=["demo"])
+    def test_tenant_not_found(self):
+        decision = reception_push_allowed(tenant_id=999999)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.block_reason, "tenant_not_found")
+
+    @override_settings(FCM_PUSH_ENABLED=True, FCM_PUSH_ALLOWED_TENANT_SLUGS=[" Demo ", "UZORITA"])
+    def test_normalizes_allowlist_and_tenant_slug(self):
+        decision = reception_push_allowed(tenant_id=self.tenant.pk)
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.tenant_slug, "demo")
+        self.assertEqual(decision.allowed_count, 2)
+
+
+@override_settings(
+    FIREBASE_SERVICE_ACCOUNT_PATH="/run/secrets/firebase-service-account.json",
+    FCM_PUSH_ENABLED=True,
+    FCM_PUSH_ALLOWED_TENANT_SLUGS=["demo"],
+)
+class SendTenantReceptionPushGuardTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Demo", slug="demo")
+        self.app, _ = ApiApplication.create_with_token(
+            tenant=self.tenant,
+            name="Tablet",
+            scopes=RECEPTION_DEVICE_SCOPES,
+        )
+        self.app.fcm_token = "token-abc-" + ("x" * 40)
+        self.app.save(update_fields=["fcm_token"])
+
+    @override_settings(FCM_PUSH_ENABLED=False, FCM_PUSH_ALLOWED_TENANT_SLUGS=["demo"])
+    @patch("apps.core.notifications.send_fcm_message")
+    def test_blocked_when_push_disabled(self, mock_send):
+        ids = send_tenant_reception_push(
+            tenant_id=self.tenant.pk,
+            title="Test",
+            body="Test",
+        )
+        self.assertEqual(ids, [])
+        mock_send.assert_not_called()
+
+    @override_settings(FCM_PUSH_ENABLED=True, FCM_PUSH_ALLOWED_TENANT_SLUGS=[])
+    @patch("apps.core.notifications.send_fcm_message")
+    def test_blocked_when_allowlist_empty(self, mock_send):
+        ids = send_tenant_reception_push(
+            tenant_id=self.tenant.pk,
+            title="Test",
+            body="Test",
+        )
+        self.assertEqual(ids, [])
+        mock_send.assert_not_called()
+
+    @override_settings(FCM_PUSH_ENABLED=True, FCM_PUSH_ALLOWED_TENANT_SLUGS=["other"])
+    @patch("apps.core.notifications.send_fcm_message")
+    def test_blocked_when_tenant_not_allowed(self, mock_send):
+        ids = send_tenant_reception_push(
+            tenant_id=self.tenant.pk,
+            title="Test",
+            body="Test",
+        )
+        self.assertEqual(ids, [])
+        mock_send.assert_not_called()
+
+    @patch("apps.core.notifications.send_fcm_message")
+    def test_allowed_reaches_fcm(self, mock_send):
+        mock_send.return_value = "msg-guard-1"
+        ids = send_tenant_reception_push(
+            tenant_id=self.tenant.pk,
+            title="Nova rezervacija",
+            body="Test",
+            data={"type": "reservation.created"},
+        )
+        self.assertEqual(ids, ["msg-guard-1"])
         mock_send.assert_called_once()
 
 

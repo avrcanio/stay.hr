@@ -18,6 +18,7 @@
     "calendar": "Kalendar",
     "newReservation": "Nova rezervacija",
     "reviews": "Recenzije",
+    "whatsapp": "WhatsApp",
     "logout": "Odjava"
   },
   "language": {
@@ -213,6 +214,7 @@
     "checkOutSuccess": "Gost je odjavljen.",
     "statusChangeFailed": "Promjena statusa nije uspjela.",
     "checkoutEvisitorHint": "Prije odjave svi punoljetni gosti moraju biti prijavljeni u eVisitor.",
+    "evisitorProgress": "eVisitor: {sent}/{required} prijavljeno",
     "checkInBlockedWrongDate": "Check-in nije moguć prije dana dolaska.",
     "checkInBlockedRoomOccupied": "Soba je zauzeta — drugi gost je već prijavljen.",
     "checkInBlockedNoUnit": "Rezervacija nema dodijeljenu sobu.",
@@ -305,7 +307,20 @@
     "evisitorSubmitSuccess": "Gost je prijavljen u eVisitor.",
     "evisitorRecovered": "Gost je već prijavljen u eVisitoru.",
     "evisitorSubmitFailed": "eVisitor prijava nije uspjela.",
-    "evisitorSubmitFailedWithReason": "eVisitor prijava nije uspjela: {reason}"
+    "evisitorSubmitFailedWithReason": "eVisitor prijava nije uspjela: {reason}",
+    "evisitorUnregistered": "Neprijavljeno",
+    "evisitorValidationFailed": "Podaci nisu potpuni za eVisitor prijavu.",
+    "evisitorFieldFirstName": "Ime",
+    "evisitorFieldLastName": "Prezime",
+    "evisitorFieldSex": "Spol",
+    "evisitorFieldDateOfBirth": "Datum rođenja",
+    "evisitorFieldNationality": "Državljanstvo",
+    "evisitorFieldDocumentType": "Tip dokumenta",
+    "evisitorFieldDocumentNumber": "Broj dokumenta",
+    "evisitorFieldFacility": "Šifra objekta",
+    "evisitorFieldStayDates": "Datumi boravka",
+    "evisitorFieldAddress": "Adresa",
+    "evisitorFieldDateOfExpiry": "Datum isteka dokumenta"
   },
   "source": {
     "stay": "stay.hr"
@@ -365,6 +380,7 @@
     "channelEmailHint": "Primatelj: {email}",
     "channelWhatsapp": "WhatsApp",
     "channelWhatsappHint": "Otvara WhatsApp s predloženim tekstom ({phone})",
+    "channelWhatsappApiHint": "Šalje se preko WhatsApp Cloud API-ja",
     "noChannel": "Nema dostupnog kanala za slanje.",
     "hintLabel": "Upute (opcionalno)",
     "hintReplyPlaceholder": "npr. checkin ready",
@@ -408,5 +424,52 @@
     "showOriginal": "Prikaži original",
     "showTranslation": "Prikaži prijevod",
     "translatedLabel": "Automatski prijevod (OpenAI)"
+  },
+  "whatsapp": {
+    "nav": {
+      "overview": "Pregled",
+      "templates": "Predlošci",
+      "settings": "Postavke"
+    },
+    "overview": {
+      "title": "WhatsApp integracija",
+      "loadFailed": "Učitavanje statusa nije uspjelo.",
+      "connected": "Povezano",
+      "notConnected": "Nije povezano",
+      "phone": "Broj",
+      "provider": "Provider",
+      "waba": "WABA ID",
+      "quality": "Kvaliteta",
+      "messagingLimit": "Limit poruka",
+      "businessNotVerified": "Poslovni račun nije verificiran na Meti.",
+      "connectHint": "Embedded Signup će biti dostupan ovdje."
+    },
+    "templates": {
+      "title": "WhatsApp predlošci",
+      "loadFailed": "Učitavanje predložaka nije uspjelo.",
+      "sync": "Sync s Metom",
+      "syncFailed": "Sync nije uspio.",
+      "syncSuccess": "Predlošci su osvježeni.",
+      "syncedAt": "Zadnji sync",
+      "empty": "Nema predložaka.",
+      "colName": "Naziv",
+      "colLanguage": "Jezik",
+      "colCategory": "Kategorija",
+      "colStatus": "Status",
+      "createTitle": "Novi predložak",
+      "fieldName": "Naziv (a-z, 0-9, _)",
+      "fieldLanguage": "Jezik",
+      "fieldBody": "Tekst",
+      "createAction": "Pošalji na odobrenje",
+      "createFailed": "Kreiranje predloška nije uspjelo.",
+      "createSuccess": "Predložak je poslan na odobrenje (Pending)."
+    },
+    "settings": {
+      "title": "WhatsApp postavke",
+      "connected": "Povezano",
+      "phone": "Broj",
+      "waba": "WABA ID",
+      "disconnectHint": "Odspajanje računa bit će dostupno u sljedećoj verziji."
+    }
   }
 }

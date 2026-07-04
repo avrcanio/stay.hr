@@ -147,5 +147,9 @@ fi
 log "Running Django system check..."
 docker compose exec -T django python manage.py check
 
+if [[ -x "$REPO_ROOT/scripts/verify-demo-evisitor.sh" ]]; then
+  "$REPO_ROOT/scripts/verify-demo-evisitor.sh"
+fi
+
 log "Done."
 docker compose ps

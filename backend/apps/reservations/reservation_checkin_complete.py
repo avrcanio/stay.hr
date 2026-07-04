@@ -16,7 +16,7 @@ from apps.integrations.evisitor.summary import evisitor_summary_for_reservation
 from apps.integrations.models import IntegrationConfig
 from apps.integrations.whatsapp.apply_reply import is_document_checkin_complete
 from apps.integrations.whatsapp.guest_docs_awaiting_arrival import docs_awaiting_arrival_already_sent
-from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
+from apps.integrations.whatsapp.integration_lookup import resolve_whatsapp_integration
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 from apps.integrations.whatsapp.whatsapp_operator import operator_name_for_wa_id
 from apps.integrations.whatsapp.whatsapp_operator_service import (
@@ -183,7 +183,7 @@ def perform_arrival_confirmed_checkin(
 ) -> dict:
     """Toni-confirmed arrival: check-in + eVisitor; skip guest complete if docs-awaiting already sent."""
     if integration_row is None or runtime is None:
-        integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+        integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
 
     checkin_result = mark_reservation_checked_in(reservation)
     if checkin_result.get("status") == "blocked":

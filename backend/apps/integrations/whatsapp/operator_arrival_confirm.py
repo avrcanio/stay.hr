@@ -21,7 +21,7 @@ from apps.integrations.whatsapp.arrival_time_parse import (
     parse_operator_confirmed_arrival_time,
 )
 from apps.integrations.whatsapp.client import WhatsAppApiError, extract_outbound_wamid, send_interactive_button_message
-from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
+from apps.integrations.whatsapp.integration_lookup import resolve_whatsapp_integration
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 from apps.integrations.whatsapp.whatsapp_operator import operator_name_for_wa_id, operator_phones_for_tenant
 from apps.integrations.whatsapp.whatsapp_post_checkin_reply import (
@@ -299,8 +299,6 @@ def _send_interactive_arrival_prompt(
                 (yes_id, OPERATOR_ARRIVED_YES_LABEL),
                 (no_id, OPERATOR_ARRIVED_NO_LABEL),
             ],
-            provider=runtime.provider,
-            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning(
@@ -364,8 +362,6 @@ def _send_operator_template_reengagement(
             language_code=lang,
             body_parameters=params,
             header_image_url=welcome_header_image_url(config),
-            provider=runtime.provider,
-            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning(
@@ -419,7 +415,7 @@ def send_arrival_confirm_prompt(
         return {"status": "skipped", "reason": "already_prompted"}
 
     if integration_row is None or runtime is None:
-        integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+        integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None:
         return {"status": "skipped", "reason": "no_integration"}
 

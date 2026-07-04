@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.conf import settings
 from django.db import models
 
 from apps.core.models import TenantScopedModel
@@ -38,6 +39,10 @@ class IntegrationConfig(TenantScopedModel):
     )
     config_encrypted = models.TextField(blank=True, default="")
     is_active = models.BooleanField(default=True)
+    is_platform_default = models.BooleanField(
+        default=False,
+        help_text="Default platform WhatsApp config (at most one active per provider).",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -52,6 +57,15 @@ class IntegrationConfig(TenantScopedModel):
                 fields=["provider", "routing_key"],
                 condition=models.Q(routing_key__gt=""),
                 name="integrations_config_unique_provider_routing_key",
+            ),
+            models.UniqueConstraint(
+                fields=["provider"],
+                condition=models.Q(
+                    provider="whatsapp",
+                    is_platform_default=True,
+                    is_active=True,
+                ),
+                name="integrations_config_unique_active_platform_whatsapp",
             ),
         ]
 
@@ -357,6 +371,76 @@ class WhatsAppMessage(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"{self.direction} {self.wamid} ({self.wa_id})"
+
+
+class WhatsAppInboundRouting(TenantScopedModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ROUTED = "routed", "Routed"
+        AMBIGUOUS = "ambiguous", "Ambiguous"
+        UNROUTED = "unrouted", "Unrouted"
+        FAILED = "failed", "Failed"
+        DISMISSED = "dismissed", "Dismissed"
+
+    class RoutingMethod(models.TextChoices):
+        THREAD = "thread", "Thread"
+        BOOKING_CODE = "booking_code", "Booking code"
+        PHONE = "phone", "Phone"
+        MANUAL = "manual", "Manual"
+        NONE = "", "—"
+
+    message = models.OneToOneField(
+        WhatsAppMessage,
+        on_delete=models.CASCADE,
+        related_name="inbound_routing",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    resolved_tenant = models.ForeignKey(
+        "tenants.Tenant",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="whatsapp_inbound_routings",
+    )
+    resolved_reservation = models.ForeignKey(
+        "reservations.Reservation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="whatsapp_inbound_routings",
+    )
+    routing_method = models.CharField(
+        max_length=16,
+        choices=RoutingMethod.choices,
+        blank=True,
+        default="",
+    )
+    candidate_reservations = models.JSONField(default=list, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="whatsapp_inbound_routings_resolved",
+    )
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["tenant", "status", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"routing {self.message_id} → {self.status}"
 
 
 class ChannexMessage(TenantScopedModel):

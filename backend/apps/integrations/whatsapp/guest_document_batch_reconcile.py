@@ -8,7 +8,7 @@ from datetime import timedelta
 from celery import shared_task
 from django.utils import timezone
 
-from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
+from apps.integrations.whatsapp.integration_lookup import resolve_whatsapp_integration
 from apps.integrations.whatsapp.whatsapp_document_batch import (
     _ACTIVE_STATUSES,
     _prompt_and_await_confirm,
@@ -95,7 +95,7 @@ def reconcile_guest_document_batch(
                     entry["action"] = "re_prompt_confirm"
                     entry["send"] = send
                 else:
-                    integration_row, runtime = get_active_whatsapp_integration(session.tenant)
+                    integration_row, runtime = resolve_whatsapp_integration(session.tenant)
                     if integration_row and runtime:
                         finalize_result = _run_finalize(session)
                         entry["action"] = "finalize"
@@ -106,7 +106,7 @@ def reconcile_guest_document_batch(
         }:
             job = session.job
             if job and job.status == DocumentIntakeJobStatus.DONE and job.images.exists():
-                integration_row, runtime = get_active_whatsapp_integration(session.tenant)
+                integration_row, runtime = resolve_whatsapp_integration(session.tenant)
                 if integration_row and runtime and apply:
                     finalize_result = _run_finalize(session)
                     entry["action"] = "finalize_collecting"
@@ -117,7 +117,7 @@ def reconcile_guest_document_batch(
                 and session.last_media_at
                 and session.last_media_at <= now - timedelta(minutes=STUCK_COLLECTING_AFTER_PROMPT_MINUTES)
             ):
-                integration_row, runtime = get_active_whatsapp_integration(session.tenant)
+                integration_row, runtime = resolve_whatsapp_integration(session.tenant)
                 if integration_row and runtime:
                     if apply:
                         finalize_result = _run_finalize(session)

@@ -7,6 +7,7 @@ from apps.integrations.evisitor.exceptions import (
 )
 from apps.integrations.evisitor.eligibility import guest_requires_evisitor
 from apps.integrations.evisitor.summary import (
+    evisitor_progress_for_reservation,
     evisitor_status_for_guest,
     evisitor_summary_for_guests,
     evisitor_summary_for_reservation,
@@ -153,6 +154,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
     effective_units_count = serializers.SerializerMethodField()
     payment_status_key = serializers.SerializerMethodField()
     evisitor_summary = serializers.SerializerMethodField()
+    evisitor_progress = serializers.SerializerMethodField()
     check_in_allowed = serializers.SerializerMethodField()
     check_in_blocked_code = serializers.SerializerMethodField()
     confirmation_pdf_url = serializers.SerializerMethodField()
@@ -210,6 +212,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
             "primary_guest_nationality_iso2",
             "guests",
             "evisitor_summary",
+            "evisitor_progress",
             "check_in_allowed",
             "check_in_blocked_code",
             "guest_stated_arrival_text",
@@ -253,6 +256,9 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
 
     def get_evisitor_summary(self, obj) -> str:
         return evisitor_summary_for_reservation(obj)
+
+    def get_evisitor_progress(self, obj) -> dict[str, int]:
+        return evisitor_progress_for_reservation(obj)
 
     def _tenant_for_check_in(self, obj):
         request = self.context.get("request")

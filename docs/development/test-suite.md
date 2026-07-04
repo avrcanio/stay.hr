@@ -1,15 +1,54 @@
 # Test suite — stay.hr backend
 
-Zadnji puni run: **2026-05-26** (Docker image `stay-hr-django:latest`, nakon uklanjanja Smoobu integracije).
+## Integration Suite Stabilization (2026-07)
 
-## Pokretanje
+Referentna točka nakon sustavnog burn-downa integration testova:
 
-### Puni suite (preporučeno)
+| Metrika | Početno (triage) | Završno |
+|---------|-----------------:|--------:|
+| Passed | 315 | **335** |
+| Failed | 17 | **0** |
+| Errors | 3 | **0** |
+
+Što je uključeno:
+
+- Migracija na PostGIS-based integration testing (`test_postgis`, `stay_platform_test_db`)
+- eVisitor bootstrap, smoke i deploy verifikacija (`seed_evisitor_config`, `smoke_evisitor`, `verify-demo-evisitor`)
+- Stabilizacija cijelog `apps.integrations.tests` suitea (PR-A … PR-E, test-only)
+- **Rezultat: 335 / 335 passing**
+
+Povijest popravaka i PR po PR: [integrations-test-triage.md](integrations-test-triage.md).
+
+**Quality gate:** svaka nova funkcionalnost u integracijskom sloju mora zadržati **335/335** na PostGIS smoke-u (`./scripts/run-tests-postgis.sh`).
+
+---
+
+## Recommended workflow
+
+Copy/paste za lokalni razvoj i CI smoke na stvarnom PostGIS-u (`stay_platform_test_db`):
 
 ```bash
 cd /opt/stacks/stay.hr
+./scripts/ensure-test-db.sh
 docker compose build django
-docker compose run --rm django python manage.py test \
+./scripts/run-tests-postgis.sh
+```
+
+Bez argumenata, `run-tests-postgis.sh` pokreće **`apps.integrations.tests`** (uključuje eVisitor, Channex, WhatsApp i sve buduće integration testove). Koraci 1 i 2 skripta ponavlja interno ako ih preskočiš — gore navedeni redoslijed je eksplicitan za nove developere.
+
+Uži smoke (samo eVisitor seed + smoke naredbe):
+
+```bash
+./scripts/run-tests-postgis.sh \
+  apps.integrations.tests.test_smoke_evisitor \
+  apps.integrations.tests.test_seed_evisitor_config \
+  -v 2
+```
+
+Puni backend suite:
+
+```bash
+./scripts/run-tests-postgis.sh \
   apps.api.tests \
   apps.core.tests \
   apps.tenants.tests \
@@ -20,6 +59,41 @@ docker compose run --rm django python manage.py test \
   -v 2
 ```
 
+Settings: `DJANGO_SETTINGS_MODULE=config.settings.test_postgis`. Detalji u [AGENTS.md](../../AGENTS.md#backend-testing).
+
+**FCM push guard:** test settings (`test.py`, `test_postgis.py`) postavljaju `FCM_PUSH_ENABLED=false`, pa se push ne šalje tijekom testova bez obzira na Firebase credentials u kontejneru. Za ručne operacije na serveru (import, seed, reconcile) privremeno postavi `FCM_PUSH_ENABLED=false` u `.env` ili suzi `FCM_PUSH_ALLOWED_TENANT_SLUGS` npr. na `demo`, zatim restart `django` i `celery-worker`.
+
+**Triage (burn-down):** [integrations-test-triage.md](integrations-test-triage.md) — **335/335**, **0 errors** (stabilizacija završena 2026-07).
+
+---
+
+Zadnji puni run: **2026-05-26** (Docker image `stay-hr-django:latest`, nakon uklanjanja Smoobu integracije).
+
+## Pokretanje
+
+### PostGIS (preporučeno)
+
+Vidi [Recommended workflow](#recommended-workflow) iznad. Test baza: `stay_platform_test_db` na kontejneru `postgis`.
+
+### Puni suite (ručno, bez skripte)
+
+```bash
+cd /opt/stacks/stay.hr
+docker compose build django
+docker compose run --rm \
+  -e DJANGO_SETTINGS_MODULE=config.settings.test_postgis \
+  -e TEST_DB_NAME=stay_platform_test_db \
+  django python manage.py test \
+  apps.api.tests \
+  apps.core.tests \
+  apps.tenants.tests \
+  apps.integrations.tests \
+  apps.properties.tests \
+  apps.reservations.tests \
+  apps.legacy_import.tests \
+  -v 2 --keepdb
+```
+
 ### Default `manage.py test` (djelomično)
 
 ```bash
@@ -28,7 +102,13 @@ docker compose run --rm django python manage.py test
 
 Pronalazi samo **~53 testa** (uglavnom `api`, `core`, `tenants`). Ne uključuje automatski `integrations`, `properties`, `reservations`, `legacy_import` — koristi eksplicitne labele iznad.
 
-### Integracije (Channex)
+### Integracije (Channex, eVisitor, …)
+
+```bash
+./scripts/run-tests-postgis.sh apps.integrations.tests -v 2
+```
+
+Ili bez skripte (legacy):
 
 ```bash
 docker compose run --rm django python manage.py test apps.integrations.tests -v 2
@@ -102,6 +182,7 @@ Za validator protiv stvarne Uzorita baze pokreni management command na serveru s
 ## Preduvjeti
 
 - Docker Compose stack (`postgis` mreža, env iz `.env`)
+- Test baza `stay_platform_test_db` — `./scripts/ensure-test-db.sh`
 - Image se gradi iz repoa (kod **nije** bind-mountan u `stay_django` — nakon izmjena uvijek `docker compose build django`)
 
 ## Povezana dokumentacija

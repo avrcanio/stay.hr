@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotFound, ValidationError
@@ -20,6 +21,7 @@ from apps.communications.guest_message_translate import (
     GuestMessageTranslateError,
     translate_guest_message,
 )
+from apps.communications.guest_message_whatsapp_v2 import WhatsAppSendPendingError
 from apps.communications.guest_message_send import (
     build_message_channels,
     default_email_subject,
@@ -41,6 +43,7 @@ from apps.communications.models import (
     GuestMessageIntent,
     GuestMessageThreadState,
     GuestOutboundMessage,
+    GuestOutboundMessageStatus,
 )
 from apps.integrations.channex.ari_service import get_active_channex_integration
 from apps.integrations.channex.client import ChannexClient
@@ -212,14 +215,6 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        draft = GuestMessageDraft.objects.filter(
-            tenant=request.tenant,
-            reservation=reservation,
-            pk=data["draft_id"],
-        ).first()
-        if draft is None:
-            raise ValidationError({"draft_id": "Draft not found for this reservation."})
-
         channel = data["channel"]
         body_text = data["body_text"]
         channels = build_message_channels(reservation)
@@ -234,17 +229,53 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
         api_application = getattr(request, "api_application", None)
         subject = (data.get("subject") or "").strip() or None
 
-        try:
-            result = send_guest_message(
-                reservation=reservation,
-                draft=draft,
-                channel=channel,
-                body_text=body_text,
-                api_application=api_application,
-                subject=subject or default_email_subject(reservation),
+        with transaction.atomic():
+            draft = (
+                GuestMessageDraft.objects.select_for_update()
+                .filter(
+                    tenant=request.tenant,
+                    reservation=reservation,
+                    pk=data["draft_id"],
+                )
+                .first()
             )
-        except ValueError as exc:
-            raise ValidationError({"channel": str(exc)}) from exc
+            if draft is None:
+                raise ValidationError({"draft_id": "Draft not found for this reservation."})
+
+            if draft.sent_at is not None:
+                existing = (
+                    draft.outbound_messages.filter(channel=channel)
+                    .order_by("-pk")
+                    .first()
+                )
+                if existing is not None:
+                    return self._send_response(existing, draft, channel, api_application, status.HTTP_200_OK)
+
+            existing_outbound = draft.outbound_messages.filter(
+                channel=channel,
+                status=GuestOutboundMessageStatus.PENDING_SEND,
+            ).first()
+
+            try:
+                result = send_guest_message(
+                    reservation=reservation,
+                    draft=draft,
+                    channel=channel,
+                    body_text=body_text,
+                    api_application=api_application,
+                    subject=subject or default_email_subject(reservation),
+                    existing_outbound=existing_outbound,
+                )
+            except WhatsAppSendPendingError as exc:
+                return self._send_response(
+                    exc.outbound,
+                    draft,
+                    channel,
+                    api_application,
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            except ValueError as exc:
+                raise ValidationError({"channel": str(exc)}) from exc
 
         if isinstance(result, ChannexMessage):
             app = getattr(request, "api_application", None)
@@ -254,7 +285,9 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
             payload["edited"] = draft.edited
             return Response(payload, status=status.HTTP_201_CREATED)
 
-        outbound = result
+        return self._send_response(result, draft, channel, api_application, status.HTTP_201_CREATED)
+
+    def _send_response(self, outbound, draft, channel, api_application, http_status):
         payload = serialize_outbound(outbound)
         if channel == GuestMessageChannel.WHATSAPP:
             payload["wa_me_url"] = outbound.wa_me_url
@@ -262,7 +295,9 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
             if handoff_reason:
                 payload["handoff_reason"] = handoff_reason
         payload["edited"] = draft.edited
-        return Response(payload, status=status.HTTP_201_CREATED)
+        if api_application is not None:
+            payload["sent_by_name"] = api_application.name
+        return Response(payload, status=http_status)
 
 
 class ReceptionGuestMessageSendImageView(ReceptionWriteView, APIView):

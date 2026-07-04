@@ -35,7 +35,7 @@ from apps.integrations.whatsapp.client import (
     extract_outbound_wamid,
     send_template_message,
 )
-from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
+from apps.integrations.whatsapp.integration_lookup import resolve_whatsapp_integration
 from apps.integrations.whatsapp.phone import normalize_phone
 from apps.integrations.whatsapp.welcome_template import (
     build_welcome_template_parameters,
@@ -82,11 +82,11 @@ def mark_autocheckin_engaged(reservation: Reservation) -> bool:
 
 
 def _build_intro_email_context(reservation: Reservation) -> tuple[str, str] | None:
-    integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+    integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None:
         return None
     display_phone = (runtime.display_phone_number or "").strip()
-    business_digits = normalize_phone(display_phone or runtime.phone_number_id)
+    business_digits = normalize_phone(display_phone)
     if not business_digits:
         return None
     ctx = GuestLanguageResolver.resolve(reservation, mode=LanguageMode.PROACTIVE)
@@ -236,7 +236,7 @@ def send_welcome_template_for_reservation(
     if not phone_wa:
         return {"status": "skipped", "reason": "no_phone", "reservation_id": reservation.pk}
 
-    integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+    integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None or not runtime.send_credentials_ok():
         return {"status": "skipped", "reason": "no_credentials", "reservation_id": reservation.pk}
 
@@ -264,8 +264,6 @@ def send_welcome_template_for_reservation(
             language_code=lang,
             body_parameters=body_params,
             header_image_url=header_url,
-            provider=runtime.provider,
-            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning(
@@ -357,7 +355,7 @@ def iter_due_autocheckin_reservations(
         )
         for reservation in qs:
             if _is_due_for_autocheckin_welcome(reservation, on_date=on_date):
-                integration_row, runtime = get_active_whatsapp_integration(reservation.tenant)
+                integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
                 if integration_row is None or runtime is None or not runtime.send_credentials_ok():
                     continue
                 if not normalize_phone(guest_phone_number(reservation)):

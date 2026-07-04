@@ -1,5 +1,5 @@
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -82,9 +82,9 @@ class WhatsAppAutocheckinWaivedTests(TestCase):
         mock_send.assert_not_called()
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
-    @patch("apps.communications.guest_message_send.send_text_message")
+    @patch("apps.communications.guest_arrival_inbound.send_guest_message")
     def test_waived_arrival_text_sends_thanks_only(self, mock_send):
-        mock_send.return_value = {"messages": [{"id": "wamid.out.thanks"}]}
+        mock_send.return_value = MagicMock(pk=1)
         inbound = WhatsAppMessage.objects.create(
             tenant=self.tenant,
             integration=self.integration,
@@ -100,9 +100,9 @@ class WhatsAppAutocheckinWaivedTests(TestCase):
 
         result = process_inbound_message(inbound.pk)
 
-        self.assertEqual(result["status"], "arrival_thanks_sent")
+        self.assertEqual(result["status"], "guest_arrival_handled")
         mock_send.assert_called_once()
-        body = mock_send.call_args.kwargs["body"]
+        body = mock_send.call_args.kwargs["body_text"]
         lowered = body.lower()
         self.assertTrue("arriv" in lowered or "dolask" in lowered)
         self.assertNotIn("parking", lowered)
@@ -152,7 +152,7 @@ class WhatsAppAutocheckinWaivedTests(TestCase):
         mock_send.assert_not_called()
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
-    @patch("apps.communications.guest_message_send.send_text_message")
+    @patch("apps.integrations.whatsapp.autocheckin_waive.send_guest_message")
     def test_send_autocheckin_waived_sets_waived_at(self, mock_send):
         fresh = Reservation.objects.create(
             tenant=self.tenant,
@@ -164,7 +164,7 @@ class WhatsAppAutocheckinWaivedTests(TestCase):
             check_out=timezone.localdate() + timedelta(days=2),
             status=Reservation.Status.EXPECTED,
         )
-        mock_send.return_value = {"messages": [{"id": "wamid.out.waived"}]}
+        mock_send.return_value = MagicMock(pk=1)
 
         result = send_autocheckin_waived_whatsapp(fresh)
 
@@ -172,5 +172,5 @@ class WhatsAppAutocheckinWaivedTests(TestCase):
         fresh.refresh_from_db()
         self.assertIsNotNone(fresh.whatsapp_autocheckin_waived_at)
         mock_send.assert_called_once()
-        body = mock_send.call_args.kwargs["body"]
+        body = mock_send.call_args.kwargs["body_text"]
         self.assertIn("Auto check-in", body)

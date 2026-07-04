@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.test import TestCase
 
 from apps.integrations.evisitor.eligibility import guest_requires_evisitor
-from apps.integrations.evisitor.summary import evisitor_summary_for_guests
+from apps.integrations.evisitor.summary import evisitor_progress_for_guests, evisitor_summary_for_guests
 from apps.properties.models import Property
 from apps.reservations.models import EvisitorGuestStatus, Guest, Reservation
 from apps.tenants.models import Tenant
@@ -97,3 +97,26 @@ class EvisitorEligibilityTests(TestCase):
             reference_date=self.check_in,
         )
         self.assertEqual(summary, "incomplete")
+
+    def test_progress_counts_eligible_guests_only(self):
+        adult_sent = self._guest(
+            date_of_birth=date(1980, 1, 1),
+            evisitor_status=EvisitorGuestStatus.SENT,
+        )
+        adult_pending = self._guest(
+            first_name="Pending",
+            date_of_birth=date(1985, 5, 5),
+            evisitor_status=EvisitorGuestStatus.NOT_SENT,
+        )
+        adult_failed = self._guest(
+            first_name="Failed",
+            date_of_birth=date(1970, 3, 3),
+            evisitor_status=EvisitorGuestStatus.FAILED,
+        )
+        child = self._guest(date_of_birth=date(2014, 7, 16))
+
+        progress = evisitor_progress_for_guests(
+            [adult_sent, adult_pending, adult_failed, child],
+            reference_date=self.check_in,
+        )
+        self.assertEqual(progress, {"required": 3, "sent": 1, "failed": 1, "pending": 1})

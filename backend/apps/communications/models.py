@@ -28,7 +28,15 @@ class GuestMessageChannel(models.TextChoices):
 class GuestOutboundMessageStatus(models.TextChoices):
     HANDOFF_WHATSAPP = "handoff_whatsapp", "WhatsApp handoff"
     QUEUED = "queued", "Queued"
+    PENDING_SEND = "pending_send", "Pending send"
     SENT = "sent", "Sent"
+    FAILED = "failed", "Failed"
+
+
+class GuestOutboundDeliveryStatus(models.TextChoices):
+    SENT = "sent", "Sent"
+    DELIVERED = "delivered", "Delivered"
+    READ = "read", "Read"
     FAILED = "failed", "Failed"
 
 
@@ -127,6 +135,26 @@ class GuestOutboundMessage(TenantScopedModel):
     to_phone = models.CharField(max_length=64, blank=True, default="")
     wa_me_url = models.TextField(blank=True, default="")
     error_message = models.TextField(blank=True, default="")
+    provider = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text="Message provider, e.g. meta, 360dialog.",
+    )
+    provider_message_id = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text="Provider message ID, e.g. Meta wamid.",
+    )
+    delivery_status = models.CharField(
+        max_length=16,
+        choices=GuestOutboundDeliveryStatus.choices,
+        blank=True,
+        default="",
+    )
+    retry_count = models.PositiveSmallIntegerField(default=0)
+    next_retry_at = models.DateTimeField(null=True, blank=True)
     media_file = models.FileField(
         upload_to=guest_outbound_media_upload_to,
         blank=True,
@@ -146,6 +174,19 @@ class GuestOutboundMessage(TenantScopedModel):
         indexes = [
             models.Index(fields=["tenant", "reservation", "-created_at"]),
             models.Index(fields=["draft"]),
+            models.Index(fields=["provider", "provider_message_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "provider_message_id"],
+                condition=models.Q(provider_message_id__gt=""),
+                name="guest_outbound_unique_provider_message_id",
+            ),
+            models.UniqueConstraint(
+                fields=["draft", "channel"],
+                condition=models.Q(draft__isnull=False),
+                name="guest_outbound_unique_draft_channel",
+            ),
         ]
         verbose_name = "Guest outbound message"
         verbose_name_plural = "Guest outbound messages"

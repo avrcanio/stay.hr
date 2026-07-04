@@ -16,6 +16,33 @@ from apps.reservations.models import Reservation, ReservationUnit
 from apps.tenants.models import Tenant
 
 
+def _reception_push_calls(mock_push, *, event_type: str) -> list:
+    return [
+        call
+        for call in mock_push.call_args_list
+        if call.kwargs.get("data", {}).get("type") == event_type
+    ]
+
+
+def _assert_single_reception_push(
+    test_case: TestCase,
+    mock_push,
+    *,
+    event_type: str,
+    reservation_id: int,
+) -> None:
+    calls = _reception_push_calls(mock_push, event_type=event_type)
+    test_case.assertEqual(
+        len(calls),
+        1,
+        msg=(
+            f"expected one {event_type} push; "
+            f"got types={[c.kwargs.get('data', {}).get('type') for c in mock_push.call_args_list]}"
+        ),
+    )
+    test_case.assertEqual(calls[0].kwargs["data"]["reservation_id"], str(reservation_id))
+
+
 class BookingRoomMismatchTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(slug="uzorita", name="Uzorita")
@@ -112,7 +139,12 @@ class BookingRoomMismatchTests(TestCase):
         self.assertTrue(issues)
         reservation.refresh_from_db()
         self.assertIn("CHANNEX_ROOMS_MISMATCH:", reservation.notes)
-        mock_push.assert_called_once()
+        _assert_single_reception_push(
+            self,
+            mock_push,
+            event_type="reservation.channex_rooms_mismatch",
+            reservation_id=reservation.pk,
+        )
 
     @patch("apps.core.notifications.send_tenant_reception_push")
     def test_ingest_warning_empty_channex_rooms(self, mock_push):
@@ -125,7 +157,12 @@ class BookingRoomMismatchTests(TestCase):
         self.assertTrue(issues)
         reservation.refresh_from_db()
         self.assertIn(CHANNEX_EMPTY_ROOMS_NOTE, reservation.notes)
-        mock_push.assert_called_once()
+        _assert_single_reception_push(
+            self,
+            mock_push,
+            event_type="reservation.channex_rooms_mismatch",
+            reservation_id=reservation.pk,
+        )
 
     @patch("apps.core.notifications.send_tenant_reception_push")
     def test_ingest_warning_multi_room_suspect(self, mock_push):
@@ -144,4 +181,9 @@ class BookingRoomMismatchTests(TestCase):
         self.assertTrue(issues)
         reservation.refresh_from_db()
         self.assertIn(MULTI_ROOM_SUSPECT_NOTE, reservation.notes)
-        mock_push.assert_called_once()
+        _assert_single_reception_push(
+            self,
+            mock_push,
+            event_type="reservation.channex_rooms_mismatch",
+            reservation_id=reservation.pk,
+        )

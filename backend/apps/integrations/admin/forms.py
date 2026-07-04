@@ -181,40 +181,42 @@ class IntegrationConfigAdminForm(forms.ModelForm):
         )
 
     def _build_whatsapp_fields(self, config: dict[str, Any]) -> None:
-        self._secret_field("access_token", label="Access token / D360 API key")
-        self._config_char_field(
-            "provider",
-            label="Provider",
-            initial=str(config.get("provider") or "meta"),
-            help_text="meta (Graph API) or 360dialog (Direct API).",
-        )
-        self._config_char_field(
-            "api_base_url",
-            label="360dialog API base URL",
-            initial=str(config.get("api_base_url") or ""),
-            required=False,
-        )
+        existing_phone = str(config.get("phone_number_id") or "").strip()
+        phone_immutable = bool(self.instance.pk and existing_phone)
         self._config_char_field(
             "phone_number_id",
             label="Phone number ID",
-            initial=str(config.get("phone_number_id") or ""),
-            help_text="Meta phone_number_id or 360dialog channel external ID; synced to routing_key.",
+            initial=existing_phone,
+            required=not self.instance.pk,
+            help_text="Meta phone_number_id; synced to routing_key. Immutable after create.",
         )
+        if phone_immutable:
+            self.fields["phone_number_id"].disabled = True
         self._config_char_field(
             "display_phone_number",
             label="Display phone number",
             initial=str(config.get("display_phone_number") or ""),
+            help_text="E.164 display number for UI and wa.me links only.",
         )
         self._config_char_field(
             "waba_id",
             label="WABA ID",
             initial=str(config.get("waba_id") or ""),
+            help_text="Optional; required for template sync/create. Falls back to WHATSAPP_WABA_ID.",
         )
         self._config_bool_field(
             "auto_reply",
             label="Auto reply enabled",
             initial=bool(config.get("auto_reply", True)),
         )
+        if self.instance.pk and getattr(self.instance, "is_platform_default", False):
+            self._config_bool_field(
+                "is_platform_default",
+                label="Platform default WhatsApp",
+                initial=True,
+                help_text="Default outbound/inbound platform number.",
+            )
+            self._provider_config_fields.append("is_platform_default")
         self._config_json_field(
             "whatsapp_templates_json",
             label="WhatsApp templates (JSON)",
@@ -326,6 +328,31 @@ class IntegrationConfigAdminForm(forms.ModelForm):
                     raise forms.ValidationError(
                         {field_name: "WhatsApp templates must be a JSON object."}
                     )
+            if self.instance.pk:
+                existing = self._existing_config()
+                existing_phone = str(existing.get("phone_number_id") or "").strip()
+                submitted_phone = str(
+                    self.data.get("phone_number_id")
+                    or self.cleaned_data.get("phone_number_id")
+                    or ""
+                ).strip()
+                if existing_phone:
+                    if submitted_phone and submitted_phone != existing_phone:
+                        raise forms.ValidationError(
+                            {
+                                "phone_number_id": (
+                                    "phone_number_id cannot be changed after create. "
+                                    "Create a new IntegrationConfig or use "
+                                    "migrate_whatsapp_phone_number."
+                                )
+                            }
+                        )
+                    self.cleaned_data["phone_number_id"] = existing_phone
+            phone_number_id = str(cleaned.get("phone_number_id") or "").strip()
+            if not self.instance.pk and not phone_number_id:
+                raise forms.ValidationError(
+                    {"phone_number_id": "phone_number_id is required for WhatsApp integrations."}
+                )
 
         return cleaned
 
@@ -364,8 +391,23 @@ class IntegrationConfigAdminForm(forms.ModelForm):
 
         if provider == IntegrationConfig.Provider.WHATSAPP:
             phone_number_id = str(config.get("phone_number_id") or "").strip()
+            if not phone_number_id and self.instance.pk:
+                existing_phone = str(
+                    self._existing_config().get("phone_number_id") or ""
+                ).strip()
+                if existing_phone:
+                    phone_number_id = existing_phone
+                    config["phone_number_id"] = phone_number_id
             if phone_number_id:
                 self.instance.routing_key = phone_number_id
+            for legacy_key in ("access_token", "provider", "api_base_url"):
+                config.pop(legacy_key, None)
+            if getattr(self.instance, "is_platform_default", False) or self.cleaned_data.get(
+                "is_platform_default"
+            ):
+                self.instance.is_platform_default = bool(
+                    self.cleaned_data.get("is_platform_default")
+                )
 
         return config
 

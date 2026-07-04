@@ -8,7 +8,7 @@ from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
-from apps.integrations.whatsapp.integration_lookup import get_active_whatsapp_integration
+from apps.integrations.whatsapp.integration_lookup import resolve_whatsapp_integration
 from apps.integrations.whatsapp.whatsapp_operator_service import (
     _pg_advisory_xact_lock_operator,
     _send_operator_docs_confirm_prompt,
@@ -58,7 +58,7 @@ def send_operator_collect_prompt_for_session(session_id: int) -> dict:
         if session.job.images.count() == 0:
             return {"status": "skipped", "reason": "no_images"}
 
-        integration_row, runtime = get_active_whatsapp_integration(session.tenant)
+        integration_row, runtime = resolve_whatsapp_integration(session.tenant)
         if integration_row is None or runtime is None:
             return {"status": "skipped", "reason": "no_integration"}
 

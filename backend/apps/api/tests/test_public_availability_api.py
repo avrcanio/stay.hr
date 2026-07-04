@@ -161,3 +161,44 @@ class PublicAvailabilityAPITests(TestCase):
         self.assertEqual(r2_blocks[0]["check_in"], "2026-06-10")
         self.assertEqual(r2_blocks[0]["check_out"], "2026-06-11")
         self.assertEqual(r2_blocks[0]["status"], "closed")
+
+
+class PublicBookingHostTenantTests(TestCase):
+    def setUp(self):
+        self.token_tenant = Tenant.objects.create(name="Uzorita", slug="uzorita")
+        self.host_tenant = Tenant.objects.create(name="Demo Stay", slug="demo")
+        Property.objects.create(
+            tenant=self.host_tenant,
+            name="Demo Property",
+            slug="demo",
+        )
+        Property.objects.create(
+            tenant=self.token_tenant,
+            name="Uzorita B&B",
+            slug="uzorita",
+        )
+        from apps.tenants.models import TenantDomain
+
+        TenantDomain.objects.create(
+            tenant=self.host_tenant,
+            domain="demo.stay.hr",
+            domain_type=TenantDomain.DomainType.STAY_SUBDOMAIN,
+            is_verified=True,
+        )
+        _, self.raw_token = ApiApplication.create_with_token(
+            tenant=self.token_tenant,
+            name="Public booking web",
+            scopes=PUBLIC_BOOKING_SCOPES,
+        )
+        self.client = APIClient()
+
+    def test_public_properties_use_host_tenant_not_token_tenant(self):
+        response = self.client.get(
+            "/api/v1/public/properties",
+            HTTP_AUTHORIZATION=f"Bearer {self.raw_token}",
+            HTTP_HOST="stay-django",
+            HTTP_X_FORWARDED_HOST="demo.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        slugs = [row["slug"] for row in response.data["results"]]
+        self.assertEqual(slugs, ["demo"])

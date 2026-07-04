@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from urllib.parse import urlparse, urlunparse
 
 import httpx
 
 from apps.integrations.whatsapp.client import WhatsAppApiError
-from apps.integrations.whatsapp.config import d360_api_base_url_from_env, d360_api_key_from_env
+from apps.integrations.whatsapp.config import access_token_from_env, api_version_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -16,39 +15,22 @@ class WhatsAppMediaError(Exception):
     pass
 
 
-def _auth_headers(api_key: str) -> dict[str, str]:
-    return {"D360-API-KEY": api_key}
-
-
-def rewrite_d360_media_download_url(download_url: str, *, api_base_url: str) -> str:
-    """Rewrite Meta CDN media URL to 360dialog API host (required for authenticated download)."""
-    cleaned = download_url.replace("\\/", "/").replace("\\", "")
-    parsed = urlparse(cleaned)
-    base = api_base_url.rstrip("/")
-    parsed_base = urlparse(base if "://" in base else f"https://{base}")
-    return urlunparse(
-        (
-            parsed_base.scheme or "https",
-            parsed_base.netloc,
-            parsed.path,
-            parsed.params,
-            parsed.query,
-            parsed.fragment,
-        )
-    )
-
-
-def fetch_whatsapp_media(*, media_id: str, api_key: str | None = None, api_base_url: str | None = None) -> tuple[bytes, str]:
-    """Download WhatsApp media binary via 360dialog Cloud API."""
-    key = (api_key or d360_api_key_from_env()).strip()
-    if not key:
-        raise WhatsAppMediaError("D360_API_KEY missing")
+def fetch_whatsapp_media(
+    *,
+    media_id: str,
+    access_token: str | None = None,
+    api_version: str | None = None,
+) -> tuple[bytes, str]:
+    """Download WhatsApp media binary via Meta Graph API."""
+    token = (access_token or access_token_from_env()).strip()
+    if not token:
+        raise WhatsAppMediaError("WHATSAPP_ACCESS_TOKEN missing")
     if not media_id:
         raise WhatsAppMediaError("media_id missing")
 
-    base = (api_base_url or d360_api_base_url_from_env()).rstrip("/")
-    meta_url = f"{base}/{media_id.strip()}"
-    headers = _auth_headers(key)
+    version = (api_version or api_version_from_env()).strip() or "v23.0"
+    meta_url = f"https://graph.facebook.com/{version}/{media_id.strip()}"
+    headers = {"Authorization": f"Bearer {token}"}
 
     try:
         meta_response = httpx.get(meta_url, headers=headers, timeout=30.0)
@@ -69,10 +51,13 @@ def fetch_whatsapp_media(*, media_id: str, api_key: str | None = None, api_base_
     if not download_url:
         raise WhatsAppMediaError("media metadata missing url")
 
-    download_url = rewrite_d360_media_download_url(download_url, api_base_url=base)
-
     try:
-        file_response = httpx.get(download_url, headers=headers, timeout=60.0, follow_redirects=True)
+        file_response = httpx.get(
+            download_url,
+            headers=headers,
+            timeout=60.0,
+            follow_redirects=True,
+        )
     except httpx.HTTPError as exc:
         raise WhatsAppMediaError(f"media download HTTP error: {exc}") from exc
 

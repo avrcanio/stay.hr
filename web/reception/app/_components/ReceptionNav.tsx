@@ -46,6 +46,10 @@ export function ReceptionNav({ tenantName, featureFlags: featureFlagsProp }: Pro
         : "text-stay-muted hover:bg-stay-blue-light hover:text-stay-blue"
     }`;
 
+  const whatsappLinkClass = pathname.startsWith("/whatsapp")
+    ? "rounded-xl bg-stay-blue px-3 py-2 text-sm font-medium text-white shadow-sm"
+    : "rounded-xl px-3 py-2 text-sm font-medium text-stay-muted transition hover:bg-stay-blue-light hover:text-stay-blue";
+
   return (
     <header className="border-b border-stay-border bg-white shadow-sm">
       <SessionLocaleSync />
@@ -73,6 +77,9 @@ export function ReceptionNav({ tenantName, featureFlags: featureFlagsProp }: Pro
               {t("reviews")}
             </Link>
           ) : null}
+          <Link href="/whatsapp/overview" className={whatsappLinkClass}>
+            {t("whatsapp")}
+          </Link>
           <button type="button" onClick={logout} className="btn-ghost ml-2">
             {t("logout")}
           </button>

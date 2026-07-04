@@ -1,6 +1,6 @@
 from datetime import date, datetime, time, timedelta
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -10,6 +10,7 @@ from PIL import Image
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
 from apps.integrations.tests.test_whatsapp_webhook import TEST_FERNET_KEY
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
+from apps.integrations.whatsapp.tasks import process_inbound_message
 from apps.integrations.whatsapp.whatsapp_guest_autocheckin import (
     GUEST_AUTO_CHECKIN_BUTTON_ID,
     extract_booking_code_from_text,
@@ -225,7 +226,11 @@ class WhatsAppGuestAutocheckinTests(TestCase):
         self.assertEqual(inbound.reservation_id, self.reservation.pk)
         body = mock_send.call_args.kwargs["body"]
         self.assertIn("BCOM-777", body)
-        self.assertIn("dan dolaska", body.lower())
+        lowered = body.lower()
+        self.assertTrue(
+            "dan dolaska" in lowered or "arrival day" in lowered,
+            msg=f"expected arrival-day hint, got: {body!r}",
+        )
 
     def _tiny_jpeg(self) -> bytes:
         buf = BytesIO()
@@ -259,33 +264,19 @@ class WhatsAppGuestAutocheckinTests(TestCase):
         return guest
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
-    @patch(
-        "apps.integrations.whatsapp.whatsapp_post_checkin_reply.send_whatsapp_entrance_image_from_asset"
-    )
-    @patch("apps.communications.guest_message_send.send_text_message")
+    @patch("apps.communications.guest_arrival_inbound.llm_configured", return_value=False)
+    @patch("apps.communications.guest_arrival_inbound.send_guest_message")
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
     @patch("apps.core.timezone.property_local_now")
     def test_complete_documents_parking_skips_autocheckin_prompt(
         self,
         mock_now,
         mock_interactive,
-        mock_text,
-        mock_entrance,
+        mock_send_guest,
+        _llm_off,
     ):
         mock_now.return_value = datetime(2026, 6, 7, 15, 0, tzinfo=ZAGREB)
-        mock_text.return_value = {"messages": [{"id": "wamid.out.post"}]}
-        mock_entrance.return_value = WhatsAppMessage.objects.create(
-            tenant=self.tenant,
-            integration=self.integration,
-            reservation=self.reservation,
-            wamid="wamid.out.img",
-            wa_id="385922222222",
-            phone_number_id="1068791909660300",
-            direction=WhatsAppMessage.Direction.OUTBOUND,
-            message_type="image",
-            body="Entrance",
-            raw_payload={},
-        )
+        mock_send_guest.return_value = MagicMock(pk=1)
         self._guest_with_complete_documents()
         inbound = WhatsAppMessage.objects.create(
             tenant=self.tenant,
@@ -300,21 +291,13 @@ class WhatsAppGuestAutocheckinTests(TestCase):
             raw_payload={"type": "text", "text": {"body": "We need parking and arrive at 8 PM"}},
         )
 
-        with patch(
-            "apps.integrations.whatsapp.operator_arrival_confirm.schedule_arrival_confirm_prompt",
-            return_value={"status": "scheduled"},
-        ) as mock_schedule:
-            result = handle_guest_autocheckin_inbound(
-                row=inbound,
-                integration_row=self.integration,
-                runtime=self.runtime,
-                action_text=inbound.body,
-                reservation=self.reservation,
-            )
+        result = process_inbound_message(inbound.pk)
 
-        self.assertEqual(result["status"], "guest_arrival_saved")
+        self.assertEqual(result["status"], "guest_arrival_handled")
         mock_interactive.assert_not_called()
-        mock_schedule.assert_called_once()
+        mock_send_guest.assert_called_once()
+        self.reservation.refresh_from_db()
+        self.assertIsNotNone(self.reservation.guest_stated_arrival_at)
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
@@ -363,21 +346,24 @@ class WhatsAppGuestAutocheckinTests(TestCase):
     @patch(
         "apps.integrations.whatsapp.whatsapp_post_checkin_reply.send_whatsapp_entrance_image_from_asset"
     )
-    @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_text_message")
-    @patch("apps.communications.guest_message_send.send_text_message")
+    @patch("apps.integrations.whatsapp.whatsapp_post_checkin_reply.send_guest_message")
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
     @patch("apps.core.timezone.property_local_now")
     def test_complete_documents_second_parking_same_day_not_duplicated(
         self,
         mock_now,
         mock_interactive,
-        mock_post_text,
-        mock_ack_text,
+        mock_send_guest,
         mock_entrance,
     ):
         mock_now.return_value = datetime(2026, 6, 7, 18, 0, tzinfo=ZAGREB)
-        mock_post_text.return_value = {"messages": [{"id": "wamid.out.post"}]}
-        mock_ack_text.return_value = {"messages": [{"id": "wamid.out.ack"}]}
+
+        def _mark_draft_sent(*, draft, **kwargs):
+            draft.sent_at = timezone.now()
+            draft.save(update_fields=["sent_at"])
+            return MagicMock(pk=1)
+
+        mock_send_guest.side_effect = _mark_draft_sent
         mock_entrance.return_value = WhatsAppMessage.objects.create(
             tenant=self.tenant,
             integration=self.integration,
@@ -419,8 +405,7 @@ class WhatsAppGuestAutocheckinTests(TestCase):
                 self.assertEqual(result["status"], "auto_reply_skipped")
                 self.assertEqual(result["reason"], "no_matching_handler")
 
-        mock_post_text.assert_called_once()
-        mock_ack_text.assert_not_called()
+        mock_send_guest.assert_called_once()
         mock_entrance.assert_called_once()
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
@@ -549,18 +534,18 @@ class WhatsAppGuestAutocheckinTests(TestCase):
     @patch(
         "apps.integrations.whatsapp.whatsapp_post_checkin_reply.send_whatsapp_entrance_image_from_asset"
     )
-    @patch("apps.communications.guest_message_send.send_text_message")
+    @patch("apps.integrations.whatsapp.whatsapp_post_checkin_reply.send_guest_message")
     @patch("apps.integrations.whatsapp.whatsapp_guest_autocheckin.send_interactive_button_message")
     @patch("apps.core.timezone.property_local_now")
     def test_checkin_ready_draft_acknowledges_parking_without_complete_docs(
         self,
         mock_now,
         mock_interactive,
-        mock_text,
+        mock_send_guest,
         mock_entrance,
     ):
         mock_now.return_value = datetime(2026, 6, 7, 15, 0, tzinfo=ZAGREB)
-        mock_text.return_value = {"messages": [{"id": "wamid.out.post"}]}
+        mock_send_guest.return_value = MagicMock(pk=1)
         mock_entrance.return_value = WhatsAppMessage.objects.create(
             tenant=self.tenant,
             integration=self.integration,
@@ -609,7 +594,7 @@ class WhatsAppGuestAutocheckinTests(TestCase):
 
         self.assertEqual(result["status"], "post_checkin_reply_sent")
         mock_interactive.assert_not_called()
-        mock_text.assert_called_once()
+        mock_send_guest.assert_called_once()
         mock_entrance.assert_called_once()
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
@@ -683,19 +668,16 @@ class WhatsAppGuestAutocheckinTests(TestCase):
         mock_interactive.assert_called_once()
 
     @patch("apps.communications.guest_arrival_inbound.llm_configured", return_value=False)
-    @patch("apps.integrations.whatsapp.operator_arrival_confirm.schedule_arrival_confirm_prompt")
     @patch("apps.communications.guest_arrival_inbound.send_guest_message")
     @patch("apps.core.timezone.property_local_now")
-    def test_expected_docs_complete_arrival_schedules_timer(
+    def test_expected_docs_complete_arrival_saves_time_and_replies(
         self,
         mock_now,
         mock_send_guest,
-        mock_schedule,
         _llm_off,
     ):
         mock_now.return_value = datetime(2026, 6, 7, 15, 0, tzinfo=ZAGREB)
-        mock_send_guest.return_value = object()
-        mock_schedule.return_value = {"status": "scheduled", "countdown": 9000}
+        mock_send_guest.return_value = MagicMock(pk=1)
         self._guest_with_complete_documents()
         from apps.communications.guest_arrival_inbound import maybe_handle_guest_arrival_inbound
 
@@ -706,7 +688,7 @@ class WhatsAppGuestAutocheckinTests(TestCase):
         )
 
         self.assertEqual(result["status"], "guest_arrival_handled")
-        mock_schedule.assert_called_once()
+        mock_send_guest.assert_called_once()
         self.reservation.refresh_from_db()
         self.assertEqual(
             self.reservation.guest_stated_arrival_at,

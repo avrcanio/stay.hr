@@ -37,6 +37,7 @@ from apps.integrations.whatsapp.whatsapp_guest_autocheckin import (
 )
 from apps.integrations.whatsapp.whatsapp_operator import is_operator_wa_id
 from apps.integrations.whatsapp.whatsapp_operator_service import handle_operator_inbound
+from apps.integrations.whatsapp.whatsapp_session import resolved_tenant_id_for_message
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +104,10 @@ def _inbound_body_preview(row: WhatsAppMessage) -> str:
     return _WHATSAPP_NON_TEXT_PREVIEW
 
 
-def _link_inbound_to_reservation(row: WhatsAppMessage) -> None:
+def _link_inbound_to_reservation(row: WhatsAppMessage, *, tenant_id: int) -> None:
     if row.reservation_id is not None:
         return
-    reservation = find_reservation_for_wa_id(tenant_id=row.tenant_id, wa_id=row.wa_id)
+    reservation = find_reservation_for_wa_id(tenant_id=tenant_id, wa_id=row.wa_id)
     if reservation is None:
         return
     row.reservation = reservation
@@ -140,8 +141,6 @@ def _maybe_send_auto_reply(
             access_token=runtime.access_token,
             to_wa_id=row.wa_id,
             body=greeting,
-            provider=runtime.provider,
-            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning("WhatsApp reply failed message_id=%s: %s", row.pk, exc)
@@ -204,8 +203,6 @@ def _maybe_send_autocheckin_documents_reply(
             access_token=runtime.access_token,
             to_wa_id=row.wa_id,
             body=body,
-            provider=runtime.provider,
-            api_base_url=runtime.api_base_url,
         )
     except WhatsAppApiError as exc:
         logger.warning("WhatsApp documents reply failed message_id=%s: %s", row.pk, exc)
@@ -266,7 +263,14 @@ def _maybe_notify_guest_message_inbound(row: WhatsAppMessage) -> None:
 @shared_task
 def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
     row = (
-        WhatsAppMessage.objects.select_related("integration", "tenant", "reservation")
+        WhatsAppMessage.objects.select_related(
+            "integration",
+            "tenant",
+            "reservation",
+            "inbound_routing",
+            "inbound_routing__resolved_tenant",
+            "inbound_routing__resolved_reservation",
+        )
         .filter(pk=message_id, direction=WhatsAppMessage.Direction.INBOUND)
         .first()
     )
@@ -278,8 +282,20 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
         return {"status": "no_integration"}
 
     runtime = WhatsAppRuntimeConfig.from_integration_dict(integration_row.get_config_dict())
+    resolved_tenant_id = resolved_tenant_id_for_message(row)
 
-    if is_operator_wa_id(tenant_id=row.tenant_id, wa_id=row.wa_id):
+    routing = getattr(row, "inbound_routing", None)
+    if routing is not None and routing.status in (
+        "unrouted",
+        "ambiguous",
+        "dismissed",
+    ):
+        return {
+            "status": "routing_blocked",
+            "routing_status": routing.status,
+        }
+
+    if is_operator_wa_id(tenant_id=resolved_tenant_id, wa_id=row.wa_id):
         result = handle_operator_inbound(
             row=row,
             integration_row=integration_row,
@@ -289,8 +305,14 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
         )
         return {**result, "reservation_id": None, "operator_flow": True}
 
-    _link_inbound_to_reservation(row)
-    reservation = row.reservation
+    if routing is not None and routing.resolved_reservation_id:
+        reservation = routing.resolved_reservation
+        if row.reservation_id != reservation.pk:
+            row.reservation = reservation
+            row.save(update_fields=["reservation"])
+    else:
+        _link_inbound_to_reservation(row, tenant_id=resolved_tenant_id)
+        reservation = row.reservation
 
     button_id = inbound_interactive_button_id(row)
     action_text = _inbound_action_text(row)

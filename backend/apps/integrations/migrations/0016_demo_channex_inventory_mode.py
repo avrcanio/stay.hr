@@ -25,6 +25,7 @@ def set_demo_inventory_ari(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("integrations", "0015_whatsapp_index_fix"),
+        ("tenants", "0016_tenant_is_system"),
     ]
 
     operations = [
