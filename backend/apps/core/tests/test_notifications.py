@@ -80,6 +80,26 @@ class ReceptionPushAllowedTests(TestCase):
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.block_reason, "push_disabled")
 
+    @override_settings(
+        FCM_PUSH_ENABLED=True,
+        FCM_PUSH_MAINTENANCE=True,
+        FCM_PUSH_ALLOWED_TENANT_SLUGS=["demo"],
+    )
+    def test_maintenance_mode(self):
+        decision = reception_push_allowed(tenant_id=self.tenant.pk)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.block_reason, "maintenance_mode")
+
+    @override_settings(
+        FCM_PUSH_ENABLED=False,
+        FCM_PUSH_MAINTENANCE=True,
+        FCM_PUSH_ALLOWED_TENANT_SLUGS=["demo"],
+    )
+    def test_push_disabled_precedes_maintenance(self):
+        decision = reception_push_allowed(tenant_id=self.tenant.pk)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.block_reason, "push_disabled")
+
     @override_settings(FCM_PUSH_ENABLED=True, FCM_PUSH_ALLOWED_TENANT_SLUGS=[])
     def test_allowlist_empty(self):
         decision = reception_push_allowed(tenant_id=self.tenant.pk)
@@ -136,6 +156,17 @@ class SendTenantReceptionPushGuardTests(TestCase):
     @override_settings(FCM_PUSH_ENABLED=False, FCM_PUSH_ALLOWED_TENANT_SLUGS=["demo"])
     @patch("apps.core.notifications.send_fcm_message")
     def test_blocked_when_push_disabled(self, mock_send):
+        ids = send_tenant_reception_push(
+            tenant_id=self.tenant.pk,
+            title="Test",
+            body="Test",
+        )
+        self.assertEqual(ids, [])
+        mock_send.assert_not_called()
+
+    @override_settings(FCM_PUSH_MAINTENANCE=True)
+    @patch("apps.core.notifications.send_fcm_message")
+    def test_blocked_when_maintenance_mode(self, mock_send):
         ids = send_tenant_reception_push(
             tenant_id=self.tenant.pk,
             title="Test",

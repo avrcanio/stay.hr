@@ -61,7 +61,7 @@ Puni backend suite:
 
 Settings: `DJANGO_SETTINGS_MODULE=config.settings.test_postgis`. Detalji u [AGENTS.md](../../AGENTS.md#backend-testing).
 
-**FCM push guard:** test settings (`test.py`, `test_postgis.py`) postavljaju `FCM_PUSH_ENABLED=false`, pa se push ne šalje tijekom testova bez obzira na Firebase credentials u kontejneru. Za ručne operacije na serveru (import, seed, reconcile) privremeno postavi `FCM_PUSH_ENABLED=false` u `.env` ili suzi `FCM_PUSH_ALLOWED_TENANT_SLUGS` npr. na `demo`, zatim restart `django` i `celery-worker`.
+**FCM push guard:** test settings (`test.py`, `test_postgis.py`) postavljaju `FCM_PUSH_ENABLED=false`, pa se push ne šalje tijekom testova bez obzira na Firebase credentials u kontejneru. Za ručne operacije na serveru (import, seed, reconcile) privremeno postavi `FCM_PUSH_MAINTENANCE=true` u `.env`, zatim `docker compose up -d django celery-worker` (ne `restart` — env se ne osvježava). Operativni runbook: [fcm-push-guard.md](../operations/fcm-push-guard.md).
 
 **Triage (burn-down):** [integrations-test-triage.md](integrations-test-triage.md) — **335/335**, **0 errors** (stabilizacija završena 2026-07).
 

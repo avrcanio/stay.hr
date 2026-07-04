@@ -28,9 +28,13 @@ def _normalized_push_tenant_slugs() -> frozenset[str]:
 def reception_push_allowed(*, tenant_id: int) -> ReceptionPushDecision:
     """
     Centralni filter — samo odluka, bez I/O osim slug lookupa.
-    1) FCM_PUSH_ENABLED mora biti True
-    2) FCM_PUSH_ALLOWED_TENANT_SLUGS ne smije biti prazna (fail-closed)
-    3) tenant.slug (normaliziran) mora biti u normaliziranoj allowlisti
+
+    Decision order (guard + caller):
+
+    1. FCM_PUSH_ENABLED — installation-level off → push_disabled
+    2. FCM_PUSH_MAINTENANCE — temporary suppress delivery → maintenance_mode
+    3. FCM_PUSH_ALLOWED_TENANT_SLUGS — tenant entitlement (fail-closed if empty)
+    4. Firebase configuration / tokens — checked in send_tenant_reception_push after guard
     """
     allowed_slugs = _normalized_push_tenant_slugs()
     allowed_count = len(allowed_slugs)
@@ -39,6 +43,13 @@ def reception_push_allowed(*, tenant_id: int) -> ReceptionPushDecision:
         return ReceptionPushDecision(
             allowed=False,
             block_reason="push_disabled",
+            allowed_count=allowed_count,
+        )
+
+    if settings.FCM_PUSH_MAINTENANCE:
+        return ReceptionPushDecision(
+            allowed=False,
+            block_reason="maintenance_mode",
             allowed_count=allowed_count,
         )
 

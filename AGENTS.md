@@ -88,6 +88,25 @@ Set `STAY_API_INTERNAL_URL` and `STAY_BOOKING_API_TOKEN` in `.env` / shell. See 
 - Django API: `backend/`
 - Ops runbook: `docs/operations/domain-setup.md`
 
+## FCM push deployment
+
+Runbook: [docs/operations/fcm-push-guard.md](docs/operations/fcm-push-guard.md)
+
+Any deployment that changes FCM configuration or notification delivery must verify:
+
+- `FCM_PUSH_ALLOWED_TENANT_SLUGS` is configured in the target `.env`.
+- After any `.env` change, recreate containers with `docker compose up -d django celery-worker` (do not use `restart` — it reuses stale env).
+- A smoke test is performed against the `demo` tenant before opening the system to users.
+- Verify logs do not contain `reason=allowlist_empty`.
+
+### Maintenance
+
+Before deploy, import, or seed: set `FCM_PUSH_MAINTENANCE=true` in `.env`, then `docker compose up -d django celery-worker`.
+
+After the operation: set `FCM_PUSH_MAINTENANCE=false`, then `docker compose up -d django celery-worker` again.
+
+Do not use allowlist edits for maintenance. During maintenance, logs should show `reason=maintenance_mode`, not `tenant_not_allowed`.
+
 ## Backend testing
 
 Backend testovi idu na **dedicated PostGIS bazu**, ne na produkcijsku `stay_platform_db` i ne na SQLite.
