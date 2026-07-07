@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8">
+  <title>Financijski izvještaj — {{ meta.property_name }}</title>
+  <style>
+    @font-face {
+      font-family: DejaVuSans;
+      src: url("{{ font_regular }}");
+    }
+    @font-face {
+      font-family: DejaVuSans;
+      src: url("{{ font_bold }}");
+      font-weight: bold;
+    }
+    @page { size: A4 landscape; margin: 1.2cm; }
+    body { font-family: DejaVuSans, sans-serif; font-size: 9pt; color: #111; }
+    h1 { font-size: 16pt; margin: 0 0 4px; font-weight: bold; }
+    .meta { margin-bottom: 12px; line-height: 1.4; }
+    .muted { color: #555; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { border: 1px solid #999; padding: 4px 6px; text-align: left; vertical-align: top; }
+    th { background: #f3f3f3; font-weight: bold; }
+    .right { text-align: right; }
+    .totals { margin-top: 10px; font-weight: bold; }
+    .warning { margin-top: 8px; color: #8a4b00; font-size: 8pt; }
+  </style>
+</head>
+<body>
+  <h1>Financijski izvještaj</h1>
+  <div class="meta">
+    <div><strong>{{ meta.property_name }}</strong> ({{ meta.property_slug }})</div>
+    <div class="muted">Odjava: {{ meta.check_out_from }} – {{ meta.check_out_to }}</div>
+    <div class="muted">Generirano: {{ meta.generated_at }} · Valuta: {{ meta.currency }}</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Rezervacija</th>
+        <th>Vanjski ID</th>
+        <th>Dolazak</th>
+        <th>Odlazak</th>
+        <th>Sobe</th>
+        <th class="right">Noći</th>
+        <th class="right">Bruto</th>
+        <th class="right">Provizija</th>
+        <th class="right">Neto</th>
+        <th>Izvor</th>
+        <th>Gosti</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.booking_code }}</td>
+        <td>{{ row.external_id }}</td>
+        <td>{{ row.check_in }}</td>
+        <td>{{ row.check_out }}</td>
+        <td>{{ row.room_labels }}</td>
+        <td class="right">{{ row.nights }}</td>
+        <td class="right">{{ row.gross }}</td>
+        <td class="right">{{ row.commission }}</td>
+        <td class="right">{{ row.net }}</td>
+        <td>{{ row.source }}</td>
+        <td>{{ row.guests }}</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="11" class="muted">Nema rezervacija u odabranom razdoblju.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="totals">
+    Ukupno: {{ totals.reservation_count }} rezervacija · {{ totals.nights }} noći ·
+    bruto {{ totals.gross }} · provizija {{ totals.commission }} · neto {{ totals.net }} {{ meta.currency }}
+  </p>
+
+  {% if meta.rows_with_missing_commission %}
+  <p class="warning">
+    {{ meta.rows_with_missing_commission }} red(ova) bez provizije — neto zbroj ne uključuje te stavke.
+  </p>
+  {% endif %}
+</body>
+</html>

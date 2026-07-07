@@ -50,6 +50,7 @@ from apps.api.reception_reviews_views import (
     ReceptionReviewReplyView,
     ReceptionReviewsListView,
 )
+from apps.api.reception_report_views import PropertyFinancialReportView
 from apps.api.reception_document_intake_views import (
     DocumentIntakeBatchView,
     DocumentIntakeJobApplyView,
@@ -122,6 +123,11 @@ urlpatterns = [
         "statistics/guest-countries/",
         ReceptionGuestCountriesStatisticsView.as_view(),
         name="reception-statistics-guest-countries",
+    ),
+    path(
+        "reports/property-financial/",
+        PropertyFinancialReportView.as_view(),
+        name="reception-reports-property-financial",
     ),
     path(
         "reservations/",
