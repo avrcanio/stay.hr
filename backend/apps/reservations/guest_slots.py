@@ -35,12 +35,31 @@ def target_intake_guest_count(
     reservation: Reservation,
     min_count: int,
 ) -> int:
-    """Guest records needed for document intake (persons on reservation or OCR batch)."""
+    """Guest records needed for general intake/occupancy (persons on reservation or OCR batch).
+
+    Not used for document-intake slot creation — see target_document_guest_count().
+    """
     existing_count = reservation.guests.count()
     adults = reservation.adults_count if reservation.adults_count and reservation.adults_count > 0 else 0
     persons = reservation.persons_count if reservation.persons_count and reservation.persons_count > 0 else 0
     floor = max(adults, persons, min_count, 1)
     return max(floor, existing_count)
+
+
+def target_document_guest_count(
+    *,
+    reservation: Reservation,
+    min_count: int,
+) -> int:
+    """Guest records needed for document intake only (policy count + OCR batch, not persons_count)."""
+    from apps.reservations.document_expectations import expected_document_count
+
+    existing_count = reservation.guests.count()
+    document_floor = expected_document_count(reservation)
+    floor = max(document_floor, min_count)
+    if floor == 0:
+        return existing_count
+    return max(floor, existing_count, 1)
 
 
 def _ensure_primary_booker_guest(*, tenant: Tenant, reservation: Reservation) -> None:
@@ -76,12 +95,12 @@ def ensure_guest_slots_for_intake(
     reservation: Reservation,
     min_count: int,
 ) -> int:
-    """Ensure enough guest slots for an OCR batch (uses persons_count when higher). Returns created."""
+    """Ensure enough guest slots for document intake OCR batch. Returns created."""
     if reservation.status in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}:
         return 0
 
     existing_count = reservation.guests.count()
-    target = target_intake_guest_count(reservation=reservation, min_count=min_count)
+    target = target_document_guest_count(reservation=reservation, min_count=min_count)
     created = 0
     for _ in range(target - existing_count):
         Guest.objects.create(
