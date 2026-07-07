@@ -262,7 +262,8 @@ class WhatsAppOperatorTests(TestCase):
         mock_interactive.side_effect = lambda **kwargs: self._next_interactive_wamid()
         mock_send.return_value = {"messages": [{"id": "wamid.out.success"}]}
 
-        def _finalize_side_effect(job, **kwargs):
+        def _finalize_side_effect(ctx, **kwargs):
+            job = ctx.job
             session = kwargs.get("session")
             job.reservation_id = self.target_reservation.pk
             job.save(update_fields=["reservation_id", "updated_at"])
@@ -484,12 +485,12 @@ class WhatsAppOperatorTests(TestCase):
         mock_interactive.side_effect = lambda **kwargs: self._next_interactive_wamid()
         mock_send.return_value = {"messages": [{"id": "wamid.out.text"}]}
 
-        def _incomplete(job, **kwargs):
+        def _incomplete(ctx, **kwargs):
             session = kwargs.get("session")
             if session is not None:
                 session.status = WhatsAppOperatorSessionStatus.COLLECTING
                 session.save(update_fields=["status", "updated_at"])
-            return {"status": "incomplete", "job_id": job.pk}
+            return {"status": "incomplete", "job_id": ctx.job.pk}
 
         mock_finalize_job.side_effect = _incomplete
 
@@ -954,8 +955,8 @@ class OperatorReservationPickFlowTests(TestCase):
         session = WhatsAppOperatorSession.objects.get(operator_wa_id=self.operator_wa_id)
         job = session.job
 
-        def _set_no_match(job_id):
-            DocumentIntakeJob.objects.filter(pk=job_id).update(
+        def _set_no_match(ctx):
+            DocumentIntakeJob.objects.filter(pk=ctx.job.pk).update(
                 status=DocumentIntakeJobStatus.DONE,
                 ocr_result={
                     "persons": [
