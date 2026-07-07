@@ -126,7 +126,7 @@ class WhatsAppAutocheckinWaivedTests(TestCase):
         result = on_whatsapp_document_received(inbound.pk)
 
         self.assertEqual(result["status"], "skipped")
-        self.assertEqual(result["reason"], "autocheckin_waived")
+        self.assertEqual(result["reason"], "waived")
         mock_fetch.assert_not_called()
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})

@@ -7,6 +7,16 @@ from datetime import timedelta
 
 from django.utils import timezone
 
+from apps.communications.guest_message_logging import (
+    GUEST_MESSAGE_SEND_ERROR,
+    GUEST_MESSAGE_WHATSAPP_API,
+    GUEST_MESSAGE_WHATSAPP_BLOCKED,
+    GUEST_MESSAGE_WHATSAPP_HANDOFF,
+    GUEST_MESSAGE_WHATSAPP_TEMPLATE,
+    MetaApiTimer,
+    body_meta,
+    log_guest_message_event,
+)
 from apps.communications.models import (
     GuestMessageChannel,
     GuestMessageDraft,
@@ -33,9 +43,11 @@ from apps.integrations.whatsapp.welcome_template import (
 from apps.integrations.whatsapp.whatsapp_errors import (
     is_transient_whatsapp_error,
     is_whatsapp_session_api_error,
+    parse_meta_api_error,
 )
 from apps.integrations.whatsapp.whatsapp_session import is_customer_service_window_open
-from apps.reservations.models import Reservation
+from apps.reservations.models import Reservation, ReservationVersionScope
+from apps.reservations.reservation_version import touch_reservation_version
 from apps.tenants.models import ApiApplication
 
 from .guest_message_send import (
@@ -59,6 +71,26 @@ class WhatsAppSendPendingError(Exception):
     def __init__(self, outbound: GuestOutboundMessage):
         self.outbound = outbound
         super().__init__(WHATSAPP_SEND_PENDING)
+
+
+def _log_whatsapp_event(
+    event: str,
+    *,
+    request_id: str,
+    reservation: Reservation,
+    draft: GuestMessageDraft,
+    **more,
+) -> None:
+    log_guest_message_event(
+        event,
+        request_id=request_id,
+        reservation_id=reservation.pk,
+        tenant_slug=reservation.tenant.slug,
+        draft_id=draft.pk,
+        channel=GuestMessageChannel.WHATSAPP,
+        intent=draft.intent,
+        **more,
+    )
 
 
 def _can_send_welcome_template(
@@ -121,6 +153,11 @@ def _mark_outbound_sent(
     draft.channel = GuestMessageChannel.WHATSAPP
     draft.sent_at = now
     draft.save(update_fields=["final_body_text", "channel", "sent_at"])
+    touch_reservation_version(
+        draft.reservation_id,
+        ReservationVersionScope.MESSAGES,
+        reason="whatsapp_outbound",
+    )
     return outbound
 
 
@@ -191,6 +228,7 @@ def _send_whatsapp_template_api(
     template_name: str,
     language_code: str,
     outbound: GuestOutboundMessage | None = None,
+    request_id: str = "",
 ) -> GuestOutboundMessage:
     phone_raw = guest_phone_number(reservation)
     phone_wa = normalize_phone(phone_raw)
@@ -215,18 +253,30 @@ def _send_whatsapp_template_api(
         )
 
     try:
-        response = _call_graph_with_retry(
-            lambda: send_template_message(
-                phone_number_id=runtime.phone_number_id,
-                access_token=runtime.access_token,
-                to_wa_id=phone_wa,
-                template_name=template_name,
-                language_code=language_code,
-                body_parameters=body_params,
-                header_image_url=header_url,
+        with MetaApiTimer() as timer:
+            response = _call_graph_with_retry(
+                lambda: send_template_message(
+                    phone_number_id=runtime.phone_number_id,
+                    access_token=runtime.access_token,
+                    to_wa_id=phone_wa,
+                    template_name=template_name,
+                    language_code=language_code,
+                    body_parameters=body_params,
+                    header_image_url=header_url,
+                )
             )
-        )
     except WhatsAppApiError as exc:
+        error_fields = parse_meta_api_error(exc)
+        _log_whatsapp_event(
+            GUEST_MESSAGE_SEND_ERROR,
+            request_id=request_id,
+            reservation=reservation,
+            draft=draft,
+            template_name=template_name,
+            meta_api_ms=timer.elapsed_ms,
+            **body_meta(body_text),
+            **error_fields,
+        )
         if is_transient_whatsapp_error(exc):
             _handle_transient_failure(outbound=outbound, exc=exc)
         outbound.status = GuestOutboundMessageStatus.FAILED
@@ -235,6 +285,16 @@ def _send_whatsapp_template_api(
         raise ValueError(str(exc)) from exc
 
     wamid = extract_outbound_wamid(response)
+    _log_whatsapp_event(
+        GUEST_MESSAGE_WHATSAPP_TEMPLATE,
+        request_id=request_id,
+        reservation=reservation,
+        draft=draft,
+        template_name=template_name,
+        provider_message_id=wamid,
+        meta_api_ms=timer.elapsed_ms,
+        **body_meta(body_text),
+    )
     _record_whatsapp_message_row(
         integration=integration,
         reservation=reservation,
@@ -262,6 +322,7 @@ def _send_whatsapp_text_api(
     integration: IntegrationConfig,
     runtime,
     outbound: GuestOutboundMessage | None = None,
+    request_id: str = "",
 ) -> GuestOutboundMessage:
     phone_raw = guest_phone_number(reservation)
     phone_wa = normalize_phone(phone_raw)
@@ -281,16 +342,19 @@ def _send_whatsapp_text_api(
             api_application=api_application,
         )
 
+    timer = MetaApiTimer()
     try:
-        response = _call_graph_with_retry(
-            lambda: send_text_message(
-                phone_number_id=runtime.phone_number_id,
-                access_token=runtime.access_token,
-                to_wa_id=phone_wa,
-                body=body_text,
+        with timer:
+            response = _call_graph_with_retry(
+                lambda: send_text_message(
+                    phone_number_id=runtime.phone_number_id,
+                    access_token=runtime.access_token,
+                    to_wa_id=phone_wa,
+                    body=body_text,
+                )
             )
-        )
     except WhatsAppApiError as exc:
+        error_fields = parse_meta_api_error(exc)
         if is_whatsapp_session_api_error(exc):
             template_info = _can_send_welcome_template(
                 draft=draft, integration=integration, runtime=runtime
@@ -306,9 +370,28 @@ def _send_whatsapp_text_api(
                     template_name=template_info[0],
                     language_code=template_info[1],
                     outbound=outbound,
+                    request_id=request_id,
                 )
+            _log_whatsapp_event(
+                GUEST_MESSAGE_WHATSAPP_BLOCKED,
+                request_id=request_id,
+                reservation=reservation,
+                draft=draft,
+                meta_api_ms=timer.elapsed_ms,
+                **body_meta(body_text),
+                **error_fields,
+            )
             outbound.delete()
             raise ValueError(WHATSAPP_TEMPLATE_REQUIRED) from exc
+        _log_whatsapp_event(
+            GUEST_MESSAGE_SEND_ERROR,
+            request_id=request_id,
+            reservation=reservation,
+            draft=draft,
+            meta_api_ms=timer.elapsed_ms,
+            **body_meta(body_text),
+            **error_fields,
+        )
         if is_transient_whatsapp_error(exc):
             _handle_transient_failure(outbound=outbound, exc=exc)
         outbound.status = GuestOutboundMessageStatus.FAILED
@@ -317,6 +400,15 @@ def _send_whatsapp_text_api(
         raise ValueError(str(exc)) from exc
 
     wamid = extract_outbound_wamid(response)
+    _log_whatsapp_event(
+        GUEST_MESSAGE_WHATSAPP_API,
+        request_id=request_id,
+        reservation=reservation,
+        draft=draft,
+        provider_message_id=wamid,
+        meta_api_ms=timer.elapsed_ms,
+        **body_meta(body_text),
+    )
     _record_whatsapp_message_row(
         integration=integration,
         reservation=reservation,
@@ -342,9 +434,18 @@ def send_whatsapp_channel_v2(
     body_text: str,
     api_application: ApiApplication | None,
     existing_outbound: GuestOutboundMessage | None = None,
+    request_id: str = "",
 ) -> GuestOutboundMessage:
     integration, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration is None or runtime is None or not runtime.can_send_messages():
+        _log_whatsapp_event(
+            GUEST_MESSAGE_WHATSAPP_HANDOFF,
+            request_id=request_id,
+            reservation=reservation,
+            draft=draft,
+            handoff_reason="integration_not_configured",
+            **body_meta(body_text),
+        )
         return _send_whatsapp_handoff(
             reservation=reservation,
             draft=draft,
@@ -373,6 +474,7 @@ def send_whatsapp_channel_v2(
             integration=integration,
             runtime=runtime,
             outbound=existing_outbound,
+            request_id=request_id,
         )
 
     template_info = _can_send_welcome_template(
@@ -389,6 +491,14 @@ def send_whatsapp_channel_v2(
             template_name=template_info[0],
             language_code=template_info[1],
             outbound=existing_outbound,
+            request_id=request_id,
         )
 
+    _log_whatsapp_event(
+        GUEST_MESSAGE_WHATSAPP_BLOCKED,
+        request_id=request_id,
+        reservation=reservation,
+        draft=draft,
+        **body_meta(body_text),
+    )
     raise ValueError(WHATSAPP_TEMPLATE_REQUIRED)

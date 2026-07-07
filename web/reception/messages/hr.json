@@ -381,6 +381,8 @@
     "channelWhatsapp": "WhatsApp",
     "channelWhatsappHint": "Otvara WhatsApp s predloženim tekstom ({phone})",
     "channelWhatsappApiHint": "Šalje se preko WhatsApp Cloud API-ja",
+    "channelWhatsappSessionClosedHint": "Nema 24h sesije — za API koristite Check-in (welcome predložak) ili pričekajte poruku od gosta",
+    "sendErrorWhatsappTemplateRequired": "WhatsApp API: nema otvorene sesije i nije dostupan predložak za ovaj tip poruke. Za slanje preko API-ja koristite Check-in ili pričekajte inbound poruku gosta.",
     "noChannel": "Nema dostupnog kanala za slanje.",
     "hintLabel": "Upute (opcionalno)",
     "hintReplyPlaceholder": "npr. checkin ready",

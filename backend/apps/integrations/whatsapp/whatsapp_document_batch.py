@@ -269,6 +269,16 @@ def assess_batch_after_quiet(session: WhatsAppDocumentBatchSession) -> dict:
         session = locked
 
     reservation = session.reservation
+    from apps.integrations.whatsapp.guest_document_lifecycle import (
+        check_guest_document_intake_automation,
+    )
+
+    allowed, reason = check_guest_document_intake_automation(reservation)
+    if not allowed:
+        session.status = WhatsAppDocumentBatchStatus.COLLECTING
+        session.save(update_fields=["status", "updated_at"])
+        return {"status": "skipped", "reason": reason, "job_id": session.job_id}
+
     job = session.job
     integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None:
@@ -519,16 +529,13 @@ def on_whatsapp_document_received(message_id: int) -> dict:
     if reservation is None:
         return {"status": "skipped", "reason": "no_reservation"}
 
-    from apps.integrations.whatsapp.apply_reply import (
-        is_document_checkin_complete,
-        is_whatsapp_autocheckin_waived,
+    from apps.integrations.whatsapp.guest_document_lifecycle import (
+        check_guest_document_intake_automation,
     )
 
-    if is_whatsapp_autocheckin_waived(reservation):
-        return {"status": "skipped", "reason": "autocheckin_waived"}
-
-    if is_document_checkin_complete(reservation):
-        return {"status": "skipped", "reason": "docs_complete"}
+    allowed, reason = check_guest_document_intake_automation(reservation)
+    if not allowed:
+        return {"status": "skipped", "reason": reason}
 
     from apps.integrations.whatsapp.autocheckin_maintenance import (
         send_autocheckin_maintenance_reply,
@@ -730,10 +737,13 @@ def handle_whatsapp_document_batch_reply(message_id: int) -> dict:
     if row is None or row.reservation_id is None:
         return {"status": "skipped", "reason": "no_reservation"}
 
-    from apps.integrations.whatsapp.apply_reply import is_whatsapp_autocheckin_waived
+    from apps.integrations.whatsapp.guest_document_lifecycle import (
+        check_guest_document_intake_automation,
+    )
 
-    if is_whatsapp_autocheckin_waived(row.reservation):
-        return {"status": "skipped", "reason": "autocheckin_waived"}
+    allowed, reason = check_guest_document_intake_automation(row.reservation)
+    if not allowed:
+        return {"status": "skipped", "reason": reason}
 
     button_id = inbound_interactive_button_id(row)
     action_text = (row.body or "").strip()

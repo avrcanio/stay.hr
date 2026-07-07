@@ -52,7 +52,8 @@ from apps.integrations.whatsapp.integration_lookup import resolve_whatsapp_integ
 from apps.integrations.whatsapp.phone import normalize_phone
 from apps.integrations.whatsapp.whatsapp_errors import is_whatsapp_session_api_error
 from apps.integrations.whatsapp.whatsapp_session import is_customer_service_window_open
-from apps.reservations.models import Reservation
+from apps.reservations.models import Reservation, ReservationVersionScope
+from apps.reservations.reservation_version import touch_reservation_version
 from apps.tenants.models import ApiApplication, ChannelManager
 
 logger = logging.getLogger(__name__)
@@ -158,12 +159,74 @@ def channels_with_reply_default(
     return updated
 
 
-def build_message_channels(reservation: Reservation) -> dict:
+def _welcome_template_available(
+    *,
+    integration: IntegrationConfig,
+    runtime,
+    template_name: str,
+    language_code: str,
+) -> bool:
+    from apps.integrations.whatsapp.meta_templates import MetaTemplateApiError, find_message_template
+
+    waba_id = runtime.effective_waba_id()
+    if not waba_id or not runtime.access_token:
+        return False
+    try:
+        existing = find_message_template(
+            waba_id=waba_id,
+            access_token=runtime.access_token,
+            name=template_name,
+            language=language_code,
+        )
+    except MetaTemplateApiError:
+        return False
+    return bool(existing and str(existing.get("status") or "").upper() == "APPROVED")
+
+
+def _whatsapp_template_compose_fields(
+    reservation: Reservation,
+    *,
+    intent: str | None,
+    whatsapp_api_send: bool,
+    integration: IntegrationConfig | None,
+    runtime,
+) -> dict:
+    from apps.integrations.whatsapp.welcome_template import (
+        build_welcome_template_parameters,
+        welcome_template_name,
+    )
+
+    template_name: str | None = None
+    template_available = False
+    if not whatsapp_api_send or integration is None or runtime is None:
+        return {"template_name": template_name, "template_available": template_available}
+    if intent not in (
+        GuestMessageIntent.CHECKIN,
+        GuestMessageIntent.WELCOME_TEMPLATE,
+        None,
+    ):
+        return {"template_name": template_name, "template_available": template_available}
+
+    config = integration.get_config_dict()
+    lang, _params = build_welcome_template_parameters(reservation)
+    computed_name = welcome_template_name(config=config, lang=lang)
+    if intent in (GuestMessageIntent.CHECKIN, GuestMessageIntent.WELCOME_TEMPLATE):
+        template_name = computed_name
+        template_available = _welcome_template_available(
+            integration=integration,
+            runtime=runtime,
+            template_name=computed_name,
+            language_code=lang,
+        )
+    return {"template_name": template_name, "template_available": template_available}
+
+
+def build_message_channels(reservation: Reservation, *, intent: str | None = None) -> dict:
     email = _guest_recipient(reservation)
     phone_raw = guest_phone_number(reservation)
     phone_wa = normalize_phone(phone_raw)
     booking_available = _booking_channel_available(reservation)
-    _, whatsapp_runtime = resolve_whatsapp_integration(reservation.tenant)
+    whatsapp_integration, whatsapp_runtime = resolve_whatsapp_integration(reservation.tenant)
     whatsapp_api_send = _whatsapp_api_send_enabled(whatsapp_runtime)
 
     email_available = bool(email)
@@ -193,6 +256,14 @@ def build_message_channels(reservation: Reservation) -> dict:
         booking_available=booking_available,
     )
 
+    template_fields = _whatsapp_template_compose_fields(
+        reservation,
+        intent=intent,
+        whatsapp_api_send=whatsapp_api_send,
+        integration=whatsapp_integration if whatsapp_api_send else None,
+        runtime=whatsapp_runtime if whatsapp_api_send else None,
+    )
+
     return {
         "email": {
             "available": email_available,
@@ -205,6 +276,7 @@ def build_message_channels(reservation: Reservation) -> dict:
             "wa_me_url": build_wa_me_url(phone_wa, "") if phone_wa else "",
             "api_send": whatsapp_api_send,
             "session_open": session_open,
+            **template_fields,
         },
         "booking": {
             "available": booking_available,
@@ -344,6 +416,11 @@ def send_guest_email_with_timeline_record(
     if outbound.status == GuestOutboundMessageStatus.SENT:
         draft.sent_at = timezone.now()
         update_fields.append("sent_at")
+        touch_reservation_version(
+            reservation.pk,
+            ReservationVersionScope.MESSAGES,
+            reason="email_outbound",
+        )
     draft.save(update_fields=update_fields)
 
     return outbound
@@ -358,6 +435,7 @@ def send_guest_message(
     api_application: ApiApplication | None,
     subject: str | None = None,
     existing_outbound: GuestOutboundMessage | None = None,
+    request_id: str = "",
 ) -> GuestOutboundMessage | ChannexMessage:
     """Send via email, WhatsApp handoff, or Channex Booking.com messages."""
     text = (body_text or "").strip()
@@ -379,6 +457,7 @@ def send_guest_message(
             body_text=text,
             api_application=api_application,
             existing_outbound=existing_outbound,
+            request_id=request_id,
         )
     if channel == GuestMessageChannel.BOOKING:
         return _send_booking_channel(
@@ -417,6 +496,7 @@ def _send_whatsapp_channel(
     body_text: str,
     api_application: ApiApplication | None,
     existing_outbound: GuestOutboundMessage | None = None,
+    request_id: str = "",
 ) -> GuestOutboundMessage:
     from apps.communications.guest_message_whatsapp_v2 import send_whatsapp_channel_v2
 
@@ -426,6 +506,7 @@ def _send_whatsapp_channel(
         body_text=body_text,
         api_application=api_application,
         existing_outbound=existing_outbound,
+        request_id=request_id,
     )
 
 
@@ -521,6 +602,11 @@ def send_guest_whatsapp_image(
     draft.sent_at = now
     draft.save(update_fields=["final_body_text", "channel", "sent_at"])
 
+    touch_reservation_version(
+        reservation.pk,
+        ReservationVersionScope.MESSAGES,
+        reason="whatsapp_outbound",
+    )
     return wa_message
 
 
@@ -615,6 +701,11 @@ def send_whatsapp_entrance_image_from_asset(
     draft.sent_at = now
     draft.save(update_fields=["final_body_text", "channel", "sent_at"])
 
+    touch_reservation_version(
+        reservation.pk,
+        ReservationVersionScope.MESSAGES,
+        reason="whatsapp_outbound",
+    )
     return wa_message
 
 
@@ -768,6 +859,11 @@ def _send_whatsapp_handoff(
     if handoff_reason:
         outbound.handoff_reason = handoff_reason  # type: ignore[attr-defined]
 
+    touch_reservation_version(
+        reservation.pk,
+        ReservationVersionScope.MESSAGES,
+        reason="whatsapp_handoff",
+    )
     return outbound
 
 

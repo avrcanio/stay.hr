@@ -226,6 +226,16 @@ def finalize_document_intake_job(
     reservation = ctx.reservation or Reservation.objects.select_related("property", "tenant").get(
         pk=job.reservation_id
     )
+
+    if channel == "guest":
+        from apps.integrations.whatsapp.guest_document_lifecycle import (
+            check_guest_document_intake_automation,
+        )
+
+        allowed, reason = check_guest_document_intake_automation(reservation)
+        if not allowed:
+            return {"status": "skipped", "reason": reason, "job_id": job.pk}
+
     persons = (job.ocr_result or {}).get("persons") or []
     images = list(job.images.order_by("sort_order", "id"))
 

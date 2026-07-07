@@ -1,13 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import {
+  ensureCorrelationId,
+  logGuestMessageEvent,
+  sanitizeBody,
+  syncCorrelationIdFromResponse,
+} from "@/lib/guestMessageDebug";
+import { shouldRunFullSync } from "@/lib/shouldRunFullSync";
 import type {
   GuestMessageChannelInfo,
   GuestMessageChannels,
   GuestMessageComposeResponse,
   GuestMessageTimelineItem,
 } from "@/lib/types";
+import { useReservationVersionWatch } from "@/lib/useReservationVersionWatch";
 
 type Props = {
   reservationId: number;
@@ -46,6 +54,7 @@ function channelHint(
   channel: string,
   channels: GuestMessageChannels,
   t: (key: string, values?: Record<string, string>) => string,
+  composeIntent?: ComposeIntent,
 ): string | null {
   if (channel === "booking" && channels.booking?.available) {
     return t("channelBookingHint");
@@ -54,10 +63,19 @@ function channelHint(
     return t("channelEmailHint", { email: channels.email.to });
   }
   if (channel === "whatsapp" && channels.whatsapp?.available) {
-    if (channels.whatsapp.api_send) {
+    const wa = channels.whatsapp;
+    if (wa.api_send && !wa.session_open) {
+      const templateOk =
+        composeIntent === "checkin" && Boolean(wa.template_available);
+      if (!templateOk) {
+        return t("channelWhatsappSessionClosedHint");
+      }
       return t("channelWhatsappApiHint");
     }
-    const phone = channels.whatsapp.phone_raw || channels.whatsapp.phone_wa || "";
+    if (wa.api_send) {
+      return t("channelWhatsappApiHint");
+    }
+    const phone = wa.phone_raw || wa.phone_wa || "";
     if (phone) {
       return t("channelWhatsappHint", { phone });
     }
@@ -79,6 +97,10 @@ export function GuestMessagesPanel({ reservationId }: Props) {
   const [selectedChannel, setSelectedChannel] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
+  const [correlationId, setCorrelationId] = useState("");
+  const channelLoggedRef = useRef("");
+  const lastFullSyncAtRef = useRef<number | null>(null);
+  const hiddenAtRef = useRef<number | null>(null);
 
   const baseUrl = `/api/stay/reception/reservations/${reservationId}/messages`;
 
@@ -87,28 +109,98 @@ export function GuestMessagesPanel({ reservationId }: Props) {
     [channels],
   );
 
-  const loadTimeline = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch(`${baseUrl}/?sync=1`);
-      if (!res.ok) throw new Error(t("loadFailed"));
-      setTimeline((await res.json()) as GuestMessageTimelineItem[]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : tc("error"));
-      setTimeline([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [baseUrl, t, tc]);
+  const loadTimeline = useCallback(
+    async (opts?: { sync?: 0 | 1; background?: boolean }) => {
+      const sync = opts?.sync ?? 1;
+      const background = Boolean(opts?.background);
+      if (!background) {
+        setLoading(true);
+      }
+      setError("");
+      try {
+        const res = await fetch(`${baseUrl}/?sync=${sync}`);
+        if (!res.ok) throw new Error(t("loadFailed"));
+        setTimeline((await res.json()) as GuestMessageTimelineItem[]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : tc("error"));
+        if (!background) {
+          setTimeline([]);
+        }
+      } finally {
+        if (!background) {
+          setLoading(false);
+        }
+      }
+    },
+    [baseUrl, t, tc],
+  );
+
+  const maybeFullSync = useCallback(
+    (opts?: { isMount?: boolean; visibleAgain?: boolean; background?: boolean }) => {
+      const now = Date.now();
+      if (
+        shouldRunFullSync({
+          isMount: opts?.isMount,
+          hiddenAt: hiddenAtRef.current,
+          visibleAgain: opts?.visibleAgain,
+          lastFullSyncAt: lastFullSyncAtRef.current,
+          now,
+        })
+      ) {
+        void loadTimeline({ sync: 1, background: opts?.background ?? true });
+        lastFullSyncAtRef.current = now;
+      }
+    },
+    [loadTimeline],
+  );
 
   useEffect(() => {
-    void loadTimeline();
-  }, [loadTimeline]);
+    lastFullSyncAtRef.current = null;
+    hiddenAtRef.current = null;
+    void loadTimeline({ sync: 1, background: false });
+    lastFullSyncAtRef.current = Date.now();
+  }, [reservationId, loadTimeline]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      maybeFullSync({ background: true });
+    }, 60_000);
+
+    return () => window.clearInterval(id);
+  }, [maybeFullSync]);
+
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (document.hidden) {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
+      maybeFullSync({ visibleAgain: true, background: true });
+      hiddenAtRef.current = null;
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [maybeFullSync]);
+
+  useReservationVersionWatch({
+    reservationId,
+    scope: "messages",
+    onVersionChange: () => {
+      void loadTimeline({ sync: 0, background: true });
+    },
+  });
 
   useEffect(() => {
     if (availableChannels.length === 0) {
       setSelectedChannel("");
+      return;
+    }
+    if (
+      selectedChannel &&
+      availableChannels.includes(selectedChannel as (typeof CHANNEL_ORDER)[number])
+    ) {
       return;
     }
     const preferred = channels.default_channel;
@@ -119,15 +211,34 @@ export function GuestMessagesPanel({ reservationId }: Props) {
       setSelectedChannel(preferred);
       return;
     }
-    if (!selectedChannel || !availableChannels.includes(selectedChannel as (typeof CHANNEL_ORDER)[number])) {
-      setSelectedChannel(availableChannels[0]);
-    }
-  }, [availableChannels, selectedChannel, channels.default_channel]);
+    setSelectedChannel(availableChannels[0]);
+  }, [availableChannels, channels.default_channel, selectedChannel]);
+
+  useEffect(() => {
+    if (!correlationId || !selectedChannel || draftId === null) return;
+    if (channelLoggedRef.current === `${correlationId}:${selectedChannel}`) return;
+    channelLoggedRef.current = `${correlationId}:${selectedChannel}`;
+    logGuestMessageEvent("channel.change", {
+      correlationId,
+      selectedChannel,
+      defaultChannel: channels.default_channel ?? "",
+      channelHint: channelHint(selectedChannel, channels, t, composeIntent),
+    });
+  }, [correlationId, selectedChannel, channels, draftId, t, composeIntent]);
 
   async function handleCompose() {
+    const cid = ensureCorrelationId(null);
+    setCorrelationId(cid);
+    channelLoggedRef.current = "";
+    const composeStarted = performance.now();
     setBusy(true);
     setError("");
     setActionMessage("");
+    logGuestMessageEvent("compose.start", {
+      correlationId: cid,
+      reservationId,
+      composeIntent,
+    });
     try {
       const payload: Record<string, string> = { intent: composeIntent };
       if (composeIntent === "reply" && composeHint.trim()) {
@@ -138,14 +249,36 @@ export function GuestMessagesPanel({ reservationId }: Props) {
       }
       const res = await fetch(`${baseUrl}/compose/`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Correlation-Id": cid,
+        },
         body: JSON.stringify(payload),
       });
+      const echoedId = syncCorrelationIdFromResponse(res, cid);
+      setCorrelationId(echoedId);
+      const composeMs = Math.round(performance.now() - composeStarted);
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { detail?: string } | null;
+        logGuestMessageEvent("compose.error", {
+          correlationId: echoedId,
+          reservationId,
+          composeIntent,
+          compose_ms: composeMs,
+          httpStatus: res.status,
+          error: data?.detail || t("composeFailed"),
+        });
         throw new Error(data?.detail || t("composeFailed"));
       }
       const data = (await res.json()) as GuestMessageComposeResponse;
+      logGuestMessageEvent("compose.success", {
+        correlationId: echoedId,
+        reservationId,
+        composeIntent,
+        compose_ms: composeMs,
+        draftId: data.draft_id,
+        channels: data.channels,
+      });
       setDraftId(data.draft_id);
       setBodyText(data.body_text);
       setChannels(data.channels);
@@ -175,18 +308,37 @@ export function GuestMessagesPanel({ reservationId }: Props) {
     setBusy(true);
     setError("");
     setActionMessage("");
+    const cid = ensureCorrelationId(correlationId);
+    const sendStarted = performance.now();
+    logGuestMessageEvent("send.start", {
+      correlationId: cid,
+      reservationId,
+      draftId,
+      selectedChannel,
+      ...sanitizeBody(text),
+    });
     try {
       const res = await fetch(`${baseUrl}/send/`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Correlation-Id": cid,
+        },
         body: JSON.stringify({
           draft_id: draftId,
           channel: selectedChannel,
           body_text: text,
         }),
       });
+      const echoedId = syncCorrelationIdFromResponse(res, cid);
+      setCorrelationId(echoedId);
+      const sendMs = Math.round(performance.now() - sendStarted);
       const data = (await res.json().catch(() => null)) as
-        | (GuestMessageTimelineItem & { wa_me_url?: string | null })
+        | (GuestMessageTimelineItem & {
+            wa_me_url?: string | null;
+            handoff_reason?: string | null;
+            provider_message_id?: string | null;
+          })
         | { detail?: string; channel?: string[] }
         | null;
       if (!res.ok) {
@@ -194,9 +346,24 @@ export function GuestMessagesPanel({ reservationId }: Props) {
           (data && "channel" in data && Array.isArray(data.channel) && data.channel[0]) ||
           (data && "detail" in data && data.detail) ||
           t("sendFailed");
-        throw new Error(String(detail));
+        const errorText =
+          String(detail) === "whatsapp_template_required"
+            ? t("sendErrorWhatsappTemplateRequired")
+            : String(detail);
+        logGuestMessageEvent("send.error", {
+          correlationId: echoedId,
+          reservationId,
+          draftId,
+          selectedChannel,
+          send_ms: sendMs,
+          httpStatus: res.status,
+          error: errorText,
+          ...sanitizeBody(text),
+        });
+        throw new Error(errorText);
       }
 
+      let popupBlocked = false;
       if (
         selectedChannel === "whatsapp" &&
         data &&
@@ -205,21 +372,56 @@ export function GuestMessagesPanel({ reservationId }: Props) {
         "wa_me_url" in data &&
         data.wa_me_url
       ) {
-        window.open(data.wa_me_url, "_blank", "noopener,noreferrer");
+        const popup = window.open(data.wa_me_url, "_blank", "noopener,noreferrer");
+        popupBlocked = popup === null;
+        if (popupBlocked) {
+          logGuestMessageEvent("send.popup_blocked", {
+            correlationId: echoedId,
+            reservationId,
+            draftId,
+            selectedChannel,
+            wa_me_url: data.wa_me_url,
+          });
+        }
         setActionMessage(t("whatsappHandoff"));
       } else {
         setActionMessage(t("sendSuccess"));
       }
 
+      logGuestMessageEvent("send.success", {
+        correlationId: echoedId,
+        reservationId,
+        draftId,
+        selectedChannel,
+        send_ms: sendMs,
+        status: data && "status" in data ? data.status : null,
+        handoff_reason:
+          data && "handoff_reason" in data ? data.handoff_reason ?? null : null,
+        wa_me_url: data && "wa_me_url" in data ? data.wa_me_url ?? null : null,
+        provider_message_id:
+          data && "provider_message_id" in data
+            ? data.provider_message_id ?? null
+            : null,
+        popupBlocked,
+        ...sanitizeBody(text),
+      });
+
       setDraftId(null);
       setBodyText("");
       setComposeHint("");
-      await loadTimeline();
+      setCorrelationId("");
+      channelLoggedRef.current = "";
+      await loadTimeline({ sync: 0, background: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : tc("error"));
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleManualRefresh() {
+    lastFullSyncAtRef.current = Date.now();
+    void loadTimeline({ sync: 1, background: false });
   }
 
   return (
@@ -229,7 +431,7 @@ export function GuestMessagesPanel({ reservationId }: Props) {
         <button
           type="button"
           className="btn-ghost text-sm"
-          onClick={() => void loadTimeline()}
+          onClick={handleManualRefresh}
           disabled={loading || busy}
         >
           {tc("refresh")}
@@ -327,10 +529,11 @@ export function GuestMessagesPanel({ reservationId }: Props) {
               <p className="text-sm font-medium">{t("channelLabel")}</p>
               <div className="flex flex-wrap gap-2">
                 {availableChannels.map((channel) => (
-                  <label key={channel} className="inline-flex items-center gap-2 text-sm">
+                  <label key={channel} className="inline-flex cursor-pointer items-center gap-2 text-sm">
                     <input
                       type="radio"
                       name={`guest-message-channel-${reservationId}`}
+                      value={channel}
                       checked={selectedChannel === channel}
                       onChange={() => setSelectedChannel(channel)}
                       disabled={busy}
@@ -341,7 +544,7 @@ export function GuestMessagesPanel({ reservationId }: Props) {
               </div>
               {selectedChannel ? (
                 <p className="text-xs text-muted">
-                  {channelHint(selectedChannel, channels, t) ?? null}
+                  {channelHint(selectedChannel, channels, t, composeIntent) ?? null}
                 </p>
               ) : null}
             </div>
