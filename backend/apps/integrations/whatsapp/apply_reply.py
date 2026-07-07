@@ -23,7 +23,7 @@ from apps.communications.models import (
     GuestOutboundMessage,
     GuestOutboundMessageStatus,
 )
-from apps.integrations.evisitor.eligibility import guest_requires_evisitor
+from apps.reservations.document_expectations import expected_document_count, expected_document_slots
 from apps.integrations.models import WhatsAppMessage
 from apps.integrations.whatsapp.client import WhatsAppApiError, extract_outbound_wamid, send_text_message
 from apps.integrations.whatsapp.integration_lookup import resolve_whatsapp_integration
@@ -66,21 +66,6 @@ def document_apply_reply_enabled() -> bool:
     return raw not in ("0", "false", "no", "off")
 
 
-def adult_guests_for_registration(reservation: Reservation) -> list[Guest]:
-    guests = list(reservation.guests.all())
-    adults = [
-        guest
-        for guest in guests
-        if guest_requires_evisitor(guest, reference_date=reservation.check_in)
-    ]
-    if adults:
-        return adults
-    target = reservation.adults_count or 1
-    if guests:
-        return guests[:target]
-    return []
-
-
 def guest_is_registered(guest: Guest) -> bool:
     if not is_unfilled_guest(guest):
         return True
@@ -88,10 +73,10 @@ def guest_is_registered(guest: Guest) -> bool:
 
 
 def all_adult_guests_registered(reservation: Reservation) -> bool:
-    adults = adult_guests_for_registration(reservation)
-    if not adults:
+    slots = expected_document_slots(reservation)
+    if not slots:
         return False
-    return all(guest_is_registered(guest) for guest in adults)
+    return all(guest_is_registered(guest) for guest in slots)
 
 
 def is_document_checkin_complete(reservation: Reservation) -> bool:

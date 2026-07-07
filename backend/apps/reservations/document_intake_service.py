@@ -21,6 +21,7 @@ from apps.ai.document_ocr import (
 )
 from apps.reservations.document_intake_ocr_fixup import fixup_document_ocr_result
 from apps.reservations.document_intake_context import DocumentIntakeContext
+from apps.reservations.document_expectations import expected_document_count
 from apps.reservations.document_intake_preprocess import (
     build_dropped_to_canonical_map,
     canonicalize_person_image_indices,
@@ -82,9 +83,7 @@ def should_run_orphan_pass(
     if reservation is None:
         return False
     unassigned = unassigned_image_indices(persons=persons, image_count=len(images))
-    adults_count = reservation.adults_count or 0
-    persons_count = reservation.persons_count or 0
-    expected_persons = max(adults_count, persons_count)
+    expected_persons = expected_document_count(reservation)
     if len(unassigned) >= 2:
         return True
     return len(persons) < expected_persons and len(unassigned) >= 1
