@@ -17,9 +17,17 @@ Non-responsibilities:
 
 from __future__ import annotations
 
-from apps.reservations.document_intake_completeness import MissingGuest
+from dataclasses import dataclass
+
 from apps.reservations.guest_slots import PLACEHOLDER_NAME, is_unfilled_guest
 from apps.reservations.models import Guest, Reservation
+
+
+@dataclass(frozen=True)
+class MissingGuest:
+    guest_id: int
+    guest_name: str
+    adult_ordinal: int
 
 
 def expected_document_count(reservation: Reservation) -> int:
