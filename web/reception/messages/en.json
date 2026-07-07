@@ -18,6 +18,7 @@
     "calendar": "Calendar",
     "newReservation": "New booking",
     "reviews": "Reviews",
+    "reports": "Reports",
     "whatsapp": "WhatsApp",
     "logout": "Log out"
   },
@@ -472,6 +473,45 @@
       "phone": "Phone",
       "waba": "WABA ID",
       "disconnectHint": "Disconnect will be available in a future release."
+    }
+  },
+  "propertyFinancialReport": {
+    "title": "Property financial report",
+    "subtitle": "Check-out in the selected period — checked-out reservations only (settlement).",
+    "property": "Property",
+    "propertyPlaceholder": "Select property…",
+    "checkOutFrom": "Check-out from",
+    "checkOutTo": "Check-out to",
+    "presetPreviousMonth": "Previous month",
+    "presetThisMonth": "This month",
+    "generate": "Generate preview",
+    "downloadPdf": "Download PDF",
+    "downloadExcel": "Download Excel",
+    "sendEmail": "Send email",
+    "emailComingSoon": "Email delivery is coming in a future release.",
+    "periodSummary": "Check-out {from} – {to}",
+    "generatedAt": "Generated: {value}",
+    "maxPeriodDays": "Max period: {days} days",
+    "missingCommissionWarning": "{count} row(s) missing commission — net total excludes those rows.",
+    "noRows": "No reservations in the selected period.",
+    "totalsLabel": "Totals ({count} reservations)",
+    "columns": {
+      "booking": "Booking",
+      "checkIn": "Check-in",
+      "checkOut": "Check-out",
+      "rooms": "Rooms",
+      "nights": "Nights",
+      "gross": "Gross",
+      "commission": "Commission",
+      "net": "Net",
+      "source": "Source",
+      "guests": "Guests"
+    },
+    "errors": {
+      "loadFailed": "Failed to load report.",
+      "periodInvalid": "Check the period dates.",
+      "periodTooLong": "Period is too long (max {maxDays} days).",
+      "propertyRequired": "Select a property."
     }
   }
 }
