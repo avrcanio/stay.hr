@@ -68,6 +68,7 @@ from apps.api.reception_views import (
     ReceptionHealthView,
     ReceptionMonthlyStatisticsView,
     ReceptionSyncVersionsView,
+    ReceptionReservationVersionStreamView,
     ReservationConfirmationPdfView,
     ReservationDetailView,
     ReservationGuestDetailView,
@@ -106,6 +107,11 @@ urlpatterns = [
         "sync-versions/",
         ReceptionSyncVersionsView.as_view(),
         name="reception-sync-versions",
+    ),
+    path(
+        "reservation-versions/stream/",
+        ReceptionReservationVersionStreamView.as_view(),
+        name="reception-reservation-versions-stream",
     ),
     path(
         "statistics/monthly/",

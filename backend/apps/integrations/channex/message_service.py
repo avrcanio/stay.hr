@@ -18,7 +18,8 @@ from apps.integrations.channex.client import ChannexClient
 from apps.integrations.channex.config import ChannexRuntimeConfig
 from apps.integrations.channex.exceptions import ChannexApiError, ChannexBookingIngestError
 from apps.integrations.models import ChannexBookingRevision, ChannexMessage, IntegrationConfig
-from apps.reservations.models import Reservation
+from apps.reservations.models import Reservation, ReservationVersionScope
+from apps.reservations.reservation_version import touch_reservation_version
 from apps.tenants.models import Tenant
 
 logger = logging.getLogger(__name__)
@@ -262,6 +263,15 @@ def _extract_message_rows(api_response: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _channex_message_visible_in_timeline(row: ChannexMessage) -> bool:
+    body = (row.body or "").strip()
+    if body:
+        return True
+    if row.have_attachment:
+        return True
+    return bool(getattr(row, "media_file", None) and row.media_file)
+
+
 def upsert_channex_message_from_payload(
     *,
     tenant: Tenant,
@@ -305,6 +315,12 @@ def upsert_channex_message_from_payload(
     if inserted_at is not None:
         ChannexMessage.objects.filter(pk=row.pk).update(created_at=inserted_at)
         row.created_at = inserted_at
+    if reservation is not None and _channex_message_visible_in_timeline(row):
+        touch_reservation_version(
+            reservation.pk,
+            ReservationVersionScope.MESSAGES,
+            reason="channex_message",
+        )
     if reservation is None and booking_id:
         logger.warning(
             "channex message stored without reservation link",

@@ -684,3 +684,36 @@ class MonthlyStatisticsOverride(TenantScopedModel):
             f"{self.year}-{self.month:02d} — "
             f"{self.revenue} {self.currency}, {self.nights} noći"
         )
+
+
+class ReservationVersionScope(models.TextChoices):
+    MESSAGES = "messages", "Messages"
+    PAYMENTS = "payments", "Payments"
+    DOCUMENTS = "documents", "Documents"
+    CHECKIN = "checkin", "Check-in"
+    HOUSEKEEPING = "housekeeping", "Housekeeping"
+
+
+class ReservationVersion(models.Model):
+    reservation = models.ForeignKey(
+        Reservation,
+        on_delete=models.CASCADE,
+        related_name="version_rows",
+    )
+    scope = models.CharField(max_length=32, choices=ReservationVersionScope.choices)
+    version = models.PositiveBigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reservation", "scope"],
+                name="reservation_scope_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["reservation", "scope"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"ReservationVersion reservation={self.reservation_id} scope={self.scope} v={self.version}"
