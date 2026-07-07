@@ -4,8 +4,12 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
 from apps.properties.models import Property
+from apps.reservations.document_intake_audit import run_document_intake_matching_pipeline
 from apps.reservations.document_intake_completeness import evaluate_completeness
 from apps.reservations.models import Guest, IdDocument, Reservation
+from apps.reservations.tests.fixtures.document_intake.load_fixture import (
+    build_reservation_from_fixture,
+)
 from apps.tenants.models import Tenant
 
 
@@ -248,3 +252,69 @@ class DocumentIntakeCompletenessTests(TestCase):
         result = self._evaluate(persons, matches, images=[_FakeImage(0), _FakeImage(1)])
         self.assertTrue(result.ocr_under_extracted)
         self.assertEqual(result.unassigned_image_indices, [])
+
+
+class DocumentIntakeCompletenessPolicyRegressionTests(TestCase):
+    """Regression: completeness delegates missing_guests to document_expectations."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(slug="completeness-policy", name="Policy")
+        self.property = Property.objects.create(
+            tenant=self.tenant,
+            name="Uzorita",
+            slug="uzorita-completeness-policy",
+        )
+
+    def test_978_missing_guests_capped_at_adults_count(self):
+        reservation, _guests, ocr_data, _meta = build_reservation_from_fixture(
+            tenant=self.tenant,
+            property=self.property,
+            scenario="978",
+        )
+        images = [_FakeImage(i) for i in range(len(ocr_data.get("images") or ocr_data["persons"]))]
+        result = evaluate_completeness(
+            reservation=reservation,
+            persons=ocr_data["persons"],
+            matches=[],
+            images=images,
+        )
+        self.assertEqual(len(result.missing_guests), 4)
+        self.assertFalse(result.is_complete)
+
+    def test_978_complete_when_all_adult_slots_matched(self):
+        reservation, _guests, ocr_data, _meta = build_reservation_from_fixture(
+            tenant=self.tenant,
+            property=self.property,
+            scenario="978",
+        )
+        persons = ocr_data["persons"]
+        matches = run_document_intake_matching_pipeline(
+            tenant_id=self.tenant.pk,
+            reservation=reservation,
+            persons=persons,
+        )
+        images = [_FakeImage(i) for i in range(len(ocr_data.get("images") or persons))]
+        result = evaluate_completeness(
+            reservation=reservation,
+            persons=persons,
+            matches=matches,
+            images=images,
+        )
+        self.assertEqual(result.missing_guests, [])
+        self.assertTrue(result.is_complete)
+
+    def test_horvat_missing_guests_count_is_adults_not_persons(self):
+        reservation, _guests, ocr_data, _meta = build_reservation_from_fixture(
+            tenant=self.tenant,
+            property=self.property,
+            scenario="horvat",
+        )
+        images = [_FakeImage(i) for i in range(len(ocr_data.get("images") or ocr_data["persons"]))]
+        result = evaluate_completeness(
+            reservation=reservation,
+            persons=ocr_data["persons"],
+            matches=[],
+            images=images,
+        )
+        self.assertEqual(len(result.missing_guests), 2)
+        self.assertFalse(result.is_complete)

@@ -4,22 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from apps.integrations.whatsapp.apply_reply import adult_guests_for_registration
+from apps.reservations.document_expectations import (
+    MissingGuest,
+    expected_document_count,
+    missing_document_slots,
+)
 from apps.reservations.document_intake_service import _resolve_side_images
 from apps.reservations.document_intake_sides import (
     MissingIdSide,
     _guest_treat_as_passport,
     _has_photo,
 )
-from apps.reservations.guest_slots import ensure_guest_slots_for_intake, is_unfilled_guest, PLACEHOLDER_NAME
+from apps.reservations.guest_slots import ensure_guest_slots_for_intake
 from apps.reservations.models import Guest, Reservation
-
-
-@dataclass(frozen=True)
-class MissingGuest:
-    guest_id: int
-    guest_name: str
-    adult_ordinal: int
 
 
 @dataclass(frozen=True)
@@ -55,11 +52,6 @@ def unassigned_image_indices(*, persons: list[dict], image_count: int) -> list[i
             if idx >= 0:
                 used.add(idx)
     return [i for i in range(image_count) if i not in used]
-
-
-def _guest_display_name(guest: Guest) -> str:
-    name = (guest.name or f"{guest.first_name} {guest.last_name}".strip()).strip()
-    return name or f"Guest #{guest.pk}"
 
 
 def _person_display_name(person: dict) -> str:
@@ -125,7 +117,6 @@ def evaluate_completeness(
         reservation=reservation,
         min_count=len(persons),
     )
-    adults = adult_guests_for_registration(reservation)
     guest_by_id = {guest.pk: guest for guest in reservation.guests.all()}
 
     match_by_person: dict[int, dict] = {}
@@ -139,7 +130,6 @@ def evaluate_completeness(
         if idx >= 0:
             match_by_person[idx] = match
 
-    matched_guest_ids: set[int] = set()
     missing_sides: list[MissingIdSide] = []
     unmatched_persons: list[UnmatchedPerson] = []
 
@@ -154,7 +144,6 @@ def evaluate_completeness(
             continue
 
         guest_id = int(match["guest_id"])
-        matched_guest_ids.add(guest_id)
         guest_name = str(match.get("guest_name") or "").strip() or _person_display_name(person)
         guest = guest_by_id.get(guest_id)
         if guest is None:
@@ -168,22 +157,16 @@ def evaluate_completeness(
             )
         )
 
-    missing_guests: list[MissingGuest] = []
-    for ordinal, guest in enumerate(adults, start=1):
-        if guest.pk in matched_guest_ids:
-            continue
-        name = _guest_display_name(guest)
-        if is_unfilled_guest(guest) or name == PLACEHOLDER_NAME:
-            label = f"{PLACEHOLDER_NAME} ({ordinal}. odrasli)"
-        else:
-            label = name
-        missing_guests.append(
-            MissingGuest(guest_id=guest.pk, guest_name=label, adult_ordinal=ordinal)
-        )
+    missing_guests = missing_document_slots(
+        reservation,
+        persons=persons,
+        matches=matches,
+        images=images,
+    )
 
     unassigned = unassigned_image_indices(persons=persons, image_count=len(images))
-    adults_count = reservation.adults_count or len(adults)
-    ocr_under_extracted = len(persons) < adults_count or (
+    expected_count = expected_document_count(reservation)
+    ocr_under_extracted = len(persons) < expected_count or (
         len(unassigned) >= 2 and bool(missing_guests)
     )
 

@@ -34,6 +34,7 @@ from apps.communications.guest_email import _email_context
 from apps.communications.guest_message_send import build_message_channels, channels_with_reply_default
 from apps.communications.models import GuestMessageDraft, GuestMessageIntent
 from apps.integrations.models import ChannexMessage, WhatsAppMessage
+from apps.reservations.document_expectations import expected_document_count
 from apps.reservations.document_intake_sides import MissingIdSide
 from apps.reservations.models import Reservation
 from apps.tenants.models import ApiApplication
@@ -332,13 +333,6 @@ def _property_address(reservation: Reservation) -> str:
     return addr or DEFAULT_ADDRESS
 
 
-def _adults_count(reservation: Reservation) -> int:
-    if reservation.adults_count:
-        return reservation.adults_count
-    count = reservation.guests.count()
-    return max(1, count)
-
-
 def _message_history(reservation: Reservation, limit: int = 10) -> list[dict]:
     rows: list[tuple[str, str, str, str]] = []
 
@@ -397,7 +391,7 @@ def build_compose_context(
         "check_out": email_ctx["check_out_display"],
         "check_in_time": email_ctx["check_in_time"],
         "check_out_time": email_ctx["check_out_time"],
-        "adults_count": _adults_count(reservation),
+        "adults_count": expected_document_count(reservation),
         "amount": _format_amount(reservation.amount),
         "currency": reservation.currency or "EUR",
         "payment_text": _payment_text(reservation, lang),
@@ -1223,7 +1217,7 @@ def create_draft_from_body_text(
     ctx = _resolve_language(reservation)
     channels = channels_with_reply_default(
         reservation,
-        build_message_channels(reservation),
+        build_message_channels(reservation, intent=GuestMessageIntent.CUSTOM),
         intent=GuestMessageIntent.CUSTOM,
     )
     draft = GuestMessageDraft.objects.create(
@@ -1260,7 +1254,7 @@ def compose_guest_message(
     ctx = _resolve_language(reservation, override=language, mode=mode)
     channels = channels_with_reply_default(
         reservation,
-        build_message_channels(reservation),
+        build_message_channels(reservation, intent=intent),
         intent=intent,
     )
 

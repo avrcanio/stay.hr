@@ -4,6 +4,8 @@ Operativna pravila za WhatsApp / Hospira batch OCR (`document-intake` API). Ažu
 
 **Povezano:** [id-document-import.md](../development/id-document-import.md), [ai-runbook-ocr-checkin-evisitor-2026-06.md](../operations/ai-runbook-ocr-checkin-evisitor-2026-06.md), [document-intake-telemetry.md](../development/document-intake-telemetry.md) (OCR-D KPIs, `_telemetry` contract)
 
+**Document expectations (PR-C):** Broj očekivanih dokumenata i slotovi za intake dolaze isključivo iz [`document_expectations.py`](../../backend/apps/reservations/document_expectations.py) (`expected_document_count` → `expected_document_slots` → `missing_document_slots`). Completeness, WhatsApp incomplete poruke i apply_reply konzumiraju taj modul — ne računaju vlastita pravila.
+
 ---
 
 ## Cross-tenant invariant (WABA → property tenant)
