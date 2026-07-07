@@ -1,0 +1,34 @@
+{
+  "scenario": "horvat",
+  "description": "2 adults + 1 child — booker Ivan Horvat, companion Ana, child Marko",
+  "booker_name": "Ivan Horvat",
+  "adults_count": 2,
+  "children_count": 1,
+  "persons_count": 3,
+  "check_in": "2026-08-01",
+  "check_out": "2026-08-05",
+  "status": "expected",
+  "guests": [
+    {
+      "slot": "primary",
+      "first_name": "Ivan",
+      "last_name": "Horvat",
+      "name": "Ivan Horvat",
+      "is_primary": true
+    },
+    {
+      "slot": "secondary",
+      "first_name": "Novi",
+      "last_name": "gost",
+      "name": "Novi gost",
+      "is_primary": false
+    },
+    {
+      "slot": "child",
+      "first_name": "Marko",
+      "last_name": "Horvat",
+      "name": "Marko Horvat",
+      "is_primary": false
+    }
+  ]
+}

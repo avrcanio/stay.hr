@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import timedelta
 
 from django.utils import timezone
 
@@ -26,11 +27,38 @@ from apps.integrations.evisitor.eligibility import guest_requires_evisitor
 from apps.integrations.models import WhatsAppMessage
 from apps.integrations.whatsapp.client import WhatsAppApiError, extract_outbound_wamid, send_text_message
 from apps.integrations.whatsapp.integration_lookup import resolve_whatsapp_integration
+from apps.reservations.document_intake_context import DocumentIntakeContext
 from apps.reservations.document_intake_sides import find_missing_id_sides
 from apps.reservations.guest_slots import is_unfilled_guest
 from apps.reservations.models import DocumentIntakeJob, DocumentIntakeJobSource, Guest, Reservation
 
 logger = logging.getLogger(__name__)
+
+INCOMPLETE_REPLY_COOLDOWN = timedelta(hours=1)
+
+
+def should_skip_duplicate_incomplete_reply(
+    *,
+    reservation: Reservation,
+    job: DocumentIntakeJob,
+) -> bool:
+    """Avoid spamming the same missing-documents list when reconcile re-runs a stale batch."""
+    last_draft = (
+        GuestMessageDraft.objects.filter(
+            reservation=reservation,
+            hint=HINT_ID_MISSING_SIDES,
+        )
+        .order_by("-sent_at")
+        .first()
+    )
+    if not last_draft or not last_draft.sent_at:
+        return False
+    if timezone.now() - last_draft.sent_at >= INCOMPLETE_REPLY_COOLDOWN:
+        return False
+    last_image_at = job.images.order_by("-created_at").values_list("created_at", flat=True).first()
+    if last_image_at and last_image_at > last_draft.sent_at:
+        return False
+    return True
 
 
 def document_apply_reply_enabled() -> bool:
@@ -127,6 +155,12 @@ def _send_whatsapp_text_reply(
     if not wa_id:
         return {"status": "skipped", "reason": "no_wa_id"}
 
+    if hint == HINT_ID_MISSING_SIDES and should_skip_duplicate_incomplete_reply(
+        reservation=reservation,
+        job=job,
+    ):
+        return {"status": "skipped", "reason": "duplicate_incomplete_reply"}
+
     integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
     if integration_row is None or runtime is None or not runtime.send_credentials_ok():
         return {"status": "skipped", "reason": "no_credentials"}
@@ -143,9 +177,10 @@ def _send_whatsapp_text_reply(
         return {"status": "send_failed", "detail": str(exc)}
 
     outbound_wamid = extract_outbound_wamid(response)
+    property_tenant_id = reservation.tenant_id
     if outbound_wamid:
         WhatsAppMessage.objects.create(
-            tenant_id=job.tenant_id,
+            tenant_id=property_tenant_id,
             integration=integration_row,
             reservation=reservation,
             wamid=outbound_wamid,
@@ -158,7 +193,7 @@ def _send_whatsapp_text_reply(
         )
 
     draft = GuestMessageDraft.objects.create(
-        tenant_id=job.tenant_id,
+        tenant_id=property_tenant_id,
         reservation=reservation,
         intent=intent,
         hint=hint,
@@ -169,7 +204,7 @@ def _send_whatsapp_text_reply(
         sent_at=timezone.now(),
     )
     GuestOutboundMessage.objects.create(
-        tenant_id=job.tenant_id,
+        tenant_id=property_tenant_id,
         reservation=reservation,
         draft=draft,
         channel=GuestMessageChannel.WHATSAPP,
@@ -186,10 +221,11 @@ def _send_whatsapp_text_reply(
 
 
 def maybe_send_document_apply_whatsapp_reply(
-    job: DocumentIntakeJob,
+    ctx: DocumentIntakeContext,
     *,
     applied: list,
 ) -> dict:
+    job = ctx.job
     if not document_apply_reply_enabled():
         return {"status": "disabled"}
     if not applied:

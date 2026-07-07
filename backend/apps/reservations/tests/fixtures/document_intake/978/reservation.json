@@ -1,0 +1,41 @@
+{
+  "scenario": "978",
+  "description": "Production reservation #978 — Laura Lysak booker, 4 adults, surname-overlap matching bug",
+  "booker_name": "Laura Lysak",
+  "adults_count": 4,
+  "children_count": 0,
+  "persons_count": 4,
+  "check_in": "2026-07-06",
+  "check_out": "2026-07-10",
+  "status": "expected",
+  "guests": [
+    {
+      "slot": "primary",
+      "first_name": "Laura",
+      "last_name": "Lysak",
+      "name": "Laura Lysak",
+      "is_primary": true
+    },
+    {
+      "slot": "secondary",
+      "first_name": "Novi",
+      "last_name": "gost",
+      "name": "Novi gost",
+      "is_primary": false
+    },
+    {
+      "slot": "secondary",
+      "first_name": "Novi",
+      "last_name": "gost",
+      "name": "Novi gost",
+      "is_primary": false
+    },
+    {
+      "slot": "secondary",
+      "first_name": "Novi",
+      "last_name": "gost",
+      "name": "Novi gost",
+      "is_primary": false
+    }
+  ]
+}

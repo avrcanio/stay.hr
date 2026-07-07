@@ -1,51 +1,42 @@
-"""Audit and auto-correct document intake guest matches."""
+"""Audit document intake: OCR-level fixes and match validation."""
 
 from __future__ import annotations
 
 import logging
 from typing import Any
 
+from apps.reservations.document_intake_context import DocumentIntakeContext
 from apps.reservations.document_intake_completeness import (
     evaluate_completeness,
     unassigned_image_indices,
 )
 from apps.reservations.document_intake_match import (
     _booker_first_name_key,
-    _booker_person_overlap,
     _person_first_name_key,
-    _person_name_keys,
-    _person_surname_tokens,
-    _reservation_label,
+    enforce_unique_guest_assignments,
     match_persons_to_guests,
 )
 from apps.reservations.document_intake_ocr_fixup import normalize_document_number
-from apps.reservations.guest_slots import PLACEHOLDER_NAME, is_unfilled_guest
 from apps.reservations.models import DocumentIntakeJob, DocumentIntakeJobStatus, Guest, Reservation
 
 logger = logging.getLogger(__name__)
 
+MATCHER_FIELDS = frozenset({
+    "guest_id",
+    "person_index",
+    "person_name",
+    "guest_name",
+    "reservation_id",
+    "reservation_label",
+    "confidence",
+    "candidates",
+})
 
-def _is_placeholder_guest(guest: Guest) -> bool:
-    name = (guest.name or "").strip()
-    if name == PLACEHOLDER_NAME:
-        return True
-    first = (guest.first_name or "").strip()
-    last = (guest.last_name or "").strip()
-    return first == "Novi" and last == "gost"
-
-
-def _guest_display_name(guest: Guest) -> str:
-    stored = (guest.name or "").strip()
-    if stored:
-        return stored
-    return f"{guest.first_name} {guest.last_name}".strip()
-
-
-def _primary_unfilled_guest(reservation: Reservation) -> Guest | None:
-    for guest in reservation.guests.all():
-        if guest.is_primary and is_unfilled_guest(guest):
-            return guest
-    return None
+VALIDATOR_FIELDS = frozenset({
+    "auto_apply",
+    "audit_status",
+    "reject_reason",
+})
 
 
 def _merge_duplicate_persons(persons: list[dict]) -> tuple[list[dict], list[str]]:
@@ -158,14 +149,15 @@ def audit_document_intake_matches(
     persons: list[dict],
     matches: list[dict],
 ) -> tuple[list[dict], list[str]]:
-    """Correct common match mistakes (e.g. booker OCR assigned to placeholder slot)."""
+    """Business validation only — never remaps matcher output fields."""
     if not persons or not matches:
         return matches, []
 
-    corrected = [dict(m) if isinstance(m, dict) else m for m in matches]
+    validated = [dict(m) if isinstance(m, dict) else m for m in matches]
     actions: list[str] = []
+    booker_first = _booker_first_name_key(reservation)
 
-    for match in corrected:
+    for match in validated:
         if not isinstance(match, dict):
             continue
         idx = int(match.get("person_index", -1))
@@ -181,64 +173,83 @@ def audit_document_intake_matches(
         except Guest.DoesNotExist:
             continue
 
-        if not _is_placeholder_guest(guest):
-            continue
-
-        keys = _person_name_keys(person)
-        surnames = _person_surname_tokens(person)
-        if not _booker_person_overlap(reservation, keys, surnames):
-            continue
-
-        booker_first = _booker_first_name_key(reservation)
         person_first = _person_first_name_key(person)
-        if booker_first and person_first and booker_first != person_first:
+        if guest.is_primary and booker_first and person_first and booker_first != person_first:
+            match["auto_apply"] = False
+            match["audit_status"] = "rejected"
+            match["reject_reason"] = "booker_first_name_mismatch"
+            actions.append(f"rejected:person_{idx}:booker_first_name_mismatch")
+            logger.info(
+                "document intake audit rejected booker first-name mismatch reservation_id=%s person_index=%s guest_id=%s",
+                reservation.pk,
+                idx,
+                guest.pk,
+            )
             continue
 
-        primary = _primary_unfilled_guest(reservation)
-        if primary is None or primary.pk == guest.pk:
-            continue
+        match["audit_status"] = "confirmed"
 
-        match["guest_id"] = primary.pk
-        match["guest_name"] = _guest_display_name(primary)
-        match["reservation_id"] = reservation.pk
-        match["reservation_label"] = _reservation_label(reservation)
-        match["auto_apply"] = True
-        actions.append(f"wrong_slot:person_{idx}->guest_{primary.pk}")
-        logger.info(
-            "document intake audit corrected wrong slot reservation_id=%s person_index=%s guest_id=%s",
-            reservation.pk,
-            idx,
-            primary.pk,
+    return validated, actions
+
+
+def run_document_intake_matching_pipeline(
+    *,
+    tenant_id: int,
+    persons: list[dict],
+    reservation: Reservation | None = None,
+    reservation_id: int | None = None,
+) -> list[dict]:
+    """Run match → enforce_unique → audit (when reservation is known).
+
+    This is the only supported production entry point for document-intake matching.
+    Production code must not call ``match_persons_to_guests()`` directly.
+    Matcher-only behaviour belongs in tests or private helpers, not production APIs.
+    """
+    rid: int | None = reservation.pk if reservation is not None else reservation_id
+    matches = match_persons_to_guests(
+        tenant_id=tenant_id,
+        persons=persons,
+        reservation_id=rid,
+    )
+    matches = enforce_unique_guest_assignments(matches)
+
+    audit_reservation = reservation
+    if audit_reservation is None and rid is not None:
+        audit_reservation = Reservation.objects.prefetch_related("guests").get(pk=rid)
+
+    if audit_reservation is not None:
+        matches, _actions = audit_document_intake_matches(
+            reservation=audit_reservation,
+            persons=persons,
+            matches=matches,
         )
+    return matches
 
-    return corrected, actions
 
-
-def rematch_and_audit_job(job: DocumentIntakeJob, *, reservation: Reservation | None = None) -> list[dict]:
-    """Re-run matching and apply audit corrections."""
+def rematch_and_audit_job(ctx: DocumentIntakeContext) -> list[dict]:
+    """Re-run matching pipeline and persist matches on the job."""
+    job = ctx.job
+    reservation = ctx.reservation
     if reservation is None:
-        if not job.reservation_id:
-            return list(job.matches or [])
-        reservation = Reservation.objects.prefetch_related("guests").get(pk=job.reservation_id)
+        return list(job.matches or [])
 
     persons = (job.ocr_result or {}).get("persons") or []
-    matches = match_persons_to_guests(
-        tenant_id=job.tenant_id,
-        persons=persons,
-        reservation_id=reservation.pk,
-    )
-    matches, _actions = audit_document_intake_matches(
+    matches = run_document_intake_matching_pipeline(
+        tenant_id=ctx.effective_tenant_id,
         reservation=reservation,
         persons=persons,
-        matches=matches,
     )
     job.matches = matches
     job.save(update_fields=["matches", "updated_at"])
     return matches
 
 
-def try_apply_complete_job(job: DocumentIntakeJob, *, reservation: Reservation) -> list[dict[str, Any]]:
+def try_apply_complete_job(ctx: DocumentIntakeContext) -> list[dict[str, Any]]:
     """Apply job when OCR is done, matches complete, but applied_result is empty."""
+    job = ctx.job
+    reservation = ctx.reservation
+    if reservation is None:
+        return []
     if job.status not in {DocumentIntakeJobStatus.DONE, DocumentIntakeJobStatus.APPLIED}:
         return []
 
@@ -259,4 +270,11 @@ def try_apply_complete_job(job: DocumentIntakeJob, *, reservation: Reservation) 
 
     from apps.reservations.document_intake_service import apply_document_intake_job
 
-    return apply_document_intake_job(job.pk, whatsapp_reply=False)
+    return apply_document_intake_job(ctx, whatsapp_reply=False)
+
+
+def assert_audit_only_touched_validator_fields(before: dict, after: dict) -> None:
+    """Test helper: audit may only change validator output fields."""
+    for field in MATCHER_FIELDS:
+        if before.get(field) != after.get(field):
+            raise AssertionError(f"audit mutated matcher field {field!r}")

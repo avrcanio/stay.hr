@@ -5,6 +5,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
 from apps.properties.models import Property
+from apps.reservations.document_intake_context import DocumentIntakeContext
 from apps.reservations.document_intake_service import apply_document_intake_job
 from apps.reservations.models import (
     DocumentIntakeImage,
@@ -84,7 +85,11 @@ class DocumentIntakePartialApplyTests(TestCase):
 
     @patch("apps.reservations.document_intake_service.crop_face_jpeg", return_value=None)
     def test_partial_apply_one_of_two_adults_stays_done(self, _mock_crop):
-        applied = apply_document_intake_job(self.job.pk, whatsapp_reply=False, allow_partial=True)
+        applied = apply_document_intake_job(
+            DocumentIntakeContext.from_job(self.job),
+            whatsapp_reply=False,
+            allow_partial=True,
+        )
         self.job.refresh_from_db()
         self.assertEqual(len(applied), 1)
         self.assertEqual(self.job.status, DocumentIntakeJobStatus.DONE)

@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 
 from apps.api.reception_views import ReceptionReadView, ReceptionWriteView, _max_photo_bytes, _validate_photo_file
 from apps.api.request_context import installation_id_from_request
+from apps.reservations.document_intake_context import DocumentIntakeContext, ensure_job_tenant_matches_reservation
 from apps.reservations.document_intake_service import (
     apply_document_intake_job,
     job_to_dict,
@@ -122,10 +123,14 @@ class DocumentIntakeBatchView(ReceptionWriteView, APIView):
             source=DocumentIntakeJobSource.HOSPIRA_BATCH if reservation else "",
             reservation=reservation,
         )
+        ensure_job_tenant_matches_reservation(job, reservation)
+        if reservation is not None and job.tenant_id != reservation.tenant_id:
+            job.save(update_fields=["tenant_id", "updated_at"])
 
+        image_tenant_id = reservation.tenant_id if reservation is not None else request.tenant.pk
         for idx, uploaded in enumerate(files):
             DocumentIntakeImage.objects.create(
-                tenant=request.tenant,
+                tenant_id=image_tenant_id,
                 job=job,
                 image=uploaded,
                 sort_order=idx,
@@ -155,13 +160,14 @@ class DocumentIntakeJobProcessView(ReceptionWriteView, APIView):
         job.save(update_fields=["status", "error_message", "updated_at"])
 
         eager = getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False)
+        ctx = DocumentIntakeContext.from_job(job)
         if eager:
-            process_document_intake_job(job.pk)
+            process_document_intake_job(ctx)
         else:
             try:
                 process_document_intake_job_task.delay(job.pk)
             except Exception:
-                process_document_intake_job(job.pk)
+                process_document_intake_job(ctx)
 
         job.refresh_from_db()
         return Response(job_to_dict(job, request=request))
@@ -187,8 +193,9 @@ class DocumentIntakeJobApplyView(ReceptionWriteView, APIView):
 
         device_id = installation_id_from_request(request) or job.device_id or ""
         try:
+            ctx = DocumentIntakeContext.from_job(job)
             applied = apply_document_intake_job(
-                job.pk,
+                ctx,
                 selections=selections,
                 device_id=device_id,
                 request=request,

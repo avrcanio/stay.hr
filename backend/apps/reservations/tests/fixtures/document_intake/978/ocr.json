@@ -1,0 +1,54 @@
+{
+  "persons": [
+    {
+      "given_names": "DAINIUS",
+      "surnames": "LYSAK",
+      "document_number": "25246986",
+      "document_type": "passport",
+      "nationality": "LTU",
+      "date_of_birth": "1982-04-24",
+      "date_of_expiry": "2032-04-24",
+      "sex": "M",
+      "front_image_index": 0
+    },
+    {
+      "given_names": "LAURA",
+      "surnames": "LYSAK",
+      "document_number": "25246987",
+      "document_type": "passport",
+      "nationality": "LTU",
+      "date_of_birth": "1984-06-15",
+      "date_of_expiry": "2032-06-15",
+      "sex": "F",
+      "front_image_index": 1
+    },
+    {
+      "given_names": "ODETA",
+      "surnames": "BELAZARE",
+      "document_number": "25246988",
+      "document_type": "passport",
+      "nationality": "LTU",
+      "date_of_birth": "1986-03-10",
+      "date_of_expiry": "2032-03-10",
+      "sex": "F",
+      "front_image_index": 2
+    },
+    {
+      "given_names": "RIMAS",
+      "surnames": "BELAZARAS",
+      "document_number": "25246989",
+      "document_type": "passport",
+      "nationality": "LTU",
+      "date_of_birth": "1985-08-22",
+      "date_of_expiry": "2032-08-22",
+      "sex": "M",
+      "front_image_index": 3
+    }
+  ],
+  "images": [
+    {"index": 0, "side": "passport"},
+    {"index": 1, "side": "passport"},
+    {"index": 2, "side": "passport"},
+    {"index": 3, "side": "passport"}
+  ]
+}

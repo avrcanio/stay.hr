@@ -43,6 +43,33 @@ def target_intake_guest_count(
     return max(floor, existing_count)
 
 
+def _ensure_primary_booker_guest(*, tenant: Tenant, reservation: Reservation) -> None:
+    """Mark booker as primary guest when import/sync left no primary slot."""
+    if reservation.guests.filter(is_primary=True).exists():
+        return
+    booker_name = (reservation.booker_name or "").strip()
+    if not booker_name:
+        return
+    guest = reservation.guests.order_by("id").first()
+    if guest is None:
+        parts = booker_name.split(None, 1)
+        first_name = parts[0] if parts else booker_name
+        last_name = parts[1] if len(parts) > 1 else ""
+        Guest.objects.create(
+            tenant=tenant,
+            reservation=reservation,
+            first_name=first_name,
+            last_name=last_name,
+            name=booker_name,
+            is_primary=True,
+        )
+        return
+    guest.is_primary = True
+    if not (guest.name or "").strip():
+        guest.name = booker_name
+    guest.save(update_fields=["is_primary", "name", "updated_at"])
+
+
 def ensure_guest_slots_for_intake(
     *,
     tenant: Tenant,
@@ -77,6 +104,8 @@ def ensure_adult_guest_slots(
     """Add placeholder guests until count matches adults_count. Returns number created."""
     if reservation.status in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}:
         return 0
+
+    _ensure_primary_booker_guest(tenant=tenant, reservation=reservation)
 
     existing_count = reservation.guests.count()
     target = target_adult_guest_count(

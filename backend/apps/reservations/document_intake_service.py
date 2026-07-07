@@ -20,9 +20,13 @@ from apps.ai.document_ocr import (
     run_orphan_document_ocr,
 )
 from apps.reservations.document_intake_ocr_fixup import fixup_document_ocr_result
+from apps.reservations.document_intake_context import DocumentIntakeContext
 from apps.reservations.document_intake_preprocess import (
+    build_dropped_to_canonical_map,
+    canonicalize_person_image_indices,
     dedupe_image_bytes,
     remap_ocr_indices_to_original,
+    validate_no_dropped_references,
 )
 from apps.reservations.document_intake_pdf import (
     expand_bytes_for_ocr,
@@ -30,8 +34,12 @@ from apps.reservations.document_intake_pdf import (
     source_indices_to_ocr_slots,
 )
 from apps.reservations.document_intake_face import crop_face_jpeg, _coerce_bbox_dict
-from apps.reservations.document_intake_match import match_persons_to_guests, normalize_mrz_lines
+from apps.reservations.document_intake_match import normalize_mrz_lines
 from apps.reservations.document_intake_sides import find_id_document_for_side_merge
+from apps.reservations.document_intake_telemetry import (
+    attach_document_intake_telemetry,
+    build_document_intake_telemetry,
+)
 from apps.reservations.guest_slots import ensure_guest_slots_for_intake
 from apps.reservations.mrz_parse import normalize_residence_address, parse_sex_from_mrz
 from apps.reservations.nationality_display import guest_nationality_iso2, normalize_country_iso2
@@ -75,9 +83,11 @@ def should_run_orphan_pass(
         return False
     unassigned = unassigned_image_indices(persons=persons, image_count=len(images))
     adults_count = reservation.adults_count or 0
+    persons_count = reservation.persons_count or 0
+    expected_persons = max(adults_count, persons_count)
     if len(unassigned) >= 2:
         return True
-    return len(persons) < adults_count and len(unassigned) >= 1
+    return len(persons) < expected_persons and len(unassigned) >= 1
 
 
 def _merge_ocr_images(existing: list, extra: list) -> list:
@@ -94,8 +104,9 @@ def _merge_ocr_images(existing: list, extra: list) -> list:
     return [by_index[k] for k in sorted(by_index)]
 
 
-def process_document_intake_job(job_id: int) -> None:
-    job = DocumentIntakeJob.objects.prefetch_related("images").get(pk=job_id)
+def process_document_intake_job(ctx: DocumentIntakeContext) -> None:
+    job = ctx.job
+    job_id = job.pk
     if job.status == DocumentIntakeJobStatus.APPLIED:
         return
 
@@ -139,6 +150,15 @@ def process_document_intake_job(job_id: int) -> None:
                 preprocess = {}
             preprocess["dropped_duplicate_indices"] = dropped_dupes
             ocr_result["_preprocess"] = preprocess
+            if dropped_dupes:
+                dropped_map = build_dropped_to_canonical_map(ocr_bytes, dropped_dupes)
+                persons_raw = ocr_result.get("persons") or []
+                if isinstance(persons_raw, list):
+                    ocr_result["persons"] = canonicalize_person_image_indices(
+                        persons_raw,
+                        dropped_map,
+                    )
+                validate_no_dropped_references(ocr_result, dropped_dupes)
         ocr_result = remap_ocr_indices_to_source(ocr_result, ocr_to_source)
         preprocess = ocr_result.get("_preprocess") or {}
         if not isinstance(preprocess, dict):
@@ -151,8 +171,8 @@ def process_document_intake_job(job_id: int) -> None:
         if not isinstance(persons, list):
             persons = []
 
-        reservation = None
-        if job.reservation_id:
+        reservation = ctx.reservation
+        if reservation is None and job.reservation_id:
             reservation = Reservation.objects.prefetch_related("guests").get(pk=job.reservation_id)
 
         if should_run_orphan_pass(
@@ -212,28 +232,34 @@ def process_document_intake_job(job_id: int) -> None:
                     img.detected_side = side
                     img.save(update_fields=["detected_side"])
 
-        matches = match_persons_to_guests(
-            tenant_id=job.tenant_id,
-            persons=persons,
-            reservation_id=job.reservation_id,
-        )
+        if persons:
+            from apps.reservations.document_intake_audit import run_document_intake_matching_pipeline
 
-        if job.reservation_id and persons:
-            from apps.reservations.document_intake_audit import audit_document_intake_matches
-
-            if reservation is None:
-                reservation = Reservation.objects.prefetch_related("guests").get(pk=job.reservation_id)
-            matches, audit_actions = audit_document_intake_matches(
-                reservation=reservation,
-                persons=persons,
-                matches=matches,
-            )
-            if audit_actions:
-                logger.info(
-                    "document intake audit job_id=%s actions=%s",
-                    job_id,
-                    audit_actions,
+            if ctx.is_reservation_scoped:
+                if reservation is None:
+                    reservation = ctx.reservation
+                matches = run_document_intake_matching_pipeline(
+                    tenant_id=ctx.effective_tenant_id,
+                    reservation=reservation,
+                    persons=persons,
                 )
+            else:
+                matches = run_document_intake_matching_pipeline(
+                    tenant_id=ctx.effective_tenant_id,
+                    persons=persons,
+                )
+        else:
+            matches = []
+
+        telemetry = build_document_intake_telemetry(
+            ocr_result=ocr_result,
+            image_bytes_list=bytes_list,
+            matches=matches,
+            reservation=reservation if ctx.is_reservation_scoped else None,
+            image_count=len(images),
+            job_status=DocumentIntakeJobStatus.DONE,
+        )
+        ocr_result = attach_document_intake_telemetry(ocr_result, telemetry)
 
         job.ocr_result = ocr_result
         job.matches = matches
@@ -249,16 +275,66 @@ def process_document_intake_job(job_id: int) -> None:
             ]
         )
     except DocumentOcrError as exc:
+        _attach_failure_telemetry(
+            ctx=ctx,
+            job=job,
+            bytes_list=locals().get("bytes_list"),
+            images=locals().get("images"),
+            reservation=locals().get("reservation"),
+        )
         job.status = DocumentIntakeJobStatus.FAILED
         job.error_message = str(exc)
         job.processed_at = timezone.now()
-        job.save(update_fields=["status", "error_message", "processed_at", "updated_at"])
+        job.save(
+            update_fields=[
+                "ocr_result",
+                "status",
+                "error_message",
+                "processed_at",
+                "updated_at",
+            ]
+        )
     except Exception as exc:
         logger.exception("document intake job failed", extra={"job_id": job_id})
+        _attach_failure_telemetry(
+            ctx=ctx,
+            job=job,
+            bytes_list=locals().get("bytes_list"),
+            images=locals().get("images"),
+            reservation=locals().get("reservation"),
+        )
         job.status = DocumentIntakeJobStatus.FAILED
         job.error_message = str(exc)[:500]
         job.processed_at = timezone.now()
-        job.save(update_fields=["status", "error_message", "processed_at", "updated_at"])
+        job.save(
+            update_fields=[
+                "ocr_result",
+                "status",
+                "error_message",
+                "processed_at",
+                "updated_at",
+            ]
+        )
+
+
+def _attach_failure_telemetry(
+    *,
+    ctx: DocumentIntakeContext,
+    job: DocumentIntakeJob,
+    bytes_list: list[bytes] | None,
+    images: list | None,
+    reservation: Reservation | None,
+) -> None:
+    ocr_result = job.ocr_result if isinstance(job.ocr_result, dict) else {}
+    telemetry = build_document_intake_telemetry(
+        ocr_result=ocr_result,
+        image_bytes_list=bytes_list,
+        matches=[],
+        reservation=reservation if ctx.is_reservation_scoped else None,
+        image_count=len(images) if images else 0,
+        job_status=DocumentIntakeJobStatus.FAILED,
+    )
+    job.ocr_result = attach_document_intake_telemetry(ocr_result, telemetry)
 
 
 def _target_reservation_ids_from_matches(matches: list[dict]) -> set[int]:
@@ -275,31 +351,49 @@ def _target_reservation_ids_from_matches(matches: list[dict]) -> set[int]:
 
 def _prepare_intake_matches(
     *,
-    tenant_id: int,
+    ctx: DocumentIntakeContext,
     persons: list[dict],
     matches: list[dict],
 ) -> list[dict]:
     """Ensure guest slots and refresh matches before apply."""
+    from apps.reservations.document_intake_audit import run_document_intake_matching_pipeline
+
+    tenant_id = ctx.effective_tenant_id
+    reservation_id = ctx.reservation.pk if ctx.is_reservation_scoped else None
     reservation_ids = _target_reservation_ids_from_matches(matches)
     if not reservation_ids and persons:
         reservation_ids = _target_reservation_ids_from_matches(
-            match_persons_to_guests(tenant_id=tenant_id, persons=persons)
+            run_document_intake_matching_pipeline(
+                tenant_id=tenant_id,
+                persons=persons,
+                reservation_id=reservation_id,
+            )
         )
 
     person_count = len(persons)
-    for reservation_id in reservation_ids:
-        reservation = Reservation.objects.prefetch_related("guests").get(pk=reservation_id)
+    for rid in reservation_ids:
+        reservation = Reservation.objects.prefetch_related("guests").get(pk=rid)
         ensure_guest_slots_for_intake(
             tenant=reservation.tenant,
             reservation=reservation,
             min_count=person_count,
         )
 
-    return match_persons_to_guests(tenant_id=tenant_id, persons=persons)
+    if ctx.is_reservation_scoped:
+        return run_document_intake_matching_pipeline(
+            tenant_id=tenant_id,
+            reservation=ctx.reservation,
+            persons=persons,
+        )
+    return run_document_intake_matching_pipeline(
+        tenant_id=tenant_id,
+        persons=persons,
+        reservation_id=reservation_id,
+    )
 
 
 def apply_document_intake_job(
-    job_id: int,
+    ctx: DocumentIntakeContext,
     *,
     selections: list[dict[str, Any]] | None = None,
     device_id: str = "",
@@ -312,7 +406,7 @@ def apply_document_intake_job(
     Updates guest fields, document photos, and scan log only — does not submit eVisitor.
     eVisitor check-in stays a separate manual step (POST .../evisitor-submit/).
     """
-    job = DocumentIntakeJob.objects.prefetch_related("images").get(pk=job_id)
+    job = ctx.job
     if job.status not in {DocumentIntakeJobStatus.DONE, DocumentIntakeJobStatus.APPLIED}:
         raise ValueError("Job is not ready for apply")
 
@@ -328,7 +422,7 @@ def apply_document_intake_job(
 
     if not selection_map:
         matches = _prepare_intake_matches(
-            tenant_id=job.tenant_id,
+            ctx=ctx,
             persons=persons,
             matches=matches,
         )
@@ -343,13 +437,10 @@ def apply_document_intake_job(
 
     applied: list[dict[str, Any]] = []
     completeness = None
-    if allow_partial and job.reservation_id:
+    if allow_partial and ctx.is_reservation_scoped:
         from apps.reservations.document_intake_completeness import evaluate_completeness
 
-        reservation = Reservation.objects.prefetch_related("guests__id_documents").get(
-            pk=job.reservation_id,
-            tenant_id=job.tenant_id,
-        )
+        reservation = ctx.reservation
         completeness = evaluate_completeness(
             reservation=reservation,
             persons=persons,
@@ -389,7 +480,7 @@ def apply_document_intake_job(
             guest = Guest.objects.select_related("reservation").get(
                 pk=guest_id,
                 reservation_id=reservation_id,
-                tenant_id=job.tenant_id,
+                tenant_id=ctx.effective_tenant_id,
             )
             reservation = guest.reservation
 
@@ -412,14 +503,11 @@ def apply_document_intake_job(
                 merged_by_guest[int(item["guest_id"])] = item
             job.applied_result = list(merged_by_guest.values())
 
-        if allow_partial and job.reservation_id:
+        if allow_partial and ctx.is_reservation_scoped:
             if completeness is None:
                 from apps.reservations.document_intake_completeness import evaluate_completeness
 
-                reservation = Reservation.objects.prefetch_related("guests__id_documents").get(
-                    pk=job.reservation_id,
-                    tenant_id=job.tenant_id,
-                )
+                reservation = ctx.reservation
                 completeness = evaluate_completeness(
                     reservation=reservation,
                     persons=persons,
@@ -437,7 +525,7 @@ def apply_document_intake_job(
     if whatsapp_reply:
         from apps.integrations.whatsapp.apply_reply import maybe_send_document_apply_whatsapp_reply
 
-        maybe_send_document_apply_whatsapp_reply(job, applied=applied)
+        maybe_send_document_apply_whatsapp_reply(ctx, applied=applied)
 
     return applied
 
@@ -831,6 +919,7 @@ def completeness_to_dict(completeness) -> dict[str, Any]:
 
 
 def job_to_dict(job: DocumentIntakeJob, *, request=None) -> dict[str, Any]:
+    ctx = DocumentIntakeContext.from_job(job)
     ocr_result = job.ocr_result or {}
     data: dict[str, Any] = {
         "job_id": job.pk,
@@ -848,25 +937,20 @@ def job_to_dict(job: DocumentIntakeJob, *, request=None) -> dict[str, Any]:
         "whatsapp_message_id": job.whatsapp_message_id,
     }
     persons = ocr_result.get("persons") if isinstance(ocr_result.get("persons"), list) else []
-    if job.reservation_id:
-        reservation = (
-            Reservation.objects.prefetch_related("guests__id_documents")
-            .filter(pk=job.reservation_id, tenant_id=job.tenant_id)
-            .first()
-        )
-        if reservation is not None:
-            from apps.reservations.document_intake_completeness import evaluate_completeness
+    if ctx.is_reservation_scoped:
+        reservation = ctx.reservation
+        from apps.reservations.document_intake_completeness import evaluate_completeness
 
-            images = list(job.images.order_by("sort_order", "id"))
-            completeness = evaluate_completeness(
-                reservation=reservation,
-                persons=persons,
-                matches=job.matches or [],
-                images=images,
-            )
-            data["completeness"] = completeness_to_dict(completeness)
-            data["unassigned_image_count"] = len(completeness.unassigned_image_indices)
-            data["unassigned_image_indices"] = list(completeness.unassigned_image_indices)
+        images = list(job.images.order_by("sort_order", "id"))
+        completeness = evaluate_completeness(
+            reservation=reservation,
+            persons=persons,
+            matches=job.matches or [],
+            images=images,
+        )
+        data["completeness"] = completeness_to_dict(completeness)
+        data["unassigned_image_count"] = len(completeness.unassigned_image_indices)
+        data["unassigned_image_indices"] = list(completeness.unassigned_image_indices)
     if request is not None and job.applied_result:
         for item in data["applied"]:
             guest_id = item.get("guest_id")

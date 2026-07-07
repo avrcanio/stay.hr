@@ -57,7 +57,8 @@ from apps.integrations.whatsapp.reservation_lookup import (
 )
 from apps.integrations.whatsapp.runtime_config import WhatsAppRuntimeConfig
 from apps.integrations.whatsapp.whatsapp_operator import operator_name_for_wa_id
-from apps.reservations.document_intake_match import match_persons_to_guests
+from apps.reservations.document_intake_audit import run_document_intake_matching_pipeline
+from apps.reservations.document_intake_context import ensure_job_tenant_matches_reservation
 from apps.reservations.guest_slots import ensure_guest_slots_for_intake
 from apps.reservations.models import (
     DocumentIntakeImage,
@@ -799,14 +800,15 @@ def _rematch_operator_job_for_reservation(
         reservation=reservation,
         min_count=len(persons),
     )
-    matches = match_persons_to_guests(
-        tenant_id=job.tenant_id,
+    ensure_job_tenant_matches_reservation(job, reservation)
+    matches = run_document_intake_matching_pipeline(
+        tenant_id=reservation.tenant_id,
+        reservation=reservation,
         persons=persons,
-        reservation_id=reservation.pk,
     )
     job.reservation_id = reservation.pk
     job.matches = matches
-    job.save(update_fields=["reservation_id", "matches", "updated_at"])
+    job.save(update_fields=["reservation_id", "tenant_id", "matches", "updated_at"])
     return matches
 
 
@@ -844,9 +846,10 @@ def _continue_operator_apply_and_checkin(
     runtime: WhatsAppRuntimeConfig,
 ) -> dict:
     from apps.integrations.whatsapp.document_intake_finalize import finalize_document_intake_job
+    from apps.reservations.document_intake_context import DocumentIntakeContext
 
     result = finalize_document_intake_job(
-        job,
+        DocumentIntakeContext.from_job(job),
         channel="operator",
         wa_id=row.wa_id,
         integration_row=integration_row,

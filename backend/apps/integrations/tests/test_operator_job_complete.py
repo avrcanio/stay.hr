@@ -124,6 +124,36 @@ class OperatorJobCompleteTests(TestCase):
         guest_ids = {s["guest_id"] for s in result["selections"]}
         self.assertEqual(guest_ids, {self.primary.pk, self.companion.pk})
 
+    @patch("apps.integrations.whatsapp.operator_job_complete.run_document_intake_matching_pipeline")
+    def test_operator_rematch_uses_matching_pipeline(self, mock_pipeline):
+        mock_pipeline.return_value = [
+            {
+                "person_index": 0,
+                "auto_apply": True,
+                "guest_id": self.primary.pk,
+                "reservation_id": self.reservation.pk,
+            },
+            {
+                "person_index": 1,
+                "auto_apply": True,
+                "guest_id": self.companion.pk,
+                "reservation_id": self.reservation.pk,
+            },
+        ]
+        complete_operator_document_job(
+            self.job.pk,
+            reservation_id=self.reservation.pk,
+            dry_run=True,
+        )
+        self.assertGreaterEqual(mock_pipeline.call_count, 1)
+        reservation_calls = [
+            call for call in mock_pipeline.call_args_list if call.kwargs.get("reservation") is not None
+        ]
+        self.assertGreaterEqual(len(reservation_calls), 1)
+        scoped = reservation_calls[-1].kwargs
+        self.assertEqual(scoped["tenant_id"], self.tenant.pk)
+        self.assertEqual(scoped["reservation"].pk, self.reservation.pk)
+
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.operator_job_complete._notify_operator")
     @patch("apps.integrations.whatsapp.operator_job_complete.notify_guest_operator_checkin_complete")

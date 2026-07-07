@@ -1,0 +1,42 @@
+{
+  "persons": [
+    {
+      "given_names": "IVAN",
+      "surnames": "HORVAT",
+      "document_number": "H1234567",
+      "document_type": "passport",
+      "nationality": "HRV",
+      "date_of_birth": "1980-01-15",
+      "date_of_expiry": "2030-01-15",
+      "sex": "M",
+      "front_image_index": 0
+    },
+    {
+      "given_names": "ANA",
+      "surnames": "HORVAT",
+      "document_number": "H1234568",
+      "document_type": "passport",
+      "nationality": "HRV",
+      "date_of_birth": "1982-05-20",
+      "date_of_expiry": "2030-05-20",
+      "sex": "F",
+      "front_image_index": 1
+    },
+    {
+      "given_names": "MARKO",
+      "surnames": "HORVAT",
+      "document_number": "H1234569",
+      "document_type": "passport",
+      "nationality": "HRV",
+      "date_of_birth": "2015-03-10",
+      "date_of_expiry": "2030-03-10",
+      "sex": "M",
+      "front_image_index": 2
+    }
+  ],
+  "images": [
+    {"index": 0, "side": "passport"},
+    {"index": 1, "side": "passport"},
+    {"index": 2, "side": "passport"}
+  ]
+}
