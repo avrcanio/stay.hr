@@ -286,7 +286,10 @@ def maybe_send_checkin_automation_failed_whatsapp_reply(job: DocumentIntakeJob) 
         check_guest_document_intake_automation,
     )
 
-    allowed, reason = check_guest_document_intake_automation(reservation)
+    allowed, reason = check_guest_document_intake_automation(
+        reservation,
+        block_documents_complete=False,
+    )
     if not allowed:
         return {"status": "skipped", "reason": reason}
 

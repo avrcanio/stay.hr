@@ -20,7 +20,7 @@ from apps.properties.models import Property
 from apps.reservations.models import Reservation
 from apps.tenants.models import Tenant
 
-BACKEND_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_ROOT = Path(__file__).resolve().parents[3]
 INTEGRATIONS_WHATSAPP = BACKEND_ROOT / "apps" / "integrations" / "whatsapp"
 
 LIFECYCLE_CALLER_FILES = (
