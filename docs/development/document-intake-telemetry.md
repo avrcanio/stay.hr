@@ -178,18 +178,31 @@ Same inputs → identical `quality_score`, `quality_components.*.score`, and `su
 
 ---
 
-## Runtime code map (this PR)
+## Operational KPI reporting (CLI + email)
+
+Weekly report:
+
+```bash
+docker exec stay_django python manage.py document_intake_quality_report --days 7
+```
+
+Daily Celery email: `send_document_intake_quality_report` at 09:00 Europe/Zagreb. Env: `DOCUMENT_INTAKE_QUALITY_REPORT_*` (see `.env.example`). Snapshot: `{MEDIA_ROOT}/ops/document_intake_report_snapshot.json`.
+
+After `.env` changes: `docker compose up -d django celery-worker celery-beat`.
+
+## Runtime code map
 
 | Module | Role |
 |--------|------|
 | `document_intake_failure_reasons.py` | Stable reason enum + labels |
-| `document_intake_telemetry.py` | Build and attach `_telemetry` on OCR result (write-only) |
-| `document_intake_service.py` | Pipeline hook after OCR / matching |
+| `document_intake_telemetry.py` | Build, attach, aggregate, format KPIs |
+| `document_intake_report_snapshot.py` | Persistent JSON snapshot |
+| `document_intake_report_email.py` | SMTP helper for ops reports |
+| `document_intake_telemetry_tasks.py` | Celery task |
+| `management/commands/document_intake_quality_report.py` | CLI wrapper |
 
 Tests:
 
 ```bash
-./scripts/run-tests-postgis.sh apps.reservations.tests.test_document_intake_telemetry -v 2
+./scripts/run-tests-postgis.sh apps.reservations.tests.test_document_intake_telemetry apps.reservations.tests.test_document_intake_quality_report -v 2
 ```
-
-Operational KPI reporting (CLI, Celery email, snapshot persistence) is documented in a follow-up OCR-D ops PR.

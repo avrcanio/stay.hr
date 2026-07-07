@@ -88,6 +88,28 @@ Set `STAY_API_INTERNAL_URL` and `STAY_BOOKING_API_TOKEN` in `.env` / shell. See 
 - Django API: `backend/`
 - Ops runbook: `docs/operations/domain-setup.md`
 
+### Document intake — tenant invariant
+
+Cross-tenant WhatsApp is intentional: inbound `WhatsAppMessage` stays on the WABA tenant (`platform`); the reservation lives on the property tenant (`demo`, etc.). Intake entities (job, session, image, draft/outbound scoped to a reservation) must use **`reservation.tenant_id`**.
+
+**Invariant:** when `DocumentIntakeJob.reservation_id` is set, `job.tenant_id == Reservation.tenant_id`.
+
+**Pipeline rule (code review):** match/apply/guest lookup must use `ctx.effective_tenant_id` from `DocumentIntakeContext.from_job(job)` — never `job.tenant_id` in pipeline logic.
+
+| Allowed `job.tenant_id` | Forbidden in match/apply |
+|-------------------------|---------------------------|
+| `DocumentIntakeContext.from_job` (legacy heal) | `match_persons_to_guests(... tenant_id=job.tenant_id ...)` |
+| Create path before `reservation_id` exists | `Reservation.objects.filter(... tenant_id=job.tenant_id ...)` in intake layer |
+| Storage path (`document_intake_image_upload_to`) | |
+
+All pipeline functions take `ctx: DocumentIntakeContext` (frozen). Celery tasks, API views, and reconcile build `ctx` at the system boundary.
+
+Runbook: [`docs/operations/ocr-multi-guest-rules.md`](docs/operations/ocr-multi-guest-rules.md)
+
+Telemetry (OCR-D, write-only): [`docs/development/document-intake-telemetry.md`](docs/development/document-intake-telemetry.md). Weekly KPIs: `python manage.py document_intake_quality_report --days 7`. Do not gate apply/finalize on `quality_score` until baseline exists.
+
+**Daily OCR email report:** Celery `send_document_intake_quality_report` at 09:00 Europe/Zagreb. Env: `DOCUMENT_INTAKE_QUALITY_REPORT_*` (see `.env.example`). Snapshot: `data/media/ops/document_intake_report_snapshot.json`. After `.env` changes: `docker compose up -d django celery-worker celery-beat`.
+
 ## FCM push deployment
 
 Runbook: [docs/operations/fcm-push-guard.md](docs/operations/fcm-push-guard.md)

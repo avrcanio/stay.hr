@@ -1,4 +1,5 @@
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import environ
 from celery.schedules import crontab
@@ -165,6 +166,25 @@ EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
 EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=False)
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@stay.hr")
 
+DOCUMENT_INTAKE_QUALITY_REPORT_ENABLED = env.bool(
+    "DOCUMENT_INTAKE_QUALITY_REPORT_ENABLED", default=False
+)
+DOCUMENT_INTAKE_QUALITY_REPORT_EMAIL = env(
+    "DOCUMENT_INTAKE_QUALITY_REPORT_EMAIL", default=""
+)
+DOCUMENT_INTAKE_QUALITY_REPORT_DAYS = env.int(
+    "DOCUMENT_INTAKE_QUALITY_REPORT_DAYS", default=7
+)
+DOCUMENT_INTAKE_QUALITY_REPORT_SEND_EVERY_DAYS = env.int(
+    "DOCUMENT_INTAKE_QUALITY_REPORT_SEND_EVERY_DAYS", default=1
+)
+DOCUMENT_INTAKE_QUALITY_REPORT_MONDAY_ONLY = env.bool(
+    "DOCUMENT_INTAKE_QUALITY_REPORT_MONDAY_ONLY", default=False
+)
+DOCUMENT_INTAKE_REPORT_SNAPSHOT_PATH = env(
+    "DOCUMENT_INTAKE_REPORT_SNAPSHOT_PATH", default=""
+)
+
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
@@ -183,6 +203,14 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+
+
+def _zagreb_now():
+    from datetime import datetime
+
+    return datetime.now(ZoneInfo("Europe/Zagreb"))
+
+
 CELERY_BEAT_SCHEDULE = {
     "core-ping": {
         "task": "apps.core.tasks.ping",
@@ -230,6 +258,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.integrations.whatsapp.guest_document_batch_reconcile.reconcile_guest_document_batches",
         "schedule": 900.0,
         "kwargs": {"apply": True},
+    },
+    "document-intake-quality-report-email": {
+        "task": "reservations.send_document_intake_quality_report",
+        "schedule": crontab(hour=9, minute=0, nowfun=_zagreb_now),
     },
 }
 

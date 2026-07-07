@@ -155,6 +155,10 @@ def run_auto_checkouts() -> dict:
 
 @shared_task(name="reservations.process_document_intake_job")
 def process_document_intake_job_task(job_id: int) -> None:
+    from apps.reservations.document_intake_context import DocumentIntakeContext
     from apps.reservations.document_intake_service import process_document_intake_job
+    from apps.reservations.models import DocumentIntakeJob
 
-    process_document_intake_job(job_id)
+    job = DocumentIntakeJob.objects.get(pk=job_id)
+    ctx = DocumentIntakeContext.from_job(job)
+    process_document_intake_job(ctx)
