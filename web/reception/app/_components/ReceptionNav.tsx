@@ -41,7 +41,7 @@ export function ReceptionNav({ tenantName, featureFlags: featureFlagsProp }: Pro
 
   const linkClass = (href: string) =>
     `rounded-xl px-3 py-2 text-sm font-medium transition ${
-      pathname === href
+      pathname === href || (href.startsWith("/reports") && pathname.startsWith("/reports"))
         ? "bg-stay-blue text-white shadow-sm"
         : "text-stay-muted hover:bg-stay-blue-light hover:text-stay-blue"
     }`;
@@ -77,6 +77,9 @@ export function ReceptionNav({ tenantName, featureFlags: featureFlagsProp }: Pro
               {t("reviews")}
             </Link>
           ) : null}
+          <Link href="/reports/property-financial" className={linkClass("/reports/property-financial")}>
+            {t("reports")}
+          </Link>
           <Link href="/whatsapp/overview" className={whatsappLinkClass}>
             {t("whatsapp")}
           </Link>

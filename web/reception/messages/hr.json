@@ -18,6 +18,7 @@
     "calendar": "Kalendar",
     "newReservation": "Nova rezervacija",
     "reviews": "Recenzije",
+    "reports": "Izvještaji",
     "whatsapp": "WhatsApp",
     "logout": "Odjava"
   },
@@ -472,6 +473,45 @@
       "phone": "Broj",
       "waba": "WABA ID",
       "disconnectHint": "Odspajanje računa bit će dostupno u sljedećoj verziji."
+    }
+  },
+  "propertyFinancialReport": {
+    "title": "Financijski izvještaj",
+    "subtitle": "Odjava u odabranom razdoblju — samo checked-out rezervacije (settlement).",
+    "property": "Objekt",
+    "propertyPlaceholder": "Odaberite objekt…",
+    "checkOutFrom": "Odjava od",
+    "checkOutTo": "Odjava do",
+    "presetPreviousMonth": "Prošli mjesec",
+    "presetThisMonth": "Ovaj mjesec",
+    "generate": "Generiraj pregled",
+    "downloadPdf": "Preuzmi PDF",
+    "downloadExcel": "Preuzmi Excel",
+    "sendEmail": "Pošalji e-mail",
+    "emailComingSoon": "Slanje e-mailom dolazi u sljedećoj verziji.",
+    "periodSummary": "Odjava {from} – {to}",
+    "generatedAt": "Generirano: {value}",
+    "maxPeriodDays": "Maks. razdoblje: {days} dana",
+    "missingCommissionWarning": "{count} red(ova) bez provizije — neto zbroj ne uključuje te stavke.",
+    "noRows": "Nema rezervacija u odabranom razdoblju.",
+    "totalsLabel": "Ukupno ({count} rezervacija)",
+    "columns": {
+      "booking": "Rezervacija",
+      "checkIn": "Dolazak",
+      "checkOut": "Odjava",
+      "rooms": "Sobe",
+      "nights": "Noći",
+      "gross": "Bruto",
+      "commission": "Provizija",
+      "net": "Neto",
+      "source": "Izvor",
+      "guests": "Gosti"
+    },
+    "errors": {
+      "loadFailed": "Učitavanje izvještaja nije uspjelo.",
+      "periodInvalid": "Provjerite datume razdoblja.",
+      "periodTooLong": "Razdoblje je predugo (maks. {maxDays} dana).",
+      "propertyRequired": "Odaberite objekt."
     }
   }
 }
