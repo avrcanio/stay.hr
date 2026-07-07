@@ -406,7 +406,10 @@ class WhatsAppDocumentBatchTests(TestCase):
         session = WhatsAppDocumentBatchSession.objects.get(reservation=self.reservation)
         self.assertEqual(session.job.images.count(), 1)
 
-    @patch("apps.integrations.whatsapp.apply_reply.is_document_checkin_complete", return_value=True)
+    @patch(
+        "apps.integrations.whatsapp.guest_document_lifecycle.is_document_checkin_complete",
+        return_value=True,
+    )
     @patch("apps.integrations.whatsapp.whatsapp_document_batch.fetch_whatsapp_media")
     def test_image_skipped_when_docs_already_complete(self, mock_fetch, _mock_docs_complete):
         message = self._image_message(pk_suffix="complete", wamid="wamid.in.complete")
@@ -690,7 +693,8 @@ class WhatsAppDocumentBatchTests(TestCase):
         job.refresh_from_db()
         self.assertEqual(list(job.applied_result or []), first_applied)
         self.assertEqual(first["status"], "assessed")
-        self.assertEqual(second["status"], "assessed")
+        self.assertEqual(second["status"], "skipped")
+        self.assertEqual(second["reason"], "documents_complete")
 
 
 class WhatsAppDocumentBatchTimerTests(TestCase):
