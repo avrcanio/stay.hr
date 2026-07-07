@@ -12,6 +12,7 @@ from apps.communications.guest_compose import (
 )
 from apps.integrations.models import IntegrationConfig, WhatsAppMessage
 from apps.integrations.whatsapp.apply_reply import maybe_send_document_apply_whatsapp_reply
+from apps.reservations.document_intake_context import DocumentIntakeContext
 from apps.integrations.tests.test_whatsapp_webhook import TEST_FERNET_KEY
 from apps.properties.models import Property
 from apps.reservations.models import (
@@ -103,7 +104,7 @@ class WhatsAppApplyReplyTests(TestCase):
         )
 
         result = maybe_send_document_apply_whatsapp_reply(
-            self.job,
+            DocumentIntakeContext.from_job(self.job),
             applied=[{"guest_id": guest.pk, "reservation_id": self.reservation.pk}],
         )
 
@@ -135,7 +136,7 @@ class WhatsAppApplyReplyTests(TestCase):
         )
 
         result = maybe_send_document_apply_whatsapp_reply(
-            self.job,
+            DocumentIntakeContext.from_job(self.job),
             applied=[{"guest_id": guest.pk, "reservation_id": self.reservation.pk}],
         )
 
@@ -151,7 +152,8 @@ class WhatsAppApplyReplyTests(TestCase):
         mock_send.return_value = {"messages": [{"id": "wamid.outbound.ready"}]}
         applied = [{"guest_id": 1, "reservation_id": self.reservation.pk}]
 
-        result = maybe_send_document_apply_whatsapp_reply(self.job, applied=applied)
+        result = maybe_send_document_apply_whatsapp_reply(
+            DocumentIntakeContext.from_job(self.job), applied=applied)
 
         self.assertEqual(result["status"], "sent")
         mock_send.assert_called_once()
@@ -171,7 +173,7 @@ class WhatsAppApplyReplyTests(TestCase):
         self.job.whatsapp_reply_sent = True
         self.job.save(update_fields=["whatsapp_reply_sent"])
         result = maybe_send_document_apply_whatsapp_reply(
-            self.job,
+            DocumentIntakeContext.from_job(self.job),
             applied=[{"guest_id": 1, "reservation_id": self.reservation.pk}],
         )
         self.assertEqual(result["status"], "already_sent")
@@ -188,7 +190,7 @@ class WhatsAppApplyReplyTests(TestCase):
         )
         self.assertIsNotNone(sibling.pk)
         result = maybe_send_document_apply_whatsapp_reply(
-            self.job,
+            DocumentIntakeContext.from_job(self.job),
             applied=[{"guest_id": 1, "reservation_id": self.reservation.pk}],
         )
         self.assertEqual(result["status"], "already_sent")
@@ -253,7 +255,7 @@ class WhatsAppApplyReplyTests(TestCase):
         self.reservation.save(update_fields=["adults_count"])
 
         result = maybe_send_document_apply_whatsapp_reply(
-            self.job,
+            DocumentIntakeContext.from_job(self.job),
             applied=[{"guest_id": 1, "reservation_id": self.reservation.pk}],
         )
 

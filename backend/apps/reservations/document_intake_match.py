@@ -1,4 +1,7 @@
-"""Match OCR persons to active reservations and guest slots."""
+"""Match OCR persons to active reservations and guest slots.
+
+# TODO(ADR): score-based guest matching (+60 first name, +30 surname, +20 dob, +20 document number)
+"""
 
 from __future__ import annotations
 
@@ -264,6 +267,7 @@ def _fuzzy_guest_match(
     reservation: Reservation,
     keys: set[str],
     *,
+    person: dict | None = None,
     person_surnames: set[str] | None = None,
     exclude: set[int] | None = None,
 ) -> Guest | None:
@@ -276,6 +280,10 @@ def _fuzzy_guest_match(
             return guest
 
     if _booker_person_overlap(reservation, keys, person_surnames):
+        booker_first = _booker_first_name_key(reservation)
+        person_first = _person_first_name_key(person) if person else ""
+        if booker_first and person_first and booker_first != person_first:
+            return None
         for guest in reservation.guests.all():
             if guest.pk in blocked:
                 continue
@@ -416,7 +424,7 @@ def match_persons_to_guests(
     persons: list[dict],
     reservation_id: int | None = None,
 ) -> list[dict]:
-    """Return match suggestions per person index."""
+    """Internal matching primitive. Production code must use ``run_document_intake_matching_pipeline()`` instead."""
     if reservation_id:
         reservations = list(
             Reservation.objects.filter(
@@ -452,6 +460,7 @@ def match_persons_to_guests(
                 guest = _fuzzy_guest_match(
                     reservation,
                     keys,
+                    person=person,
                     person_surnames=person_surnames,
                     exclude=assigned_guest_ids,
                 )
@@ -525,6 +534,28 @@ def match_persons_to_guests(
 
     _apply_batch_reservation_heuristic(results)
     return results
+
+
+def enforce_unique_guest_assignments(matches: list[dict]) -> list[dict]:
+    """Sole 1:1 gate: first claim per guest_id wins (person_index order)."""
+    ordered = sorted(matches, key=lambda item: int(item.get("person_index", 0)))
+    seen_guest_ids: set[int] = set()
+    deduped: list[dict] = []
+
+    for match in ordered:
+        copy = dict(match)
+        guest_id = copy.get("guest_id")
+        if copy.get("auto_apply") and guest_id:
+            gid = int(guest_id)
+            if gid in seen_guest_ids:
+                copy["auto_apply"] = False
+                copy["reject_reason"] = "duplicate_guest_assignment"
+            else:
+                seen_guest_ids.add(gid)
+        deduped.append(copy)
+
+    deduped.sort(key=lambda item: int(item.get("person_index", 0)))
+    return deduped
 
 
 def _reservation_label(reservation: Reservation) -> str:

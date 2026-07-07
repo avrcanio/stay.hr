@@ -25,6 +25,10 @@ from apps.integrations.whatsapp.whatsapp_operator_service import (
     merge_images_into_operator_job,
 )
 from apps.reservations.checkin import validate_reservation_check_in
+from apps.reservations.document_intake_context import (
+    DocumentIntakeContext,
+    ensure_job_tenant_matches_reservation,
+)
 from apps.reservations.document_intake_completeness import evaluate_completeness
 from apps.reservations.document_intake_service import apply_document_intake_job, process_document_intake_job, completeness_to_dict
 from apps.reservations.models import (
@@ -78,18 +82,20 @@ def _copy_image_to_job(
 
 
 def merge_related_whatsapp_jobs(
-    job: DocumentIntakeJob,
+    ctx: DocumentIntakeContext,
     *,
     channel: Literal["guest", "operator"],
     operator_wa_id: str | None = None,
 ) -> int:
     """Copy images from parallel recent jobs into the target job (idempotent by filename)."""
+    job = ctx.job
+    tenant_id = ctx.effective_tenant_id
     since = timezone.now() - _MERGE_WINDOW
     moved = 0
 
-    if channel == "guest" and job.reservation_id:
+    if channel == "guest" and ctx.is_reservation_scoped:
         other_jobs = DocumentIntakeJob.objects.filter(
-            tenant_id=job.tenant_id,
+            tenant_id=tenant_id,
             reservation_id=job.reservation_id,
             source=DocumentIntakeJobSource.WHATSAPP,
             created_at__gte=since,
@@ -99,19 +105,19 @@ def merge_related_whatsapp_jobs(
             if other.status == DocumentIntakeJobStatus.APPLIED:
                 continue
             for img in other.images.order_by("sort_order", "id"):
-                if _copy_image_to_job(tenant_id=job.tenant_id, target_job=job, source_img=img):
+                if _copy_image_to_job(tenant_id=tenant_id, target_job=job, source_img=img):
                     moved += 1
 
     elif channel == "operator" and operator_wa_id:
         other_jobs = DocumentIntakeJob.objects.filter(
-            tenant_id=job.tenant_id,
+            tenant_id=tenant_id,
             source=DocumentIntakeJobSource.WHATSAPP_OPERATOR,
             created_at__gte=since,
         ).exclude(pk=job.pk).prefetch_related("images")
 
         session_job_ids = set(
             WhatsAppOperatorSession.objects.filter(
-                tenant_id=job.tenant_id,
+                tenant_id=tenant_id,
                 operator_wa_id=operator_wa_id,
                 status__in={
                     WhatsAppOperatorSessionStatus.COLLECTING,
@@ -165,7 +171,7 @@ def _send_incomplete_reply(
 
 
 def finalize_document_intake_job(
-    job: DocumentIntakeJob,
+    ctx: DocumentIntakeContext,
     *,
     channel: Literal["guest", "operator"],
     wa_id: str,
@@ -173,9 +179,10 @@ def finalize_document_intake_job(
     runtime: WhatsAppRuntimeConfig,
     session: WhatsAppDocumentBatchSession | WhatsAppOperatorSession,
 ) -> dict:
-    merge_related_whatsapp_jobs(job, channel=channel, operator_wa_id=wa_id if channel == "operator" else None)
+    job = ctx.job
+    merge_related_whatsapp_jobs(ctx, channel=channel, operator_wa_id=wa_id if channel == "operator" else None)
 
-    process_document_intake_job(job.pk)
+    process_document_intake_job(ctx)
     job.refresh_from_db()
 
     if job.status == DocumentIntakeJobStatus.FAILED:
@@ -207,19 +214,24 @@ def finalize_document_intake_job(
             }
 
         reservation_id = next(iter(reservation_ids))
+        reservation = Reservation.objects.select_related("tenant", "property").get(pk=reservation_id)
         job.reservation_id = reservation_id
-        job.save(update_fields=["reservation_id", "updated_at"])
+        ensure_job_tenant_matches_reservation(job, reservation)
+        job.save(update_fields=["reservation_id", "tenant_id", "updated_at"])
+        ctx = DocumentIntakeContext.from_job(job)
 
     if job.reservation_id is None:
         return {"status": "no_reservation", "job_id": job.pk}
 
-    reservation = Reservation.objects.select_related("property", "tenant").get(pk=job.reservation_id)
+    reservation = ctx.reservation or Reservation.objects.select_related("property", "tenant").get(
+        pk=job.reservation_id
+    )
     persons = (job.ocr_result or {}).get("persons") or []
     images = list(job.images.order_by("sort_order", "id"))
 
     from apps.reservations.document_intake_audit import rematch_and_audit_job
 
-    matches = rematch_and_audit_job(job, reservation=reservation)
+    matches = rematch_and_audit_job(ctx)
 
     completeness = evaluate_completeness(
         reservation=reservation,
@@ -230,7 +242,7 @@ def finalize_document_intake_job(
 
     if not completeness.is_complete:
         try:
-            apply_document_intake_job(job.pk, whatsapp_reply=False, allow_partial=True)
+            apply_document_intake_job(ctx, whatsapp_reply=False, allow_partial=True)
             job.refresh_from_db()
         except Exception as exc:
             logger.warning("Document finalize partial apply failed job_id=%s: %s", job.pk, exc)
@@ -268,7 +280,7 @@ def finalize_document_intake_job(
     time_stay_from = processing_at.strftime("%H:%M")
 
     try:
-        applied = apply_document_intake_job(job.pk, whatsapp_reply=False)
+        applied = apply_document_intake_job(ctx, whatsapp_reply=False)
     except Exception as exc:
         logger.warning("Document finalize apply failed job_id=%s: %s", job.pk, exc)
         if channel == "operator":
@@ -334,7 +346,7 @@ def finalize_document_intake_job(
 
     from apps.integrations.whatsapp.apply_reply import maybe_send_document_apply_whatsapp_reply
 
-    reply = maybe_send_document_apply_whatsapp_reply(job, applied=applied)
+    reply = maybe_send_document_apply_whatsapp_reply(ctx, applied=applied)
     if isinstance(session, WhatsAppDocumentBatchSession):
         session.status = WhatsAppDocumentBatchStatus.DONE
         session.save(update_fields=["status", "updated_at"])

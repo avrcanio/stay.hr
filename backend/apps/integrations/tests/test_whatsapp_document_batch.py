@@ -1,6 +1,7 @@
 from datetime import date
 from unittest.mock import patch
 
+from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -10,6 +11,7 @@ from apps.integrations.whatsapp.whatsapp_document_batch import (
     AFTER_NO_SECONDS,
     CONFIRM_TIMEOUT_SECONDS,
     QUIET_SECONDS,
+    assess_batch_after_quiet,
     document_batch_after_no_quiet,
     document_batch_confirm_timeout,
     document_batch_quiet_elapsed,
@@ -21,6 +23,7 @@ from apps.integrations.whatsapp.whatsapp_document_batch import (
 )
 from apps.properties.models import Property
 from apps.reservations.models import (
+    DocumentIntakeImage,
     DocumentIntakeJob,
     DocumentIntakeJobStatus,
     WhatsAppDocumentBatchSession,
@@ -28,6 +31,7 @@ from apps.reservations.models import (
     Reservation,
 )
 from apps.reservations.document_intake_completeness import DocumentIntakeCompleteness
+from apps.reservations.tests.fixtures.document_intake.load_fixture import build_reservation_from_fixture
 from apps.tenants.models import Tenant
 
 
@@ -110,8 +114,8 @@ class WhatsAppDocumentBatchTests(TestCase):
         mock_notify.assert_not_called()
 
     def _mock_ocr_preview_complete(self, mock_process, mock_rematch, mock_eval):
-        def _process(job_id):
-            job = DocumentIntakeJob.objects.get(pk=job_id)
+        def _process(ctx):
+            job = ctx.job
             job.status = DocumentIntakeJobStatus.DONE
             job.ocr_result = {"persons": []}
             job.save(update_fields=["status", "ocr_result", "updated_at"])
@@ -121,8 +125,8 @@ class WhatsAppDocumentBatchTests(TestCase):
         mock_eval.return_value = DocumentIntakeCompleteness(is_complete=True)
 
     def _mock_ocr_preview_incomplete(self, mock_process, mock_rematch, mock_eval):
-        def _process(job_id):
-            job = DocumentIntakeJob.objects.get(pk=job_id)
+        def _process(ctx):
+            job = ctx.job
             job.status = DocumentIntakeJobStatus.DONE
             job.ocr_result = {"persons": []}
             job.save(update_fields=["status", "ocr_result", "updated_at"])
@@ -573,6 +577,120 @@ class WhatsAppDocumentBatchTests(TestCase):
         mock_finalize.assert_not_called()
         mock_text_ack.assert_called_once()
         mock_send.assert_called_once()
+
+    def _setup_978_batch_session(self):
+        self.reservation.delete()
+        self.reservation, _guests, ocr_data, _meta = build_reservation_from_fixture(
+            tenant=self.tenant,
+            property=self.property,
+            scenario="978",
+        )
+        self.reservation.booker_phone = "+385911111111"
+        self.reservation.save(update_fields=["booker_phone"])
+        message = self._image_message(pk_suffix="978", wamid="wamid.in.978")
+        job = DocumentIntakeJob.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            whatsapp_message=message,
+            status=DocumentIntakeJobStatus.QUEUED,
+            device_id="whatsapp",
+        )
+        for idx in range(4):
+            DocumentIntakeImage.objects.create(
+                tenant=self.tenant,
+                job=job,
+                image=ContentFile(b"fake-passport", name=f"wa_{message.pk}_{idx}.jpg"),
+                sort_order=idx,
+                detected_side="passport",
+            )
+        session = WhatsAppDocumentBatchSession.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            job=job,
+            wa_id="385911111111",
+            status=WhatsAppDocumentBatchStatus.COLLECTING,
+            last_media_at=timezone.now() - timezone.timedelta(seconds=QUIET_SECONDS + 1),
+        )
+        return session, ocr_data
+
+    @patch("apps.reservations.document_intake_service.crop_face_jpeg", return_value=None)
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._send_batch_text_ack")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.send_interactive_button_message")
+    def test_quiet_assess_partial_applies_before_incomplete_reply(
+        self,
+        mock_send,
+        mock_text_ack,
+        _mock_crop,
+    ):
+        mock_text_ack.return_value = {"status": "sent"}
+        session, ocr_data = self._setup_978_batch_session()
+        job = session.job
+
+        def _process(ctx):
+            ctx.job.status = DocumentIntakeJobStatus.DONE
+            ctx.job.ocr_result = {
+                "persons": ocr_data["persons"],
+                "images": ocr_data.get("images") or [],
+            }
+            ctx.job.save(update_fields=["status", "ocr_result", "updated_at"])
+
+        with patch(
+            "apps.reservations.document_intake_service.process_document_intake_job",
+            side_effect=_process,
+        ):
+            result = assess_batch_after_quiet(session)
+
+        job.refresh_from_db()
+        self.assertEqual(result["status"], "assessed")
+        self.assertTrue(job.applied_result)
+        self.assertEqual(len(job.applied_result), 4)
+        self.assertIn(result["preview"], {"incomplete", "complete"})
+
+    @patch("apps.reservations.document_intake_service.crop_face_jpeg", return_value=None)
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch._send_batch_text_ack")
+    @patch("apps.integrations.whatsapp.whatsapp_document_batch.send_interactive_button_message")
+    def test_quiet_assess_skips_apply_on_retry(
+        self,
+        mock_send,
+        mock_text_ack,
+        _mock_crop,
+    ):
+        mock_text_ack.return_value = {"status": "sent"}
+        session, ocr_data = self._setup_978_batch_session()
+        job = session.job
+
+        def _process(ctx):
+            ctx.job.status = DocumentIntakeJobStatus.DONE
+            ctx.job.ocr_result = {
+                "persons": ocr_data["persons"],
+                "images": ocr_data.get("images") or [],
+            }
+            ctx.job.save(update_fields=["status", "ocr_result", "updated_at"])
+
+        with patch(
+            "apps.reservations.document_intake_service.process_document_intake_job",
+            side_effect=_process,
+        ):
+            first = assess_batch_after_quiet(session)
+            job.refresh_from_db()
+            first_applied = list(job.applied_result or [])
+            self.assertEqual(len(first_applied), 4)
+
+            session.status = WhatsAppDocumentBatchStatus.COLLECTING
+            session.save(update_fields=["status", "updated_at"])
+            session.last_media_at = timezone.now() - timezone.timedelta(seconds=QUIET_SECONDS + 1)
+            session.save(update_fields=["last_media_at", "updated_at"])
+
+            with patch(
+                "apps.reservations.document_intake_service.apply_document_intake_job"
+            ) as mock_apply:
+                second = assess_batch_after_quiet(session)
+                mock_apply.assert_not_called()
+
+        job.refresh_from_db()
+        self.assertEqual(list(job.applied_result or []), first_applied)
+        self.assertEqual(first["status"], "assessed")
+        self.assertEqual(second["status"], "assessed")
 
 
 class WhatsAppDocumentBatchTimerTests(TestCase):

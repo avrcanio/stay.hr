@@ -17,6 +17,7 @@ from apps.integrations.whatsapp.whatsapp_document_batch import (
 )
 from apps.reservations.document_intake_audit import rematch_and_audit_job, try_apply_complete_job
 from apps.reservations.document_intake_completeness import evaluate_completeness
+from apps.reservations.document_intake_context import DocumentIntakeContext
 from apps.reservations.document_intake_service import process_document_intake_job
 from apps.reservations.models import (
     DocumentIntakeJob,
@@ -66,14 +67,17 @@ def reconcile_guest_document_batch(
             images=images,
         )
         if completeness.ocr_under_extracted:
-            process_document_intake_job(job.pk)
+            ctx = DocumentIntakeContext.from_job(job)
+            process_document_intake_job(ctx)
             job.refresh_from_db()
             entry: dict = {"job_id": job.pk, "reservation_id": reservation.pk, "action": "re_ocr"}
         else:
-            rematch_and_audit_job(job, reservation=reservation)
+            ctx = DocumentIntakeContext.from_job(job)
+            rematch_and_audit_job(ctx)
             entry = {"job_id": job.pk, "reservation_id": reservation.pk, "action": "rematched"}
         if apply:
-            applied = try_apply_complete_job(job, reservation=reservation)
+            ctx = DocumentIntakeContext.from_job(job)
+            applied = try_apply_complete_job(ctx)
             if applied:
                 entry["action"] = "applied"
                 entry["applied_count"] = len(applied)
@@ -105,28 +109,20 @@ def reconcile_guest_document_batch(
             WhatsAppDocumentBatchStatus.AFTER_NO,
         }:
             job = session.job
-            if job and job.status == DocumentIntakeJobStatus.DONE and job.images.exists():
-                integration_row, runtime = resolve_whatsapp_integration(session.tenant)
-                if integration_row and runtime and apply:
-                    finalize_result = _run_finalize(session)
-                    entry["action"] = "finalize_collecting"
-                    entry["finalize"] = finalize_result
-            elif (
-                session.status == WhatsAppDocumentBatchStatus.COLLECTING
-                and (session.prompt_count or 0) > 0
-                and session.last_media_at
-                and session.last_media_at <= now - timedelta(minutes=STUCK_COLLECTING_AFTER_PROMPT_MINUTES)
-            ):
+            last_media_at = session.last_media_at
+            quiet_elapsed = (
+                last_media_at is not None
+                and last_media_at <= now - timedelta(minutes=STUCK_COLLECTING_AFTER_PROMPT_MINUTES)
+            )
+            if job and job.images.exists() and quiet_elapsed:
                 integration_row, runtime = resolve_whatsapp_integration(session.tenant)
                 if integration_row and runtime:
                     if apply:
-                        finalize_result = _run_finalize(session)
-                        entry["action"] = "finalize_stuck_collecting"
-                        entry["finalize"] = finalize_result
-                    else:
                         assess_result = assess_batch_after_quiet(session)
                         entry["action"] = "assess_stuck_collecting"
                         entry["assess"] = assess_result
+                    else:
+                        entry["action"] = "would_assess_stuck_collecting"
         if "action" in entry:
             results.append(entry)
 

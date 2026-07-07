@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from django.db.models import Q
 from django.utils import timezone
 
 from apps.integrations.models import WhatsAppMessage
@@ -23,15 +22,14 @@ def is_customer_service_window_open(
     if not wa_id:
         return False
     cutoff = timezone.now() - timedelta(hours=24)
-    return (
-        WhatsAppMessage.objects.filter(
-            tenant_id=tenant_id,
-            direction=WhatsAppMessage.Direction.INBOUND,
-            created_at__gte=cutoff,
-        )
-        .filter(Q(reservation=reservation) | Q(wa_id=wa_id))
-        .exists()
+    inbound_recent = WhatsAppMessage.objects.filter(
+        direction=WhatsAppMessage.Direction.INBOUND,
+        created_at__gte=cutoff,
     )
+    # Inbound rows may live on the WABA integration tenant while reservation is on another tenant.
+    if inbound_recent.filter(reservation_id=reservation.pk).exists():
+        return True
+    return inbound_recent.filter(tenant_id=tenant_id, wa_id=wa_id).exists()
 
 
 def resolved_tenant_id_for_message(message: WhatsAppMessage) -> int:

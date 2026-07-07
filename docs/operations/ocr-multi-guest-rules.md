@@ -2,7 +2,23 @@
 
 Operativna pravila za WhatsApp / Hospira batch OCR (`document-intake` API). Ažurirano nakon slučaja **rezervacija #51** (lipanj 2026).
 
-**Povezano:** [id-document-import.md](../development/id-document-import.md), [ai-runbook-ocr-checkin-evisitor-2026-06.md](../operations/ai-runbook-ocr-checkin-evisitor-2026-06.md)
+**Povezano:** [id-document-import.md](../development/id-document-import.md), [ai-runbook-ocr-checkin-evisitor-2026-06.md](../operations/ai-runbook-ocr-checkin-evisitor-2026-06.md), [document-intake-telemetry.md](../development/document-intake-telemetry.md) (OCR-D KPIs, `_telemetry` contract)
+
+---
+
+## Cross-tenant invariant (WABA → property tenant)
+
+WhatsApp inbound poruke rutiraju se na WABA tenant (`platform`, npr. id 14). Rezervacija i gosti žive na property tenantu (`demo`, npr. id 1). To je **namjerno** — ne dirati routing inbound poruka.
+
+**Invariant:** kad `DocumentIntakeJob.reservation_id` postoji → `job.tenant_id == reservation.tenant_id`.
+
+| Entitet | Tenant |
+|---------|--------|
+| `WhatsAppMessage` (inbound) | WABA tenant (routing) |
+| `DocumentIntakeJob`, session, image | `reservation.tenant_id` |
+| Match/apply/guest lookup | `DocumentIntakeContext.effective_tenant_id` — **ne** `job.tenant_id` |
+
+Create path mora odmah postaviti `tenant_id=reservation.tenant_id` (job, session, image). Legacy mismatch (#95) auto-heal u `DocumentIntakeContext.from_job` (jednokratno: detect → sync → log → nastavi).
 
 ---
 

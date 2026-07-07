@@ -278,10 +278,13 @@ def assess_batch_after_quiet(session: WhatsAppDocumentBatchSession) -> dict:
 
     from apps.reservations.document_intake_audit import rematch_and_audit_job
     from apps.reservations.document_intake_completeness import evaluate_completeness
+    from apps.reservations.document_intake_context import DocumentIntakeContext
     from apps.reservations.document_intake_service import process_document_intake_job
 
-    process_document_intake_job(job.pk)
+    ctx = DocumentIntakeContext.from_job(job)
+    process_document_intake_job(ctx)
     job.refresh_from_db()
+    ctx = DocumentIntakeContext.from_job(job)
 
     if job.status == DocumentIntakeJobStatus.FAILED:
         session.status = WhatsAppDocumentBatchStatus.COLLECTING
@@ -292,7 +295,16 @@ def assess_batch_after_quiet(session: WhatsAppDocumentBatchSession) -> dict:
     if session.status != WhatsAppDocumentBatchStatus.PROCESSING:
         return {"status": "skipped", "reason": "session_interrupted", "job_id": job.pk}
 
-    matches = rematch_and_audit_job(job, reservation=reservation)
+    matches = rematch_and_audit_job(ctx)
+    job.refresh_from_db()
+
+    from apps.reservations.document_intake_apply_gate import safe_to_partial_apply
+    from apps.reservations.document_intake_service import apply_document_intake_job
+
+    if safe_to_partial_apply(job, matches):
+        apply_document_intake_job(ctx, whatsapp_reply=False, allow_partial=True)
+        job.refresh_from_db()
+
     persons = (job.ocr_result or {}).get("persons") or []
     images = list(job.images.order_by("sort_order", "id"))
     completeness = evaluate_completeness(
@@ -447,9 +459,10 @@ def _run_finalize(session: WhatsAppDocumentBatchSession) -> dict:
     session.save(update_fields=["status", "updated_at"])
 
     from apps.integrations.whatsapp.document_intake_finalize import finalize_document_intake_job
+    from apps.reservations.document_intake_context import DocumentIntakeContext
 
     result = finalize_document_intake_job(
-        session.job,
+        DocumentIntakeContext.from_job(session.job),
         channel="guest",
         wa_id=session.wa_id,
         integration_row=integration_row,
@@ -544,8 +557,9 @@ def on_whatsapp_document_received(message_id: int) -> dict:
             return {"status": "duplicate", "session_id": session.pk, "job_id": session.job_id}
 
         if session is None:
+            intake_tenant_id = reservation.tenant_id
             job = DocumentIntakeJob.objects.create(
-                tenant_id=row.tenant_id,
+                tenant_id=intake_tenant_id,
                 reservation=reservation,
                 whatsapp_message=row,
                 source=DocumentIntakeJobSource.WHATSAPP,
@@ -553,7 +567,7 @@ def on_whatsapp_document_received(message_id: int) -> dict:
                 device_id="whatsapp",
             )
             session = WhatsAppDocumentBatchSession.objects.create(
-                tenant_id=row.tenant_id,
+                tenant_id=intake_tenant_id,
                 reservation=reservation,
                 job=job,
                 wa_id=row.wa_id,
@@ -590,7 +604,7 @@ def on_whatsapp_document_received(message_id: int) -> dict:
 
         sort_order = session.job.images.count()
         DocumentIntakeImage.objects.create(
-            tenant_id=row.tenant_id,
+            tenant_id=reservation.tenant_id,
             job=session.job,
             image=ContentFile(content, name=filename),
             sort_order=sort_order,

@@ -16,7 +16,8 @@ from apps.integrations.whatsapp.whatsapp_operator_service import (
     _send_operator_text,
     notify_guest_operator_checkin_complete,
 )
-from apps.reservations.document_intake_match import match_persons_to_guests
+from apps.reservations.document_intake_context import DocumentIntakeContext, ensure_job_tenant_matches_reservation
+from apps.reservations.document_intake_audit import run_document_intake_matching_pipeline
 from apps.reservations.document_intake_service import apply_document_intake_job, process_document_intake_job
 from apps.reservations.models import (
     DocumentIntakeJob,
@@ -56,14 +57,26 @@ def _ensure_job_ocr_ready(job: DocumentIntakeJob) -> None:
         DocumentIntakeJobStatus.QUEUED,
         DocumentIntakeJobStatus.PROCESSING,
     } or not (job.ocr_result or {}).get("persons"):
-        process_document_intake_job(job.pk)
+        ctx = DocumentIntakeContext.from_job(job)
+        process_document_intake_job(ctx)
         job.refresh_from_db()
     _validate_job(job)
 
 
 def _rematch_job(job: DocumentIntakeJob) -> list[dict]:
+    ctx = DocumentIntakeContext.from_job(job)
     persons = (job.ocr_result or {}).get("persons") or []
-    matches = match_persons_to_guests(tenant_id=job.tenant_id, persons=persons)
+    if ctx.is_reservation_scoped:
+        matches = run_document_intake_matching_pipeline(
+            tenant_id=ctx.effective_tenant_id,
+            reservation=ctx.reservation,
+            persons=persons,
+        )
+    else:
+        matches = run_document_intake_matching_pipeline(
+            tenant_id=ctx.effective_tenant_id,
+            persons=persons,
+        )
     job.matches = matches
     job.save(update_fields=["matches", "updated_at"])
     return matches
@@ -231,7 +244,7 @@ def complete_operator_checkin_after_apply(
         guest_notify_mode=guest_notify_mode,
     )
 
-    operator_name = operator_name_for_wa_id(tenant_id=job.tenant_id, wa_id=operator_wa_id) or "Operator"
+    operator_name = operator_name_for_wa_id(tenant_id=reservation.tenant_id, wa_id=operator_wa_id) or "Operator"
     success_body = _format_operator_success_message(
         reservation=reservation,
         operator_name=operator_name,
@@ -289,7 +302,6 @@ def complete_operator_document_job(
 
     reservation = Reservation.objects.select_related("property", "tenant").get(
         pk=target_reservation_id,
-        tenant_id=job.tenant_id,
     )
 
     persons = (job.ocr_result or {}).get("persons") or []
@@ -302,13 +314,15 @@ def complete_operator_document_job(
         reservation=reservation,
         min_count=len(persons),
     )
-    matches = match_persons_to_guests(
-        tenant_id=job.tenant_id,
+    ensure_job_tenant_matches_reservation(job, reservation)
+    matches = run_document_intake_matching_pipeline(
+        tenant_id=reservation.tenant_id,
+        reservation=reservation,
         persons=persons,
-        reservation_id=reservation.pk,
     )
+    job.reservation_id = reservation.pk
     job.matches = matches
-    job.save(update_fields=["matches", "updated_at"])
+    job.save(update_fields=["reservation_id", "tenant_id", "matches", "updated_at"])
 
     selections = _build_selections_for_reservation(reservation, matches)
     if len(selections) != len((job.ocr_result or {}).get("persons") or []):
@@ -335,9 +349,11 @@ def complete_operator_document_job(
         return {"status": "dry_run", **plan}
 
     job.reservation_id = reservation.pk
-    job.save(update_fields=["reservation_id", "updated_at"])
+    ensure_job_tenant_matches_reservation(job, reservation)
+    job.save(update_fields=["reservation_id", "tenant_id", "updated_at"])
 
-    applied = apply_document_intake_job(job.pk, selections=selections, whatsapp_reply=False)
+    ctx = DocumentIntakeContext.from_job(job)
+    applied = apply_document_intake_job(ctx, selections=selections, whatsapp_reply=False)
     if not applied:
         raise ValueError(f"Apply did not update any guests for job #{job.pk}")
 

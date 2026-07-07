@@ -10,6 +10,7 @@ from apps.reservations.document_intake_pdf import (
     remap_ocr_indices_to_source,
     source_indices_to_ocr_slots,
 )
+from apps.reservations.document_intake_context import DocumentIntakeContext
 from apps.reservations.document_intake_service import process_document_intake_job
 from apps.reservations.models import (
     DocumentIntakeImage,
@@ -122,7 +123,7 @@ class MixedPdfJpegOcrIntegrationTests(TestCase):
             image=_content_file(_make_pdf(page_count=2), "1.pdf"),
         )
 
-        process_document_intake_job(job.pk)
+        process_document_intake_job(DocumentIntakeContext.from_job(job))
         job.refresh_from_db()
 
         self.assertEqual(job.status, DocumentIntakeJobStatus.DONE)
@@ -178,7 +179,7 @@ class MixedPdfJpegOcrIntegrationTests(TestCase):
             image=_content_file(_make_pdf(page_count=2), "1.pdf"),
         )
 
-        process_document_intake_job(job.pk)
+        process_document_intake_job(DocumentIntakeContext.from_job(job))
 
         orphan_call = mock_orphan_ocr.call_args.kwargs
         self.assertEqual(orphan_call["orphan_indices"], [1, 2])

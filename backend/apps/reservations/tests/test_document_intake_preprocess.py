@@ -44,3 +44,27 @@ class DocumentIntakePreprocessTests(TestCase):
         self.assertEqual(remapped["images"][1]["index"], 1)
         self.assertEqual(remapped["persons"][0]["front_image_index"], 0)
         self.assertEqual(remapped["persons"][0]["back_image_index"], 1)
+
+    def test_build_dropped_to_canonical_map(self):
+        from apps.reservations.document_intake_preprocess import build_dropped_to_canonical_map
+
+        batch = [b"a", b"b", b"a", b"c", b"b"]
+        dropped = [2, 4]
+        mapping = build_dropped_to_canonical_map(batch, dropped)
+        self.assertEqual(mapping[2], 0)
+        self.assertEqual(mapping[4], 1)
+
+    def test_canonicalize_person_image_indices(self):
+        from apps.reservations.document_intake_preprocess import canonicalize_person_image_indices
+
+        persons = [{"front_image_index": 4, "back_image_index": 5}]
+        canonical = canonicalize_person_image_indices(persons, {4: 0, 5: 1})
+        self.assertEqual(canonical[0]["front_image_index"], 0)
+        self.assertEqual(canonical[0]["back_image_index"], 1)
+
+    def test_validate_no_dropped_references_raises(self):
+        from apps.reservations.document_intake_preprocess import validate_no_dropped_references
+
+        ocr_result = {"persons": [{"front_image_index": 4}]}
+        with self.assertRaises(ValueError):
+            validate_no_dropped_references(ocr_result, [4])

@@ -57,3 +57,23 @@ class WhatsAppSessionTests(TestCase):
                 reservation=self.reservation,
             )
         )
+
+    def test_session_open_when_inbound_on_integration_tenant(self):
+        """WABA rows may use integration tenant_id while reservation is on property tenant."""
+        other_tenant = Tenant.objects.create(name="Platform", slug="platform-wa")
+        WhatsAppMessage.objects.create(
+            tenant=other_tenant,
+            integration=self.integration,
+            reservation=self.reservation,
+            wamid="wamid.in.cross.tenant",
+            wa_id="385981234567",
+            direction=WhatsAppMessage.Direction.INBOUND,
+            message_type="text",
+            body="Cross-tenant inbound",
+        )
+        self.assertTrue(
+            is_customer_service_window_open(
+                tenant_id=self.tenant.pk,
+                reservation=self.reservation,
+            )
+        )
