@@ -189,6 +189,11 @@ DOCUMENT_INTAKE_REPORT_SNAPSHOT_PATH = env(
     "DOCUMENT_INTAKE_REPORT_SNAPSHOT_PATH", default=""
 )
 
+# Property financial report — max check_out period length (days, half-open interval)
+PROPERTY_FINANCIAL_REPORT_MAX_DAYS = env.int(
+    "PROPERTY_FINANCIAL_REPORT_MAX_DAYS", default=90
+)
+
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",

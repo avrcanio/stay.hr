@@ -87,6 +87,7 @@ Set `STAY_API_INTERNAL_URL` and `STAY_BOOKING_API_TOKEN` in `.env` / shell. See 
 - Reception app: `web/reception/`
 - Django API: `backend/`
 - Ops runbook: `docs/operations/domain-setup.md`
+- Property financial report: [`docs/development/property-financial-report.md`](docs/development/property-financial-report.md) — v1 JSON contract (frozen); ADR [0003](docs/architecture/adr/0003-property-financial-report.md). Exporters under `backend/apps/reservations/reports/exports/` must consume `PropertyFinancialReportResult` only — no ORM or re-aggregation in export code.
 
 ### Document intake — tenant invariant
 

@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "property_name": "Uzorita Luxury Rooms",
+    "property_slug": "uzorita",
+    "check_out_from": "2026-03-01",
+    "check_out_to": "2026-03-31",
+    "generated_at": "2026-04-01T08:30:00+02:00",
+    "currency": "EUR",
+    "max_period_days": 90,
+    "rows_with_missing_commission": 1
+  },
+  "rows": [
+    {
+      "reservation_id": 0,
+      "booking_code": "BK-COMPLETE",
+      "external_id": "ext-complete",
+      "check_in": "2026-03-10",
+      "check_out": "2026-03-13",
+      "status": "checked_out",
+      "room_labels": ["Soba 101"],
+      "nights": 3,
+      "gross": "150.00",
+      "commission": "15.00",
+      "net": "135.00",
+      "currency": "EUR",
+      "source": "booking.com",
+      "guests": [
+        {
+          "name": "Ana Anić",
+          "nationality_iso2": "HR",
+          "is_primary": true
+        },
+        {
+          "name": "Petra Petrović",
+          "nationality_iso2": "DE",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "reservation_id": 0,
+      "booking_code": "BK-NO-COMM",
+      "external_id": "ext-no-comm",
+      "check_in": "2026-03-20",
+      "check_out": "2026-03-22",
+      "status": "checked_out",
+      "room_labels": [],
+      "nights": 2,
+      "gross": "80.00",
+      "commission": null,
+      "net": null,
+      "currency": "EUR",
+      "source": "direct",
+      "guests": []
+    }
+  ],
+  "totals": {
+    "reservation_count": 2,
+    "nights": 5,
+    "gross": "230.00",
+    "commission": "15.00",
+    "net": "135.00"
+  }
+}
