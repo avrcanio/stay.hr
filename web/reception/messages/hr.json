@@ -488,7 +488,10 @@
     "downloadPdf": "Preuzmi PDF",
     "downloadExcel": "Preuzmi Excel",
     "sendEmail": "Pošalji e-mail",
-    "emailComingSoon": "Slanje e-mailom dolazi u sljedećoj verziji.",
+    "emailRecipients": "Primatelji",
+    "emailRecipientsHint": "Zarezom odvojene adrese. Prazno = primatelji s objekta (admin).",
+    "emailSent": "Izvještaj poslan na: {recipients}",
+    "emailNoRecipients": "Unesite primatelja ili postavite primatelje na objektu.",
     "periodSummary": "Odjava {from} – {to}",
     "generatedAt": "Generirano: {value}",
     "maxPeriodDays": "Maks. razdoblje: {days} dana",
@@ -511,7 +514,10 @@
       "loadFailed": "Učitavanje izvještaja nije uspjelo.",
       "periodInvalid": "Provjerite datume razdoblja.",
       "periodTooLong": "Razdoblje je predugo (maks. {maxDays} dana).",
-      "propertyRequired": "Odaberite objekt."
+      "propertyRequired": "Odaberite objekt.",
+      "emailSendFailed": "Slanje e-maila nije uspjelo.",
+      "emailNoSmtp": "SMTP nije konfiguriran na poslužitelju.",
+      "emailNoFrom": "Nema adrese pošiljatelja (DEFAULT_FROM_EMAIL)."
     }
   }
 }

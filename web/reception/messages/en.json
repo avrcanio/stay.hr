@@ -488,7 +488,10 @@
     "downloadPdf": "Download PDF",
     "downloadExcel": "Download Excel",
     "sendEmail": "Send email",
-    "emailComingSoon": "Email delivery is coming in a future release.",
+    "emailRecipients": "Recipients",
+    "emailRecipientsHint": "Comma-separated addresses. Leave empty to use property defaults (admin).",
+    "emailSent": "Report sent to: {recipients}",
+    "emailNoRecipients": "Enter a recipient or configure property recipients.",
     "periodSummary": "Check-out {from} – {to}",
     "generatedAt": "Generated: {value}",
     "maxPeriodDays": "Max period: {days} days",
@@ -511,7 +514,10 @@
       "loadFailed": "Failed to load report.",
       "periodInvalid": "Check the period dates.",
       "periodTooLong": "Period is too long (max {maxDays} days).",
-      "propertyRequired": "Select a property."
+      "propertyRequired": "Select a property.",
+      "emailSendFailed": "Failed to send email.",
+      "emailNoSmtp": "SMTP is not configured on the server.",
+      "emailNoFrom": "No sender address (DEFAULT_FROM_EMAIL)."
     }
   }
 }

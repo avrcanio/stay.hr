@@ -13,17 +13,46 @@
       src: url("{{ font_bold }}");
       font-weight: bold;
     }
-    @page { size: A4 landscape; margin: 1.2cm; }
-    body { font-family: DejaVuSans, sans-serif; font-size: 9pt; color: #111; }
-    h1 { font-size: 16pt; margin: 0 0 4px; font-weight: bold; }
-    .meta { margin-bottom: 12px; line-height: 1.4; }
+    @page { size: A4 portrait; margin: 0.75cm; }
+    body { font-family: DejaVuSans, sans-serif; font-size: 7pt; color: #111; }
+    h1 { font-size: 12pt; margin: 0 0 4px; font-weight: bold; }
+    .meta { margin-bottom: 8px; line-height: 1.3; font-size: 7pt; }
     .muted { color: #555; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    th, td { border: 1px solid #999; padding: 4px 6px; text-align: left; vertical-align: top; }
-    th { background: #f3f3f3; font-weight: bold; }
+    table.report {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      table-layout: fixed;
+    }
+    table.report th,
+    table.report td {
+      border: 1px solid #999;
+      padding: 2px 3px;
+      text-align: left;
+      vertical-align: top;
+      overflow: hidden;
+      word-wrap: break-word;
+      font-size: 6.5pt;
+    }
+    table.report th { background: #f3f3f3; font-weight: bold; font-size: 6.5pt; }
     .right { text-align: right; }
-    .totals { margin-top: 10px; font-weight: bold; }
-    .warning { margin-top: 8px; color: #8a4b00; font-size: 8pt; }
+    .nowrap { white-space: nowrap; }
+    .primary { font-weight: bold; line-height: 1.25; }
+    .secondary {
+      margin-top: 2px;
+      color: #666;
+      font-size: 7pt;
+      line-height: 1.2;
+      word-break: break-all;
+    }
+    .dates div { line-height: 1.25; }
+    .dates div + div { margin-top: 2px; }
+    .amounts div { line-height: 1.25; }
+    .amounts div + div { margin-top: 2px; }
+    .guests div { line-height: 1.25; white-space: nowrap; }
+    .guests div + div { margin-top: 2px; }
+    .totals { margin-top: 10px; font-weight: bold; font-size: 8pt; }
+    .warning { margin-top: 8px; color: #8a4b00; font-size: 7.5pt; }
   </style>
 </head>
 <body>
@@ -34,40 +63,57 @@
     <div class="muted">Generirano: {{ meta.generated_at }} · Valuta: {{ meta.currency }}</div>
   </div>
 
-  <table>
+  <table class="report">
+    <colgroup>
+      <col style="width: 12%;">
+      <col style="width: 9%;">
+      <col style="width: 15%;">
+      <col style="width: 5%;">
+      <col style="width: 11%;">
+      <col style="width: 48%;">
+    </colgroup>
     <thead>
       <tr>
         <th>Rezervacija</th>
-        <th>Vanjski ID</th>
-        <th>Dolazak</th>
-        <th>Odlazak</th>
+        <th class="nowrap">Dolazak<br>Odlazak</th>
         <th>Sobe</th>
         <th class="right">Noći</th>
-        <th class="right">Bruto</th>
-        <th class="right">Provizija</th>
-        <th class="right">Neto</th>
-        <th>Izvor</th>
+        <th class="nowrap">Izvor<br>Bruto<br>Provizija<br>Neto</th>
         <th>Gosti</th>
       </tr>
     </thead>
     <tbody>
       {% for row in rows %}
       <tr>
-        <td>{{ row.booking_code }}</td>
-        <td>{{ row.external_id }}</td>
-        <td>{{ row.check_in }}</td>
-        <td>{{ row.check_out }}</td>
+        <td>
+          <div class="primary">{{ row.booking_label }}</div>
+          {% if row.external_id_short %}
+          <div class="secondary">{{ row.external_id_short }}</div>
+          {% endif %}
+        </td>
+        <td class="nowrap dates">
+          <div>{{ row.check_in }}</div>
+          <div>{{ row.check_out }}</div>
+        </td>
         <td>{{ row.room_labels }}</td>
         <td class="right">{{ row.nights }}</td>
-        <td class="right">{{ row.gross }}</td>
-        <td class="right">{{ row.commission }}</td>
-        <td class="right">{{ row.net }}</td>
-        <td>{{ row.source }}</td>
-        <td>{{ row.guests }}</td>
+        <td class="amounts">
+          <div>{{ row.source }}</div>
+          <div>{{ row.gross }}</div>
+          <div>{{ row.commission }}</div>
+          <div>{{ row.net }}</div>
+        </td>
+        <td class="guests">
+          {% for name in row.guest_names %}
+          <div>{{ name }}</div>
+          {% empty %}
+          —
+          {% endfor %}
+        </td>
       </tr>
       {% empty %}
       <tr>
-        <td colspan="11" class="muted">Nema rezervacija u odabranom razdoblju.</td>
+        <td colspan="6" class="muted">Nema rezervacija u odabranom razdoblju.</td>
       </tr>
       {% endfor %}
     </tbody>

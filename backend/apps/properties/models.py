@@ -57,6 +57,11 @@ class Property(TenantScopedModel):
         default=30,
         help_text="Intro email this many minutes before whatsapp_autocheckin_time (same day).",
     )
+    financial_report_recipients = models.TextField(
+        blank=True,
+        default="",
+        help_text="Comma-separated emails for monthly property financial report (check-out period).",
+    )
     tourist_tax_zone = models.ForeignKey(
         "tourist_tax.TouristTaxZone",
         null=True,

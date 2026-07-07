@@ -5,9 +5,13 @@ import { useLocale, useTranslations } from "next-intl";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
 import { singlePropertySlug } from "@/lib/app-config";
 import {
+  displayBookingReference,
+  displayExternalReference,
   parsePropertyFinancialReportError,
   propertyFinancialReportPath,
+  sendPropertyFinancialReportEmail,
   type PropertyFinancialReport,
+  type PropertyFinancialReportError,
 } from "@/lib/propertyFinancialReport";
 import { formatReservationAmount } from "@/lib/reservationFinance";
 import type { AppConfig } from "@/lib/types";
@@ -35,12 +39,17 @@ export default function PropertyFinancialReportPage() {
   const initialPeriod = useMemo(() => defaultPreviousMonthPeriod(), []);
 
   const [tenantName, setTenantName] = useState("");
-  const [properties, setProperties] = useState<Array<{ slug: string; name: string }>>([]);
+  const [properties, setProperties] = useState<
+    Array<{ slug: string; name: string; financial_report_recipients?: string }>
+  >([]);
   const [propertySlug, setPropertySlug] = useState("");
   const [checkOutFrom, setCheckOutFrom] = useState(initialPeriod.from);
   const [checkOutTo, setCheckOutTo] = useState(initialPeriod.to);
+  const [emailRecipients, setEmailRecipients] = useState("");
   const [report, setReport] = useState<PropertyFinancialReport | null>(null);
   const [loading, setLoading] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailSuccess, setEmailSuccess] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -71,6 +80,40 @@ export default function PropertyFinancialReportPage() {
       }
     })();
   }, []);
+
+  const selectedProperty = useMemo(
+    () => properties.find((property) => property.slug === propertySlug),
+    [properties, propertySlug],
+  );
+
+  useEffect(() => {
+    setEmailRecipients(selectedProperty?.financial_report_recipients?.trim() ?? "");
+    setEmailSuccess("");
+  }, [selectedProperty?.financial_report_recipients, propertySlug]);
+
+  const parseRecipientInput = useCallback((raw: string) => {
+    return raw
+      .split(/[,;\s]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }, []);
+
+  const formatEmailError = useCallback(
+    (parsed: PropertyFinancialReportError | null) => {
+      if (parsed?.code === "no_recipient") return t("emailNoRecipients");
+      if (parsed?.code === "no_smtp") return t("errors.emailNoSmtp");
+      if (parsed?.code === "no_from_address") return t("errors.emailNoFrom");
+      if (parsed?.code === "period_too_long") {
+        return t("errors.periodTooLong", { maxDays: parsed.max_days ?? 90 });
+      }
+      if (parsed?.code === "period_invalid") return t("errors.periodInvalid");
+      if (parsed?.code === "property_required") {
+        return parsed.detail || t("errors.propertyRequired");
+      }
+      return t("errors.emailSendFailed");
+    },
+    [t],
+  );
 
   const formatAmount = useCallback(
     (value: string | null | undefined) => {
@@ -139,6 +182,50 @@ export default function PropertyFinancialReportPage() {
   );
 
   const canExport = Boolean(report && propertySlug && checkOutFrom && checkOutTo);
+  const canSendEmail = Boolean(propertySlug && checkOutFrom && checkOutTo && !sendingEmail);
+
+  const sendEmail = useCallback(async () => {
+    if (!propertySlug || !checkOutFrom || !checkOutTo) {
+      setError(t("errors.periodInvalid"));
+      return;
+    }
+
+    const recipients = parseRecipientInput(emailRecipients);
+    if (!recipients.length && !selectedProperty?.financial_report_recipients?.trim()) {
+      setError(t("emailNoRecipients"));
+      return;
+    }
+
+    setSendingEmail(true);
+    setError("");
+    setEmailSuccess("");
+    try {
+      const outcome = await sendPropertyFinancialReportEmail({
+        propertySlug,
+        checkOutFrom,
+        checkOutTo,
+        recipients: recipients.length ? recipients : undefined,
+      });
+      setEmailSuccess(t("emailSent", { recipients: outcome.recipients.join(", ") }));
+    } catch (caught) {
+      const parsed =
+        caught && typeof caught === "object" && "code" in caught
+          ? (caught as PropertyFinancialReportError)
+          : parsePropertyFinancialReportError(caught);
+      setError(formatEmailError(parsed));
+    } finally {
+      setSendingEmail(false);
+    }
+  }, [
+    checkOutFrom,
+    checkOutTo,
+    emailRecipients,
+    formatEmailError,
+    parseRecipientInput,
+    propertySlug,
+    selectedProperty?.financial_report_recipients,
+    t,
+  ]);
 
   return (
     <div>
@@ -224,6 +311,19 @@ export default function PropertyFinancialReportPage() {
           </div>
 
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          {emailSuccess ? <p className="text-sm text-emerald-700">{emailSuccess}</p> : null}
+
+          <div className="min-w-[280px]">
+            <div className="label">{t("emailRecipients")}</div>
+            <input
+              type="text"
+              className="input mt-1 w-full"
+              value={emailRecipients}
+              onChange={(e) => setEmailRecipients(e.target.value)}
+              placeholder={selectedProperty?.financial_report_recipients || t("emailRecipientsHint")}
+            />
+            <p className="mt-1 text-xs text-muted">{t("emailRecipientsHint")}</p>
+          </div>
 
           <div className="flex flex-wrap gap-2 border-t border-stay-border pt-4">
             <a
@@ -244,8 +344,13 @@ export default function PropertyFinancialReportPage() {
             >
               {t("downloadExcel")}
             </a>
-            <button type="button" className="btn-ghost opacity-50" disabled title={t("emailComingSoon")}>
-              {t("sendEmail")}
+            <button
+              type="button"
+              className={`btn ${canSendEmail ? "" : "pointer-events-none opacity-50"}`}
+              disabled={!canSendEmail}
+              onClick={() => void sendEmail()}
+            >
+              {sendingEmail ? tc("loading") : t("sendEmail")}
             </button>
           </div>
         </section>
@@ -298,12 +403,15 @@ export default function PropertyFinancialReportPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {report.rows.map((row) => (
+                    {report.rows.map((row) => {
+                      const bookingRef = displayBookingReference(row);
+                      const externalRef = displayExternalReference(row);
+                      return (
                       <tr key={row.reservation_id} className="border-b border-stay-border/70">
                         <td className="px-2 py-2">
-                          <div className="font-medium">{row.booking_code || tc("dash")}</div>
-                          {row.external_id ? (
-                            <div className="text-xs text-muted">{row.external_id}</div>
+                          <div className="font-medium">{bookingRef || tc("dash")}</div>
+                          {externalRef ? (
+                            <div className="text-xs text-muted">{externalRef}</div>
                           ) : null}
                         </td>
                         <td className="px-2 py-2">{row.check_in}</td>
@@ -320,7 +428,8 @@ export default function PropertyFinancialReportPage() {
                             : tc("dash")}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr className="border-t border-stay-border font-semibold">

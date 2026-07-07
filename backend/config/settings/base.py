@@ -193,6 +193,9 @@ DOCUMENT_INTAKE_REPORT_SNAPSHOT_PATH = env(
 PROPERTY_FINANCIAL_REPORT_MAX_DAYS = env.int(
     "PROPERTY_FINANCIAL_REPORT_MAX_DAYS", default=90
 )
+PROPERTY_FINANCIAL_REPORT_EMAIL_ENABLED = env.bool(
+    "PROPERTY_FINANCIAL_REPORT_EMAIL_ENABLED", default=False
+)
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
@@ -271,6 +274,10 @@ CELERY_BEAT_SCHEDULE = {
     "document-intake-quality-report-email": {
         "task": "reservations.send_document_intake_quality_report",
         "schedule": crontab(hour=9, minute=0, nowfun=_zagreb_now),
+    },
+    "property-financial-report-monthly-email": {
+        "task": "reservations.send_property_financial_reports_monthly",
+        "schedule": crontab(day_of_month=1, hour=8, minute=0, nowfun=_zagreb_now),
     },
 }
 

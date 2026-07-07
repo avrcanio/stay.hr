@@ -50,7 +50,10 @@ from apps.api.reception_reviews_views import (
     ReceptionReviewReplyView,
     ReceptionReviewsListView,
 )
-from apps.api.reception_report_views import PropertyFinancialReportView
+from apps.api.reception_report_views import (
+    PropertyFinancialReportSendEmailView,
+    PropertyFinancialReportView,
+)
 from apps.api.reception_document_intake_views import (
     DocumentIntakeBatchView,
     DocumentIntakeJobApplyView,
@@ -128,6 +131,11 @@ urlpatterns = [
         "reports/property-financial/",
         PropertyFinancialReportView.as_view(),
         name="reception-reports-property-financial",
+    ),
+    path(
+        "reports/property-financial/send-email/",
+        PropertyFinancialReportSendEmailView.as_view(),
+        name="reception-reports-property-financial-send-email",
     ),
     path(
         "reservations/",
