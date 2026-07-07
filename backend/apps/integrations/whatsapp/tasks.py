@@ -39,6 +39,8 @@ from apps.integrations.whatsapp.whatsapp_guest_autocheckin import (
 from apps.integrations.whatsapp.whatsapp_operator import is_operator_wa_id
 from apps.integrations.whatsapp.whatsapp_operator_service import handle_operator_inbound
 from apps.integrations.whatsapp.whatsapp_session import resolved_tenant_id_for_message
+from apps.reservations.models import ReservationVersionScope
+from apps.reservations.reservation_version import touch_reservation_version
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +170,20 @@ def _maybe_send_auto_reply(
     }
 
 
+def _touch_whatsapp_autocheckin_reply(
+    reservation,
+    result: dict,
+) -> dict:
+    reservation_id = getattr(reservation, "pk", None)
+    if reservation_id and result.get("outbound_wamid"):
+        touch_reservation_version(
+            reservation_id,
+            ReservationVersionScope.MESSAGES,
+            reason="whatsapp_autocheckin_reply",
+        )
+    return result
+
+
 def _maybe_send_autocheckin_documents_reply(
     *,
     row: WhatsAppMessage,
@@ -184,11 +200,14 @@ def _maybe_send_autocheckin_documents_reply(
     )
 
     if is_guest_checkin_acknowledged(reservation):
-        return reply_already_checked_in_autocheckin(
-            integration_row=integration_row,
-            runtime=runtime,
-            row=row,
-            reservation=reservation,
+        return _touch_whatsapp_autocheckin_reply(
+            reservation,
+            reply_already_checked_in_autocheckin(
+                integration_row=integration_row,
+                runtime=runtime,
+                row=row,
+                reservation=reservation,
+            ),
         )
 
     if is_whatsapp_autocheckin_waived(reservation):
@@ -245,7 +264,10 @@ def _maybe_send_autocheckin_documents_reply(
         to_phone=reservation.booker_phone or row.wa_id,
     )
 
-    return {"status": "documents_sent", "outbound_wamid": outbound_wamid}
+    return _touch_whatsapp_autocheckin_reply(
+        reservation,
+        {"status": "documents_sent", "outbound_wamid": outbound_wamid},
+    )
 
 
 def _maybe_notify_guest_message_inbound(row: WhatsAppMessage) -> None:
@@ -376,11 +398,14 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
             )
 
             if is_guest_checkin_acknowledged(reservation):
-                reply_result = reply_already_checked_in_autocheckin(
-                    integration_row=integration_row,
-                    runtime=runtime,
-                    row=row,
-                    reservation=reservation,
+                reply_result = _touch_whatsapp_autocheckin_reply(
+                    reservation,
+                    reply_already_checked_in_autocheckin(
+                        integration_row=integration_row,
+                        runtime=runtime,
+                        row=row,
+                        reservation=reservation,
+                    ),
                 )
             else:
                 batch_guard = handle_autocheckin_during_document_batch(
@@ -461,6 +486,13 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
             reservation = row.reservation
 
     _maybe_notify_guest_message_inbound(row)
+
+    if row.reservation_id:
+        touch_reservation_version(
+            row.reservation_id,
+            ReservationVersionScope.MESSAGES,
+            reason="whatsapp_inbound",
+        )
 
     result = {
         **reply_result,

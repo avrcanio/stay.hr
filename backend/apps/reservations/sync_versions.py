@@ -14,7 +14,11 @@ from apps.reservations.models import (
     MonthlyStatisticsOverride,
     Reservation,
     ReservationUnit,
+    ReservationVersion,
+    ReservationVersionScope,
 )
+
+RESERVATION_VERSION_SCOPE_ALL = "all"
 
 _DIGEST_LENGTH = 16
 
@@ -93,10 +97,51 @@ def reservation_detail_version(tenant, reservation_id: int) -> str | None:
     return _digest(payload)
 
 
+def valid_reservation_version_scopes() -> frozenset[str]:
+    return frozenset(scope.value for scope in ReservationVersionScope) | {
+        RESERVATION_VERSION_SCOPE_ALL
+    }
+
+
+def fetch_reservation_versions(
+    reservation_id: int,
+    scope: str,
+) -> dict[str, int]:
+    """Jedan SELECT — single scope (uvijek s ključem) ili svi redovi u DB."""
+    if scope != RESERVATION_VERSION_SCOPE_ALL:
+        version = (
+            ReservationVersion.objects.filter(
+                reservation_id=reservation_id,
+                scope=scope,
+            )
+            .values_list("version", flat=True)
+            .first()
+        )
+        return {scope: version if version is not None else 0}
+
+    rows = ReservationVersion.objects.filter(
+        reservation_id=reservation_id,
+    ).values_list("scope", "version")
+    return dict(rows)
+
+
+def build_scoped_versions_payload(
+    tenant,
+    reservation_id: int,
+    scope: str,
+) -> dict | None:
+    """Samo ``{ "versions": { ... } }`` za lagani poll; ``None`` ako rezervacija ne postoji."""
+    if not Reservation.objects.for_tenant(tenant).filter(pk=reservation_id).exists():
+        return None
+    return {"versions": fetch_reservation_versions(reservation_id, scope)}
+
+
 def build_sync_versions_payload(
     tenant,
     year: int,
     reservation_id: int | None = None,
+    *,
+    include_versions: bool = False,
 ) -> dict | None:
     year_key = str(year)
     payload = {
@@ -109,6 +154,11 @@ def build_sync_versions_payload(
         if detail is None:
             return None
         payload["reservation_detail"] = detail
+        if include_versions:
+            payload["versions"] = fetch_reservation_versions(
+                reservation_id,
+                RESERVATION_VERSION_SCOPE_ALL,
+            )
     return payload
 
 

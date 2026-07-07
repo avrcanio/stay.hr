@@ -11,7 +11,14 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.properties.models import Property, Unit
-from apps.reservations.models import Guest, IdRecognitionSample, Reservation, ReservationUnit
+from apps.reservations.models import (
+    Guest,
+    IdRecognitionSample,
+    Reservation,
+    ReservationUnit,
+    ReservationVersionScope,
+)
+from apps.reservations.reservation_version import touch_reservation_version
 from apps.tenants.models import RECEPTION_DEVICE_SCOPES, ApiApplication, Tenant
 
 
@@ -937,6 +944,174 @@ class ReceptionAPITests(TestCase):
             **self.auth,
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_sync_versions_reservation_id_other_tenant_returns_404(self):
+        other_tenant = Tenant.objects.create(name="Other", slug="other")
+        other_property = Property.objects.create(
+            tenant=other_tenant,
+            name="Other",
+            slug="other",
+        )
+        other_reservation = Reservation.objects.create(
+            tenant=other_tenant,
+            property=other_property,
+            check_in=date(2026, 6, 1),
+            check_out=date(2026, 6, 5),
+            status=Reservation.Status.EXPECTED,
+            booker_name="Other guest",
+            amount=Decimal("80.00"),
+        )
+
+        full = self.client.get(
+            f"/api/v1/reception/sync-versions/?year=2026&reservation_id={other_reservation.id}",
+            **self.auth,
+        )
+        self.assertEqual(full.status_code, 404)
+
+        scoped = self.client.get(
+            f"/api/v1/reception/sync-versions/?reservation_id={other_reservation.id}&scope=messages",
+            **self.auth,
+        )
+        self.assertEqual(scoped.status_code, 404)
+
+    def test_sync_versions_etag_differs_between_full_and_scoped_payload(self):
+        full = self.client.get(
+            f"/api/v1/reception/sync-versions/?year=2026&reservation_id={self.reservation.id}",
+            **self.auth,
+        )
+        scoped = self.client.get(
+            f"/api/v1/reception/sync-versions/?reservation_id={self.reservation.id}&scope=messages",
+            **self.auth,
+        )
+        self.assertEqual(full.status_code, 200)
+        self.assertEqual(scoped.status_code, 200)
+        self.assertNotEqual(full["ETag"], scoped["ETag"])
+
+    def test_sync_versions_scope_messages_returns_zero_without_row(self):
+        response = self.client.get(
+            f"/api/v1/reception/sync-versions/?reservation_id={self.reservation.id}&scope=messages",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data, {"versions": {"messages": 0}})
+        self.assertNotIn("reservations", data)
+        etag = response["ETag"]
+        self.assertTrue(etag.startswith('W/"'))
+
+    def test_sync_versions_scope_messages_returns_version_after_touch(self):
+        touch_reservation_version(
+            self.reservation.id,
+            ReservationVersionScope.MESSAGES,
+            reason="test",
+        )
+        response = self.client.get(
+            f"/api/v1/reception/sync-versions/?reservation_id={self.reservation.id}&scope=messages",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"versions": {"messages": 1}})
+
+    def test_sync_versions_scope_messages_etag_304(self):
+        response = self.client.get(
+            f"/api/v1/reception/sync-versions/?reservation_id={self.reservation.id}&scope=messages",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        etag = response["ETag"]
+
+        cached = self.client.get(
+            f"/api/v1/reception/sync-versions/?reservation_id={self.reservation.id}&scope=messages",
+            HTTP_IF_NONE_MATCH=etag,
+            **self.auth,
+        )
+        self.assertEqual(cached.status_code, 304)
+        self.assertEqual(cached.content, b"")
+
+        touch_reservation_version(
+            self.reservation.id,
+            ReservationVersionScope.MESSAGES,
+            reason="test",
+        )
+        after_change = self.client.get(
+            f"/api/v1/reception/sync-versions/?reservation_id={self.reservation.id}&scope=messages",
+            HTTP_IF_NONE_MATCH=etag,
+            **self.auth,
+        )
+        self.assertEqual(after_change.status_code, 200)
+        self.assertNotEqual(after_change["ETag"], etag)
+        self.assertEqual(after_change.json(), {"versions": {"messages": 1}})
+
+    def test_sync_versions_scope_all(self):
+        touch_reservation_version(self.reservation.id, ReservationVersionScope.MESSAGES)
+        touch_reservation_version(self.reservation.id, ReservationVersionScope.PAYMENTS)
+        response = self.client.get(
+            f"/api/v1/reception/sync-versions/?reservation_id={self.reservation.id}&scope=all",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"versions": {"messages": 1, "payments": 1}},
+        )
+
+    def test_sync_versions_scope_invalid(self):
+        response = self.client.get(
+            f"/api/v1/reception/sync-versions/?reservation_id={self.reservation.id}&scope=guest_messages",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_sync_versions_scope_requires_reservation_id(self):
+        response = self.client.get(
+            "/api/v1/reception/sync-versions/?year=2026&scope=messages",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_sync_versions_with_reservation_id_includes_versions(self):
+        touch_reservation_version(self.reservation.id, ReservationVersionScope.MESSAGES)
+        response = self.client.get(
+            f"/api/v1/reception/sync-versions/?year=2026&reservation_id={self.reservation.id}",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("reservation_detail", data)
+        self.assertIn("versions", data)
+        self.assertEqual(data["versions"], {"messages": 1})
+
+    def test_reservation_version_stream_requires_params(self):
+        response = self.client.get(
+            "/api/v1/reception/reservation-versions/stream/",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_reservation_version_stream_rejects_scope_all(self):
+        response = self.client.get(
+            f"/api/v1/reception/reservation-versions/stream/?reservation_id={self.reservation.id}&scope=all",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_reservation_version_stream_not_found(self):
+        response = self.client.get(
+            "/api/v1/reception/reservation-versions/stream/?reservation_id=999999&scope=messages",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_reservation_version_stream_connected_event(self):
+        response = self.client.get(
+            f"/api/v1/reception/reservation-versions/stream/?reservation_id={self.reservation.id}&scope=messages",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/event-stream", response["Content-Type"])
+        first_chunk = next(response.streaming_content).decode("utf-8")
+        self.assertIn("event: connected", first_chunk)
+        self.assertIn('"scope":"messages"', first_chunk)
 
     def test_monthly_statistics(self):
         self.reservation.status = Reservation.Status.CHECKED_IN

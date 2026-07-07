@@ -4,12 +4,23 @@ from decimal import Decimal
 from django.test import TestCase
 
 from apps.properties.models import Property
-from apps.reservations.models import Guest, MonthlyStatisticsOverride, Reservation
+from apps.reservations.models import (
+    Guest,
+    MonthlyStatisticsOverride,
+    Reservation,
+    ReservationVersion,
+    ReservationVersionScope,
+)
+from apps.reservations.reservation_version import touch_reservation_version
 from apps.reservations.sync_versions import (
+    RESERVATION_VERSION_SCOPE_ALL,
+    build_scoped_versions_payload,
     build_sync_versions_payload,
+    fetch_reservation_versions,
     reservation_detail_version,
     reservations_version,
     statistics_version,
+    sync_versions_etag,
 )
 from apps.tenants.models import Tenant
 
@@ -117,3 +128,104 @@ class SyncVersionsTests(TestCase):
             reservation_id=999999,
         )
         self.assertIsNone(payload)
+
+    def test_fetch_reservation_versions_single_scope_zero_when_missing(self):
+        reservation = self._create_reservation()
+        versions = fetch_reservation_versions(
+            reservation.pk,
+            ReservationVersionScope.MESSAGES,
+        )
+        self.assertEqual(versions, {"messages": 0})
+
+    def test_fetch_reservation_versions_single_scope_returns_version(self):
+        reservation = self._create_reservation()
+        touch_reservation_version(
+            reservation.pk,
+            ReservationVersionScope.MESSAGES,
+            reason="test",
+        )
+        touch_reservation_version(
+            reservation.pk,
+            ReservationVersionScope.MESSAGES,
+            reason="test",
+        )
+        versions = fetch_reservation_versions(
+            reservation.pk,
+            ReservationVersionScope.MESSAGES,
+        )
+        self.assertEqual(versions, {"messages": 2})
+
+    def test_fetch_reservation_versions_all_scopes_only_existing_rows(self):
+        reservation = self._create_reservation()
+        touch_reservation_version(reservation.pk, ReservationVersionScope.MESSAGES)
+        touch_reservation_version(reservation.pk, ReservationVersionScope.PAYMENTS)
+        versions = fetch_reservation_versions(
+            reservation.pk,
+            RESERVATION_VERSION_SCOPE_ALL,
+        )
+        self.assertEqual(versions, {"messages": 1, "payments": 1})
+
+    def test_fetch_reservation_versions_single_scope_query_count(self):
+        reservation = self._create_reservation()
+        touch_reservation_version(reservation.pk, ReservationVersionScope.MESSAGES)
+        with self.assertNumQueries(1):
+            fetch_reservation_versions(
+                reservation.pk,
+                ReservationVersionScope.MESSAGES,
+            )
+
+    def test_build_scoped_versions_payload_missing_reservation(self):
+        payload = build_scoped_versions_payload(
+            self.tenant,
+            999999,
+            ReservationVersionScope.MESSAGES,
+        )
+        self.assertIsNone(payload)
+
+    def test_build_scoped_versions_payload_single_scope(self):
+        reservation = self._create_reservation()
+        payload = build_scoped_versions_payload(
+            self.tenant,
+            reservation.pk,
+            ReservationVersionScope.MESSAGES,
+        )
+        self.assertEqual(payload, {"versions": {"messages": 0}})
+
+    def test_build_sync_versions_payload_includes_versions_when_requested(self):
+        reservation = self._create_reservation()
+        touch_reservation_version(reservation.pk, ReservationVersionScope.MESSAGES)
+        payload = build_sync_versions_payload(
+            self.tenant,
+            2026,
+            reservation_id=reservation.pk,
+            include_versions=True,
+        )
+        self.assertIn("versions", payload)
+        self.assertEqual(payload["versions"], {"messages": 1})
+
+    def test_sync_versions_etag_304_semantics(self):
+        payload_a = {"versions": {"messages": 0}}
+        payload_b = {"versions": {"messages": 0}}
+        payload_c = {"versions": {"messages": 1}}
+        etag_a = sync_versions_etag(payload_a)
+        etag_b = sync_versions_etag(payload_b)
+        etag_c = sync_versions_etag(payload_c)
+        self.assertEqual(etag_a, etag_b)
+        self.assertNotEqual(etag_a, etag_c)
+        self.assertTrue(etag_a.startswith('W/"'))
+        self.assertTrue(etag_a.endswith('"'))
+
+    def test_sync_versions_etag_differs_between_full_and_scoped_payload(self):
+        reservation = self._create_reservation()
+        full = build_sync_versions_payload(
+            self.tenant,
+            2026,
+            reservation_id=reservation.pk,
+            include_versions=True,
+        )
+        scoped = build_scoped_versions_payload(
+            self.tenant,
+            reservation.pk,
+            ReservationVersionScope.MESSAGES,
+        )
+        self.assertNotEqual(sync_versions_etag(full), sync_versions_etag(scoped))

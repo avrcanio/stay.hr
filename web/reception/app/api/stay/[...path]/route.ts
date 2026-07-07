@@ -52,6 +52,24 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
   }
 
   const contentType = upstream.headers.get("content-type") || "application/json";
+  const isEventStream = contentType.includes("text/event-stream");
+
+  if (isEventStream && upstream.body) {
+    const responseHeaders: Record<string, string> = {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": upstream.headers.get("cache-control") || "no-cache",
+      Connection: "keep-alive",
+    };
+    const buffering = upstream.headers.get("x-accel-buffering");
+    if (buffering) {
+      responseHeaders["X-Accel-Buffering"] = buffering;
+    }
+    return new NextResponse(upstream.body, {
+      status: upstream.status,
+      headers: responseHeaders,
+    });
+  }
+
   const isBinary =
     contentType.startsWith("image/") ||
     contentType.includes("octet-stream") ||

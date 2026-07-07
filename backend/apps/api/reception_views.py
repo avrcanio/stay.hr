@@ -4,13 +4,14 @@ import base64
 import hashlib
 import json
 import mimetypes
+import queue
 import time
 from datetime import date as date_type
 
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db.models import Case, Count, DateTimeField, F, Prefetch, Q, When
-from django.http import FileResponse
+from django.http import FileResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import generics, serializers, status
@@ -66,8 +67,16 @@ from apps.reservations.statistics import (
     aggregate_monthly_statistics,
 )
 from apps.reservations.sync_versions import (
+    RESERVATION_VERSION_SCOPE_ALL,
+    build_scoped_versions_payload,
     build_sync_versions_payload,
     sync_versions_etag,
+    valid_reservation_version_scopes,
+)
+from apps.reservations.reservation_version_events import (
+    format_sse,
+    subscribe,
+    unsubscribe,
 )
 
 
@@ -180,11 +189,34 @@ class ReceptionSyncVersionsView(ReceptionReadView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        payload = build_sync_versions_payload(
-            request.tenant,
-            year,
-            reservation_id=reservation_id,
-        )
+        scope_param = request.query_params.get("scope")
+        scope = None
+        if scope_param is not None and str(scope_param).strip() != "":
+            scope = str(scope_param).strip().lower()
+            if scope not in valid_reservation_version_scopes():
+                return Response(
+                    {"detail": "scope nije podržan."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if reservation_id is None:
+                return Response(
+                    {"detail": "reservation_id je obavezan kad je scope naveden."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if scope is not None:
+            payload = build_scoped_versions_payload(
+                request.tenant,
+                reservation_id,
+                scope,
+            )
+        else:
+            payload = build_sync_versions_payload(
+                request.tenant,
+                year,
+                reservation_id=reservation_id,
+                include_versions=reservation_id is not None,
+            )
         if payload is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
@@ -194,6 +226,85 @@ class ReceptionSyncVersionsView(ReceptionReadView):
 
         response = Response(payload)
         response["ETag"] = etag
+        return response
+
+
+SSE_HEARTBEAT_SECONDS = 25
+
+
+class ReceptionReservationVersionStreamView(ReceptionReadView):
+    """SSE stream for scoped reservation version changes (v2 transport)."""
+
+    def get(self, request):
+        reservation_id_param = request.query_params.get("reservation_id")
+        scope_param = request.query_params.get("scope")
+
+        if reservation_id_param is None or str(reservation_id_param).strip() == "":
+            return Response(
+                {"detail": "reservation_id je obavezan."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if scope_param is None or str(scope_param).strip() == "":
+            return Response(
+                {"detail": "scope je obavezan."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            reservation_id = int(reservation_id_param)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "reservation_id mora biti cijeli broj."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if reservation_id < 1:
+            return Response(
+                {"detail": "reservation_id mora biti pozitivan."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        scope = str(scope_param).strip().lower()
+        if scope == RESERVATION_VERSION_SCOPE_ALL:
+            return Response(
+                {"detail": "scope=all nije podržan za stream."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if scope not in valid_reservation_version_scopes():
+            return Response(
+                {"detail": "scope nije podržan."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payload = build_scoped_versions_payload(request.tenant, reservation_id, scope)
+        if payload is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        event_queue = subscribe(reservation_id, scope)
+        initial_version = payload["versions"][scope]
+
+        def event_stream():
+            try:
+                yield format_sse(
+                    "connected",
+                    {
+                        "reservation_id": reservation_id,
+                        "scope": scope,
+                        "version": initial_version,
+                    },
+                )
+                while True:
+                    try:
+                        event = event_queue.get(timeout=SSE_HEARTBEAT_SECONDS)
+                    except queue.Empty:
+                        yield ": heartbeat\n\n"
+                        continue
+                    yield format_sse("reservation_version_changed", event)
+            finally:
+                unsubscribe(reservation_id, scope, event_queue)
+
+        response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
         return response
 
 
@@ -666,7 +777,7 @@ class DocumentScanIngestView(ReceptionWriteView, APIView):
             "first_name": first_name,
             "last_name": last_name,
             "document_number": doc_no,
-            "nationality": nat,
+            "nationality": updates.get("nationality"),
             "date_of_birth": dob,
             "address": updates.get("address") or adresa,
         }

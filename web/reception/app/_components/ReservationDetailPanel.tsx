@@ -47,6 +47,7 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
   const [statusChanging, setStatusChanging] = useState(false);
   const [moveDatesOpen, setMoveDatesOpen] = useState(false);
   const [guestInvoices, setGuestInvoices] = useState(false);
+  const [channelManager, setChannelManager] = useState<string | undefined>();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -68,8 +69,12 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
       .then((res) => (res.ok ? res.json() : null))
       .then((config: AppConfig | null) => {
         setGuestInvoices(Boolean(config?.feature_flags?.guest_invoices));
+        setChannelManager(config?.channel_manager);
       })
-      .catch(() => setGuestInvoices(false));
+      .catch(() => {
+        setGuestInvoices(false);
+        setChannelManager(undefined);
+      });
   }, []);
 
   useEffect(() => {
@@ -254,7 +259,9 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
 
       <GuestMessagesPanel reservationId={reservation.id} />
 
-      <GuestReviewsPanel reservationId={reservation.id} />
+      {channelManager === "channex" ? (
+        <GuestReviewsPanel reservationId={reservation.id} />
+      ) : null}
 
       {reservation.pdf_imported_at || reservation.confirmation_pdf_url ? (
         <p>

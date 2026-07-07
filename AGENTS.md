@@ -211,3 +211,11 @@ Fokus je na poslovnim funkcionalnostima uz očuvanje kvalitete platforme:
 - **Bez usputnih refaktora** osim ako su nužni za taj PR
 
 Referenca stabilizacije: [test-suite.md — Integration Suite Stabilization (2026-07)](docs/development/test-suite.md#integration-suite-stabilization-2026-07).
+
+### Reservation versioning
+
+**Novi modul koji uvodi stanje rezervacije** mora koristiti `ReservationVersion` (`touch_reservation_version`, `sync-versions` + `scope`) i **ne smije** uvoditi vlastiti mehanizam pollinga ili verzioniranja bez odobrene arhitekturne odluke (ADR).
+
+Zabranjeno bez ADR-a: paralelni modeli (`PaymentVersion`, `HousekeepingVersion`, …), vlastiti poll hookovi, `COUNT`/`MAX` na svakom zahtjevu umjesto event-driven bumpa.
+
+Referenca: [reservation-versioning.md](docs/architecture/reservation-versioning.md), ADR [0001-reservation-event-versioning](docs/architecture/adr/0001-reservation-event-versioning.md).

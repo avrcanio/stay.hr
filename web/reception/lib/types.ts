@@ -94,6 +94,10 @@ export type InvoiceSummary = {
   currency?: string;
 };
 
+export type ReservationVersionsResponse = {
+  versions: Record<string, number>;
+};
+
 export type GuestMessageTimelineItem = {
   id: number;
   source: "outbound" | "whatsapp" | "booking" | "inbound";
@@ -118,6 +122,8 @@ export type GuestMessageChannelInfo = {
   wa_me_url?: string;
   api_send?: boolean;
   session_open?: boolean;
+  template_name?: string | null;
+  template_available?: boolean;
 };
 
 export type GuestMessageChannels = Record<string, GuestMessageChannelInfo> & {
