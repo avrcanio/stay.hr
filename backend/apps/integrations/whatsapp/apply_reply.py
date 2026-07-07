@@ -221,8 +221,16 @@ def maybe_send_document_apply_whatsapp_reply(
         return {"status": "skipped", "reason": "no_reservation"}
 
     reservation = job.reservation
-    if is_whatsapp_autocheckin_waived(reservation):
-        return {"status": "skipped", "reason": "autocheckin_waived"}
+    from apps.integrations.whatsapp.guest_document_lifecycle import (
+        check_guest_document_intake_automation,
+    )
+
+    allowed, reason = check_guest_document_intake_automation(
+        reservation,
+        block_documents_complete=False,
+    )
+    if not allowed:
+        return {"status": "skipped", "reason": reason}
 
     missing_sides = find_missing_id_sides(reservation)
     if missing_sides:
@@ -274,8 +282,13 @@ def maybe_send_checkin_automation_failed_whatsapp_reply(job: DocumentIntakeJob) 
         return {"status": "already_sent"}
 
     reservation = job.reservation
-    if is_whatsapp_autocheckin_waived(reservation):
-        return {"status": "skipped", "reason": "autocheckin_waived"}
+    from apps.integrations.whatsapp.guest_document_lifecycle import (
+        check_guest_document_intake_automation,
+    )
+
+    allowed, reason = check_guest_document_intake_automation(reservation)
+    if not allowed:
+        return {"status": "skipped", "reason": reason}
 
     body = render_checkin_automation_failed_message(reservation)
     return _send_whatsapp_text_reply(

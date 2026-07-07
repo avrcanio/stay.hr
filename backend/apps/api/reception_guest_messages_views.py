@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers, status
@@ -16,6 +18,16 @@ from apps.communications.guest_compose import (
     compose_guest_message,
     create_draft_from_body_text,
     build_compose_response_fields,
+)
+from apps.communications.guest_message_logging import (
+    GUEST_MESSAGE_COMPOSE_ATTEMPT,
+    GUEST_MESSAGE_COMPOSE_SUCCESS,
+    GUEST_MESSAGE_SEND_ATTEMPT,
+    GUEST_MESSAGE_SEND_ERROR,
+    GUEST_MESSAGE_SEND_SUCCESS,
+    GuestMessageCorrelationMixin,
+    body_meta,
+    log_guest_message_event,
 )
 from apps.communications.guest_message_translate import (
     GuestMessageTranslateError,
@@ -159,12 +171,23 @@ class ReceptionGuestMessageChannelsView(ReceptionReadView, APIView):
         return Response(build_message_channels(reservation))
 
 
-class ReceptionGuestMessageComposeView(ReceptionWriteView, APIView):
+class ReceptionGuestMessageComposeView(GuestMessageCorrelationMixin, ReceptionWriteView, APIView):
     def post(self, request, reservation_id: int):
         reservation = _reservation_or_404(request.tenant, reservation_id)
+        request_id = request.guest_message_request_id
+        started = time.perf_counter()
         serializer = GuestMessageComposeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+
+        intent = data.get("intent") or GuestMessageIntent.CUSTOM
+        log_guest_message_event(
+            GUEST_MESSAGE_COMPOSE_ATTEMPT,
+            request_id=request_id,
+            reservation_id=reservation.pk,
+            tenant_slug=request.tenant.slug,
+            intent=intent,
+        )
 
         language = (data.get("language") or "").strip() or None
         api_application = getattr(request, "api_application", None)
@@ -192,6 +215,18 @@ class ReceptionGuestMessageComposeView(ReceptionWriteView, APIView):
             guest_language=draft.language,
         )
 
+        compose_ms = int((time.perf_counter() - started) * 1000)
+        log_guest_message_event(
+            GUEST_MESSAGE_COMPOSE_SUCCESS,
+            request_id=request_id,
+            reservation_id=reservation.pk,
+            tenant_slug=request.tenant.slug,
+            draft_id=draft.pk,
+            intent=draft.intent,
+            compose_ms=compose_ms,
+            llm_used=llm_used,
+        )
+
         return Response(
             {
                 "draft_id": draft.pk,
@@ -208,9 +243,11 @@ class ReceptionGuestMessageComposeView(ReceptionWriteView, APIView):
         )
 
 
-class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
+class ReceptionGuestMessageSendView(GuestMessageCorrelationMixin, ReceptionWriteView, APIView):
     def post(self, request, reservation_id: int):
         reservation = _reservation_or_404(request.tenant, reservation_id)
+        request_id = request.guest_message_request_id
+        started = time.perf_counter()
         serializer = GuestMessageSendSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -219,11 +256,48 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
         body_text = data["body_text"]
         channels = build_message_channels(reservation)
 
+        log_guest_message_event(
+            GUEST_MESSAGE_SEND_ATTEMPT,
+            request_id=request_id,
+            reservation_id=reservation.pk,
+            tenant_slug=request.tenant.slug,
+            draft_id=data["draft_id"],
+            channel=channel,
+            **body_meta(body_text),
+        )
+
         if channel == GuestMessageChannel.EMAIL and not channels["email"]["available"]:
+            self._log_send_error(
+                request_id=request_id,
+                reservation=reservation,
+                draft_id=data["draft_id"],
+                channel=channel,
+                body_text=body_text,
+                started=started,
+                detail="No guest email on this reservation.",
+            )
             raise ValidationError({"channel": "No guest email on this reservation."})
         if channel == GuestMessageChannel.WHATSAPP and not channels["whatsapp"]["available"]:
+            self._log_send_error(
+                request_id=request_id,
+                reservation=reservation,
+                draft_id=data["draft_id"],
+                channel=channel,
+                body_text=body_text,
+                started=started,
+                detail="No guest phone on this reservation.",
+            )
             raise ValidationError({"channel": "No guest phone on this reservation."})
         if channel == GuestMessageChannel.BOOKING and not channels["booking"]["available"]:
+            self._log_send_error(
+                request_id=request_id,
+                reservation=reservation,
+                draft_id=data["draft_id"],
+                channel=channel,
+                body_text=body_text,
+                started=started,
+                detail="Booking.com messaging is not available for this reservation.",
+            )
             raise ValidationError({"channel": "Booking.com messaging is not available for this reservation."})
 
         api_application = getattr(request, "api_application", None)
@@ -240,6 +314,15 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
                 .first()
             )
             if draft is None:
+                self._log_send_error(
+                    request_id=request_id,
+                    reservation=reservation,
+                    draft_id=data["draft_id"],
+                    channel=channel,
+                    body_text=body_text,
+                    started=started,
+                    detail="Draft not found for this reservation.",
+                )
                 raise ValidationError({"draft_id": "Draft not found for this reservation."})
 
             if draft.sent_at is not None:
@@ -249,7 +332,15 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
                     .first()
                 )
                 if existing is not None:
-                    return self._send_response(existing, draft, channel, api_application, status.HTTP_200_OK)
+                    return self._send_response(
+                        existing,
+                        draft,
+                        channel,
+                        api_application,
+                        status.HTTP_200_OK,
+                        request_id=request_id,
+                        started=started,
+                    )
 
             existing_outbound = draft.outbound_messages.filter(
                 channel=channel,
@@ -265,6 +356,7 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
                     api_application=api_application,
                     subject=subject or default_email_subject(reservation),
                     existing_outbound=existing_outbound,
+                    request_id=request_id,
                 )
             except WhatsAppSendPendingError as exc:
                 return self._send_response(
@@ -273,8 +365,20 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
                     channel,
                     api_application,
                     status.HTTP_503_SERVICE_UNAVAILABLE,
+                    request_id=request_id,
+                    started=started,
                 )
             except ValueError as exc:
+                self._log_send_error(
+                    request_id=request_id,
+                    reservation=reservation,
+                    draft_id=draft.pk,
+                    channel=channel,
+                    body_text=body_text,
+                    started=started,
+                    detail=str(exc),
+                    intent=draft.intent,
+                )
                 raise ValidationError({"channel": str(exc)}) from exc
 
         if isinstance(result, ChannexMessage):
@@ -283,11 +387,67 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
             payload["status"] = "sent"
             payload["sent_by_name"] = app.name if app else None
             payload["edited"] = draft.edited
+            send_ms = int((time.perf_counter() - started) * 1000)
+            log_guest_message_event(
+                GUEST_MESSAGE_SEND_SUCCESS,
+                request_id=request_id,
+                reservation_id=reservation.pk,
+                tenant_slug=request.tenant.slug,
+                draft_id=draft.pk,
+                channel=channel,
+                intent=draft.intent,
+                status="sent",
+                send_ms=send_ms,
+            )
             return Response(payload, status=status.HTTP_201_CREATED)
 
-        return self._send_response(result, draft, channel, api_application, status.HTTP_201_CREATED)
+        return self._send_response(
+            result,
+            draft,
+            channel,
+            api_application,
+            status.HTTP_201_CREATED,
+            request_id=request_id,
+            started=started,
+        )
 
-    def _send_response(self, outbound, draft, channel, api_application, http_status):
+    def _log_send_error(
+        self,
+        *,
+        request_id: str,
+        reservation: Reservation,
+        draft_id: int,
+        channel: str,
+        body_text: str,
+        started: float,
+        detail: str,
+        intent: str = "",
+    ) -> None:
+        send_ms = int((time.perf_counter() - started) * 1000)
+        log_guest_message_event(
+            GUEST_MESSAGE_SEND_ERROR,
+            request_id=request_id,
+            reservation_id=reservation.pk,
+            tenant_slug=reservation.tenant.slug,
+            draft_id=draft_id,
+            channel=channel,
+            intent=intent,
+            send_ms=send_ms,
+            detail=detail[:200],
+            **body_meta(body_text),
+        )
+
+    def _send_response(
+        self,
+        outbound,
+        draft,
+        channel,
+        api_application,
+        http_status,
+        *,
+        request_id: str = "",
+        started: float | None = None,
+    ):
         payload = serialize_outbound(outbound)
         if channel == GuestMessageChannel.WHATSAPP:
             payload["wa_me_url"] = outbound.wa_me_url
@@ -297,6 +457,23 @@ class ReceptionGuestMessageSendView(ReceptionWriteView, APIView):
         payload["edited"] = draft.edited
         if api_application is not None:
             payload["sent_by_name"] = api_application.name
+        if request_id and started is not None:
+            send_ms = int((time.perf_counter() - started) * 1000)
+            tenant_slug = ""
+            if getattr(outbound, "reservation", None) is not None:
+                tenant_slug = outbound.reservation.tenant.slug
+            log_guest_message_event(
+                GUEST_MESSAGE_SEND_SUCCESS,
+                request_id=request_id,
+                reservation_id=draft.reservation_id,
+                tenant_slug=tenant_slug,
+                draft_id=draft.pk,
+                channel=channel,
+                intent=draft.intent,
+                status=payload.get("status") or outbound.status,
+                handoff_reason=payload.get("handoff_reason") or getattr(outbound, "handoff_reason", "") or "",
+                send_ms=send_ms,
+            )
         return Response(payload, status=http_status)
 
 

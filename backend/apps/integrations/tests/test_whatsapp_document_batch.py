@@ -412,7 +412,7 @@ class WhatsAppDocumentBatchTests(TestCase):
         message = self._image_message(pk_suffix="complete", wamid="wamid.in.complete")
         result = on_whatsapp_document_received(message.pk)
         self.assertEqual(result["status"], "skipped")
-        self.assertEqual(result["reason"], "docs_complete")
+        self.assertEqual(result["reason"], "documents_complete")
         mock_fetch.assert_not_called()
         self.assertFalse(
             WhatsAppDocumentBatchSession.objects.filter(reservation=self.reservation).exists()

@@ -381,6 +381,8 @@
     "channelWhatsapp": "WhatsApp",
     "channelWhatsappHint": "Opens WhatsApp with suggested text ({phone})",
     "channelWhatsappApiHint": "Sends via WhatsApp Cloud API",
+    "channelWhatsappSessionClosedHint": "No 24h session — use Check-in (welcome template) for API send, or wait for an inbound guest message",
+    "sendErrorWhatsappTemplateRequired": "WhatsApp API: no open session and no template for this message type. Use Check-in or wait for a guest inbound message.",
     "noChannel": "No channel available for sending.",
     "hintLabel": "Hint (optional)",
     "hintReplyPlaceholder": "e.g. checkin ready",

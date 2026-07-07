@@ -14,7 +14,8 @@ from email.utils import parseaddr, parsedate_to_datetime
 from django.utils import timezone
 
 from apps.communications.models import GuestInboundMessage, GuestMessageChannel
-from apps.reservations.models import Reservation
+from apps.reservations.models import Reservation, ReservationVersionScope
+from apps.reservations.reservation_version import touch_reservation_version
 from apps.tenants.models import Tenant, TenantReceptionSettings
 from apps.tenants.smtp import imap_host_for_email
 
@@ -268,6 +269,12 @@ def ingest_parsed_email(
             parsed.body_text,
             channel="email",
         )
+
+    touch_reservation_version(
+        reservation.pk,
+        ReservationVersionScope.MESSAGES,
+        reason="email_inbound",
+    )
 
     logger.info(
         "guest email ingested",
