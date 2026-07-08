@@ -4,8 +4,22 @@ services:
     image: stay-hr-django:latest
     container_name: stay_django
     restart: unless-stopped
+    stop_grace_period: 90s
     env_file:
       - .env
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/reception/health/', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    command: ["/app/scripts/run-gunicorn.sh"]
     volumes:
       - ./data/media:/app/backend/media
       - ./hospira-fc0dc-f77596470912.json:/run/secrets/firebase-service-account.json:ro

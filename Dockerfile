@@ -17,6 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+COPY scripts/run-gunicorn.sh /app/scripts/run-gunicorn.sh
+RUN chmod +x /app/scripts/run-gunicorn.sh
+
 COPY backend/ ./backend/
 
 RUN groupadd --gid 1000 stay \
@@ -28,4 +31,4 @@ WORKDIR /app/backend
 USER stay
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["gunicorn", "config.wsgi:application", "-b", "0.0.0.0:8000", "--workers", "2", "--timeout", "120"]
+CMD ["/app/scripts/run-gunicorn.sh"]

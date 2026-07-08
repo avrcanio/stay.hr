@@ -74,6 +74,18 @@ class ReceptionAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
 
+    def test_system_status_unauthenticated(self):
+        response = self.client.get("/api/v1/reception/system/status/")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("gunicorn", data)
+        self.assertIn("workers", data["gunicorn"])
+        self.assertIn("worker_class", data["gunicorn"])
+        self.assertIn("uptime_seconds", data["gunicorn"])
+        self.assertIn("sse", data)
+        self.assertIn("active_connections", data["sse"])
+        self.assertIn("peak_connections", data["sse"])
+
     def test_timeline_requires_token(self):
         response = self.client.get("/api/v1/reception/reservations/")
         self.assertEqual(response.status_code, 403)
