@@ -174,7 +174,7 @@ Frontend: poll ~5 s while tab visible; full `/messages` fetch only on version ch
 
 ## SSE transport (v2)
 
-Push is implemented in `publish_reservation_version_changed()` via in-process fan-out (`reservation_version_events.py`). Multi-worker deployments may add Redis pub/sub later.
+Push is implemented in `publish_reservation_version_changed()` via in-process fan-out (`reservation_version_events.py`). Multi-worker deployments may add Redis pub/sub later — see [ADR 0005](adr/0005-gunicorn-sse-worker-evolution.md).
 
 **Endpoint:** `GET /api/v1/reception/reservation-versions/stream/?reservation_id=&scope=`
 
@@ -182,11 +182,17 @@ Push is implemented in `publish_reservation_version_changed()` via in-process fa
 - Events: `connected` (initial version), `reservation_version_changed` (`{ reservation_id, scope, version }`)
 - Heartbeat comments every ~25 s
 
+**Observability (phase 1):**
+
+- `GET /api/v1/reception/system/status/` — **reception:read** (operational; not public). `schema_version: 1`, Gunicorn config, worker PID/uptime, SSE counters (`active`, `peak`, `connections_opened_total`, `connections_closed_total`, `average_duration_seconds`) — per worker.
+- Structured logs: `sse_stream_opened`, `sse_stream_closed` with `duration_s`, `worker_pid`
+- Gunicorn env: `GUNICORN_*` via `scripts/run-gunicorn.sh`; monitoring checklist: [gunicorn-sse-monitoring.md](../operations/gunicorn-sse-monitoring.md)
+
 **Frontend:** `useReservationVersionWatch({ transport: "sse" })` — default for panels. Falls back to `useTimelineVersionPoll` if SSE is unavailable. Panels use only `onVersionChange` → `loadTimeline()`.
 
 Poll + ETag/304 remain supported and unchanged.
 
-Future: WebSocket fan-out, Redis, AI notifications — still via `publish_*` without changing `touch_reservation_version()` or panel contracts.
+Future: Redis pub/sub envelope (phase 2), WebSocket, ASGI — still via `publish_*` without changing `touch_reservation_version()` or panel contracts.
 
 ---
 

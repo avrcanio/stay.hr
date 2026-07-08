@@ -111,6 +111,15 @@ Telemetry (OCR-D, write-only): [`docs/development/document-intake-telemetry.md`]
 
 **Daily OCR email report:** Celery `send_document_intake_quality_report` at 09:00 Europe/Zagreb. Env: `DOCUMENT_INTAKE_QUALITY_REPORT_*` (see `.env.example`). Snapshot: `data/media/ops/document_intake_report_snapshot.json`. After `.env` changes: `docker compose up -d django celery-worker celery-beat`.
 
+## Gunicorn + SSE (Reception)
+
+- Gunicorn env: `GUNICORN_*` in `.env` — launcher `scripts/run-gunicorn.sh` (not entrypoint). After `.env` change: `docker compose up -d django` (no rebuild unless Dockerfile/script changed).
+- Status: `GET /api/v1/reception/system/status/` — **reception:read**; `metrics_scope=worker_process` (not global). Fields: `build.git_sha`, `build.started_at`, `build.hostname`.
+- Benchmark: `./scripts/benchmark-health-latency.sh` — p50/p95/p99 (`BENCHMARK_LIGHT=1` for CI; `OPS_CI_ARTIFACT_DIR` for artifacts).
+- Load test before sign-off: `./scripts/load-test-gunicorn-sse.sh` (`LOAD_TEST_LIGHT=1` for CI; requires `RECEPTION_API_TOKEN`, `LOAD_TEST_RESERVATION_ID`).
+- **3–7 day monitoring checklist:** [gunicorn-sse-monitoring.md](docs/operations/gunicorn-sse-monitoring.md). ADR: [0005](docs/architecture/adr/0005-gunicorn-sse-worker-evolution.md).
+- Phase 2 (Redis pub/sub → ASGI) if timeouts persist or SSE push critical — see ADR phase 2 trigger criteria.
+
 ## FCM push deployment
 
 Runbook: [docs/operations/fcm-push-guard.md](docs/operations/fcm-push-guard.md)
