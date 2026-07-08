@@ -1,6 +1,8 @@
 # Gunicorn + SSE monitoring checklist
 
-Operational runbook after [ADR 0005 — Gunicorn worker scaling](../architecture/adr/0005-gunicorn-sse-worker-evolution.md) (phase 1 deploy). Review daily for **3–7 days**, then weekly until stable.
+Operational runbook after [ADR 0005 — Gunicorn worker scaling](../architecture/adr/0005-gunicorn-sse-worker-evolution.md) (Phase 1 deploy). Review daily for **3–7 days**, then weekly until stable.
+
+**Incident postmortem:** [2026-07-08 SSE worker exhaustion](incidents/2026-07-08-sse-worker-exhaustion.md)
 
 ## Quick checks
 
@@ -21,20 +23,31 @@ curl -s -H "Authorization: Bearer $RECEPTION_API_TOKEN" \
 # Snapshots also appended by load-test to data/ops/health-latency-benchmark.txt
 ```
 
+## Symptom → phase → document
+
+| Symptom | Likely phase | Document |
+|---------|--------------|----------|
+| `WORKER TIMEOUT`, health timeout, API hang with open Reception tabs | Phase 1 (capacity) | This runbook |
+| Push miss, updates only after ~5 s poll, Celery change not reflected live | Phase 2a (distribution) | [ADR 0005 Phase 2a](../architecture/adr/0005-gunicorn-sse-worker-evolution.md) |
+| High concurrent SSE, REST healthy but need many streams | Phase 2b (transport) | [ADR 0005 Phase 2b](../architecture/adr/0005-gunicorn-sse-worker-evolution.md) |
+| Redis reconnect count rising, push flaky across all transports | Phase 2a infra | ADR 0005 + Redis ops |
+| Need WebSocket / full async Django | Phase 2c (optional) | [ADR 0005 Phase 2c](../architecture/adr/0005-gunicorn-sse-worker-evolution.md) |
+
 ## Signals
 
 | Signal | Command / source | Healthy | Investigate |
 |--------|------------------|---------|-------------|
 | Active Gunicorn workers | `docker compose top django` | ~1 master + `GUNICORN_WORKERS` workers | Fewer workers after crash loop |
-| Active SSE (per worker) | `GET /system/status` → `sse.active_connections` | Below worker count under normal load | **> 0** after load test teardown → leak; **> 30** aggregated → phase 2 |
-| Peak SSE | `sse.peak_connections` | Trend stable after deploy | Sustained **> 30** aggregated → phase 2 |
+| Active SSE (per worker) | `GET /system/status` → `sse.active_connections` | Below worker count under normal load | **> 0** after load test teardown → leak; **> 30** aggregated → Phase 2 |
+| Peak SSE | `sse.peak_connections` | Trend stable after deploy | Sustained **> 30** aggregated → Phase 2 |
 | SSE lifetime | `sse.average_duration_seconds`, opened/closed totals | Stable | Drift or leak (opened >> closed) |
-| Health p95 | `benchmark-health-latency.sh` | **< 500 ms** | **> 500 ms** sustained → phase 2 |
-| Worker timeout | `docker compose logs django \| rg "WORKER TIMEOUT"` | **0** | Any hit → phase 2 trigger |
+| Health p95 | `benchmark-health-latency.sh` | **< 500 ms** | **> 500 ms** sustained → Phase 2 trigger |
+| Worker timeout | `docker compose logs django \| rg "WORKER TIMEOUT"` | **0** | Any hit → Phase 2 trigger |
 | SSE lifecycle | `docker compose logs django \| rg "sse_stream_"` | Opens/closes match usage | Stuck opens, very short durations |
 | Access log SSE | `docker compose logs django \| rg "reservation-versions/stream"` | Steady during reception use | Missing streams when UI open |
 | CPU / memory | `docker stats stay_django --no-stream` | Stable | Sustained high CPU with low traffic |
-| Push vs poll | Operator feedback | Updates within ~1 s | Delays ~5 s only → poll fallback; shorter delays needed → Redis |
+| Push vs poll | Operator feedback | Updates within ~1 s | Delays ~5 s only → poll fallback; shorter delays needed → Phase 2a |
+| Redis reconnect (Phase 2a+) | `redis_reconnect_count` metric / logs | Stable, near zero | Rising → Redis connectivity problem, not SSE transport |
 
 ## Load test (after any Gunicorn env change)
 
@@ -59,14 +72,63 @@ LOAD_TEST_LIGHT=1 OPS_CI_ARTIFACT_DIR=./ci-artifacts RECEPTION_API_TOKEN=... LOA
 
 Artifacts include `timestamp`, `git_sha`, and latency percentiles for cross-commit comparison.
 
+## Post-Phase 1 validation (3–7 days)
+
+After [2026-07-08 incident mitigation](incidents/2026-07-08-sse-worker-exhaustion.md) or any Gunicorn env change:
+
+- [ ] **0** `WORKER TIMEOUT` in django logs
+- [ ] Health latency p95 **< 500 ms**
+- [ ] Aggregated active SSE **< 30** under normal Reception load
+- [ ] Load test **PASS**
+- [ ] SSE opened/closed ratio stable (no leak)
+- [ ] Ops sign-off → incident closed; Phase 2a gate may proceed if ADR triggers also met
+
+## Post-Phase 2a validation (14 days)
+
+After enabling `RESERVATION_VERSION_EVENT_BUS=redis`:
+
+- [ ] Push reliability: `touch` → SSE delivery within **2 s**
+- [ ] Celery-originated publishes delivered to SSE clients
+- [ ] SSE reconnect rate stable (`sse_stream_opened` / `sse_stream_closed` ratio)
+- [ ] Health latency p95 **< 500 ms** (unchanged from Phase 1 baseline)
+- [ ] **`redis_reconnect_count`** stable — if rising, investigate Redis connectivity before Phase 2b
+- [ ] Rollback drill: `RESERVATION_VERSION_EVENT_BUS=in_process` + recreate django/celery restores prior behaviour
+- [ ] Ops sign-off before enabling `SSE_TRANSPORT=uvicorn` in production
+
+## Post-Phase 2b validation (14 days)
+
+After enabling `SSE_TRANSPORT=uvicorn` (dedicated Uvicorn SSE service):
+
+- [ ] Gunicorn worker pool no longer saturated by SSE under normal load
+- [ ] SSE active count tracked on Uvicorn service; Gunicorn REST `/health/` unaffected
+- [ ] REST endpoints never routed to Uvicorn (only `reservation-versions/stream/`)
+- [ ] Rollback drill: `SSE_TRANSPORT=gunicorn` + Traefik routes all API to `stay_django`
+- [ ] Ops sign-off
+
 ## Phase 2 escalation
 
-If timeouts return, health latency degrades under SSE load, or push reliability is business-critical, see [ADR 0005 — Phase 2 trigger criteria](../architecture/adr/0005-gunicorn-sse-worker-evolution.md#phase-2-trigger-criteria):
+### Phase 2a — Redis EventBus (distribution)
 
-1. **Redis pub/sub** with standard event envelope (multi-worker fan-out).
-2. **ASGI (Uvicorn)** for long-term SSE/WebSocket.
+Escalate when push reliability is business-critical or ADR triggers met **and** Phase 2a gate passed (incident closed + Phase 1 validation + triggers):
+
+- `RESERVATION_VERSION_EVENT_BUS=redis`
+- Channel: `stay:v1:reservation_version:{tenant_slug}`
+- See [ADR 0005 — EventBus](../architecture/adr/0005-gunicorn-sse-worker-evolution.md#reservationversioneventbus-abstraction)
+
+### Phase 2b — dedicated Uvicorn SSE (transport)
+
+Escalate when Phase 2a validation passed **and** Gunicorn still saturated by SSE or `peak_connections` > `GUNICORN_WORKERS × 3`:
+
+- `SSE_TRANSPORT=uvicorn`
+- Only `GET /api/v1/reception/reservation-versions/stream/` on Uvicorn; REST stays on Gunicorn
+- See [ADR 0005 — Phase 2b invariant](../architecture/adr/0005-gunicorn-sse-worker-evolution.md)
+
+### Phase 2c — full Django ASGI (optional)
+
+Only when whole-app async is independently justified — not required for SSE scaling.
 
 ## Related
 
+- [2026-07-08 SSE worker exhaustion postmortem](incidents/2026-07-08-sse-worker-exhaustion.md)
 - [reservation-versioning.md](../architecture/reservation-versioning.md)
 - [domain-setup.md](domain-setup.md)

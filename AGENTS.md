@@ -113,12 +113,17 @@ Telemetry (OCR-D, write-only): [`docs/development/document-intake-telemetry.md`]
 
 ## Gunicorn + SSE (Reception)
 
+**Thesis:** event **distribution** (Redis EventBus) is separate from **transport** (Gunicorn vs dedicated Uvicorn SSE). Full Django ASGI is optional (Phase 2c), not required for SSE scaling. See [ADR 0005](docs/architecture/adr/0005-gunicorn-sse-worker-evolution.md).
+
 - Gunicorn env: `GUNICORN_*` in `.env` — launcher `scripts/run-gunicorn.sh` (not entrypoint). After `.env` change: `docker compose up -d django` (no rebuild unless Dockerfile/script changed).
 - Status: `GET /api/v1/reception/system/status/` — **reception:read**; `metrics_scope=worker_process` (not global). Fields: `build.git_sha`, `build.started_at`, `build.hostname`.
 - Benchmark: `./scripts/benchmark-health-latency.sh` — p50/p95/p99 (`BENCHMARK_LIGHT=1` for CI; `OPS_CI_ARTIFACT_DIR` for artifacts).
 - Load test before sign-off: `./scripts/load-test-gunicorn-sse.sh` (`LOAD_TEST_LIGHT=1` for CI; requires `RECEPTION_API_TOKEN`, `LOAD_TEST_RESERVATION_ID`).
 - **3–7 day monitoring checklist:** [gunicorn-sse-monitoring.md](docs/operations/gunicorn-sse-monitoring.md). ADR: [0005](docs/architecture/adr/0005-gunicorn-sse-worker-evolution.md).
-- Phase 2 (Redis pub/sub → ASGI) if timeouts persist or SSE push critical — see ADR phase 2 trigger criteria.
+- **Postmortem:** [2026-07-08 SSE worker exhaustion](docs/operations/incidents/2026-07-08-sse-worker-exhaustion.md).
+- One-off `manage.py` / tests: use **`django-run`** profile (`docker compose --profile test-run run --rm django-run …`) — no Traefik labels.
+- **Future flags** (comment stubs in `.env.example`; no code until Phase 2a/2b): `RESERVATION_VERSION_EVENT_BUS=in_process|redis`, `SSE_TRANSPORT=gunicorn|uvicorn`.
+- Phase 2a (Redis EventBus) → Phase 2b (dedicated Uvicorn SSE) if ADR triggers met and validation gates passed — see ADR phase 2 trigger criteria.
 
 ## Daily ops report
 
@@ -192,11 +197,13 @@ Uži eVisitor smoke:
 Ručno:
 
 ```bash
-docker compose run --rm \
+docker compose --profile test-run run --rm \
   -e DJANGO_SETTINGS_MODULE=config.settings.test_postgis \
   -e TEST_DB_NAME=stay_platform_test_db \
-  django python manage.py test apps.tenants.tests.test_seed_demo_guest --keepdb -v 2
+  django-run python manage.py test apps.tenants.tests.test_seed_demo_guest --keepdb -v 2
 ```
+
+**Produkcija:** ne koristiti `docker compose run django` — one-off kontejner nasljeđuje Traefik labele s `django` servisa i može uzrokovati intermittentne 502. Za testove i `manage.py` one-shot koristiti **`django-run`** (profil `test-run`, bez proxy mreže).
 
 Za čistu test bazu: `docker exec postgis psql -U postgres -c 'DROP DATABASE stay_platform_test_db;'`, zatim `./scripts/ensure-test-db.sh`.
 
