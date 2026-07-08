@@ -74,10 +74,20 @@ class ReceptionAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
 
-    def test_system_status_unauthenticated(self):
+    def test_system_status_requires_token(self):
         response = self.client.get("/api/v1/reception/system/status/")
+        self.assertEqual(response.status_code, 403)
+
+    def test_system_status_authenticated(self):
+        response = self.client.get("/api/v1/reception/system/status/", **self.auth)
         self.assertEqual(response.status_code, 200)
         data = response.json()
+        self.assertEqual(data["schema_version"], 1)
+        self.assertEqual(data["metrics_scope"], "worker_process")
+        self.assertIn("build", data)
+        self.assertIn("git_sha", data["build"])
+        self.assertIn("started_at", data["build"])
+        self.assertIn("hostname", data["build"])
         self.assertIn("gunicorn", data)
         self.assertIn("workers", data["gunicorn"])
         self.assertIn("worker_class", data["gunicorn"])
@@ -85,6 +95,12 @@ class ReceptionAPITests(TestCase):
         self.assertIn("sse", data)
         self.assertIn("active_connections", data["sse"])
         self.assertIn("peak_connections", data["sse"])
+        self.assertIn("connections_opened_total", data["sse"])
+        self.assertIn("connections_closed_total", data["sse"])
+        self.assertIn("closed_streams_sample_count", data["sse"])
+        self.assertIn("average_duration_seconds", data["sse"])
+        self.assertIsNone(data["sse"]["average_duration_seconds"])
+        self.assertEqual(data["sse"]["closed_streams_sample_count"], 0)
 
     def test_timeline_requires_token(self):
         response = self.client.get("/api/v1/reception/reservations/")

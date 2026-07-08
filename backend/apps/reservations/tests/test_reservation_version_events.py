@@ -7,6 +7,8 @@ from django.test import SimpleTestCase
 from apps.reservations.reservation_version_events import (
     emit_reservation_version_event,
     format_sse,
+    get_sse_connection_stats,
+    record_sse_stream_closed,
     subscribe,
     unsubscribe,
 )
@@ -40,3 +42,12 @@ class ReservationVersionEventsTests(SimpleTestCase):
         self.assertTrue(rendered.startswith("event: reservation_version_changed\n"))
         self.assertIn('"version":2', rendered)
         self.assertTrue(rendered.endswith("\n\n"))
+
+    def test_sse_connection_stats_average_only_for_closed_streams(self):
+        stats = get_sse_connection_stats()
+        self.assertIsNone(stats["average_duration_seconds"])
+        record_sse_stream_closed(12.5)
+        stats = get_sse_connection_stats()
+        self.assertEqual(stats["average_duration_seconds"], 12.5)
+        self.assertEqual(stats["connections_closed_total"], 1)
+        self.assertEqual(stats["closed_streams_sample_count"], 1)

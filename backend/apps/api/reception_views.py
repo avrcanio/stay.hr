@@ -78,10 +78,16 @@ from apps.reservations.sync_versions import (
 from apps.reservations.reservation_version_events import (
     format_sse,
     get_sse_connection_stats,
+    record_sse_stream_closed,
     subscribe,
     unsubscribe,
 )
-from apps.core.runtime_stats import gunicorn_config_from_env, worker_uptime_seconds
+from apps.core.runtime_stats import (
+    SYSTEM_STATUS_SCHEMA_VERSION,
+    build_info_from_env,
+    gunicorn_config_from_env,
+    worker_uptime_seconds,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -161,21 +167,23 @@ class ReceptionHealthView(APIView):
         return Response({"service": "reception", "status": "ok"})
 
 
-class ReceptionSystemStatusView(APIView):
-    """Operational metrics — public for load balancers and ops probes (phase 1)."""
-
-    permission_classes = [AllowAny]
-    authentication_classes = []
+class ReceptionSystemStatusView(ReceptionReadView):
+    """Operational metrics — requires reception:read (not public like /health/)."""
 
     def get(self, request):
         gunicorn_config = gunicorn_config_from_env()
+        sse_stats = get_sse_connection_stats()
         return Response(
             {
+                "schema_version": SYSTEM_STATUS_SCHEMA_VERSION,
+                "metrics_scope": "worker_process",
+                "build": build_info_from_env(),
                 "gunicorn": {
                     **gunicorn_config,
+                    "pid": os.getpid(),
                     "uptime_seconds": worker_uptime_seconds(),
                 },
-                "sse": get_sse_connection_stats(),
+                "sse": sse_stats,
             }
         )
 
@@ -351,6 +359,7 @@ class ReceptionReservationVersionStreamView(ReceptionReadView):
                     worker_pid,
                     int(duration_s),
                 )
+                record_sse_stream_closed(duration_s)
                 unsubscribe(reservation_id, scope, event_queue)
 
         response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")

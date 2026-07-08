@@ -1,0 +1,57 @@
+name: Gunicorn perf smoke
+
+# Optional CI smoke for health benchmark + load test (light mode).
+# Requires a reachable API (self-hosted runner or workflow_dispatch against staging).
+#
+# Secrets (optional for full load test):
+#   RECEPTION_API_TOKEN
+#   LOAD_TEST_RESERVATION_ID
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/benchmark-health-latency.sh'
+      - 'scripts/load-test-gunicorn-sse.sh'
+      - 'scripts/ops-common.sh'
+      - 'backend/apps/core/runtime_stats.py'
+      - 'backend/apps/reservations/reservation_version_events.py'
+      - 'backend/apps/api/reception_views.py'
+      - '.github/workflows/gunicorn-perf-smoke.yml'
+
+jobs:
+  perf-smoke:
+    runs-on: ubuntu-latest
+    env:
+      OPS_CI_ARTIFACT_DIR: ci-artifacts
+      LOAD_TEST_API_BASE: ${{ vars.STAY_CI_API_BASE || 'http://127.0.0.1:8000' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Benchmark (light)
+        run: |
+          mkdir -p "$OPS_CI_ARTIFACT_DIR"
+          if curl -sf --max-time 5 "${LOAD_TEST_API_BASE}/api/v1/reception/health/" >/dev/null; then
+            BENCHMARK_LIGHT=1 ./scripts/benchmark-health-latency.sh
+          else
+            echo "API unreachable at ${LOAD_TEST_API_BASE} — skipping benchmark (OK for PRs without staging)."
+          fi
+
+      - name: Load test (light, optional)
+        env:
+          RECEPTION_API_TOKEN: ${{ secrets.RECEPTION_API_TOKEN }}
+          LOAD_TEST_RESERVATION_ID: ${{ secrets.LOAD_TEST_RESERVATION_ID }}
+        run: |
+          if [[ -z "${RECEPTION_API_TOKEN:-}" || -z "${LOAD_TEST_RESERVATION_ID:-}" ]]; then
+            echo "Skipping load test — RECEPTION_API_TOKEN / LOAD_TEST_RESERVATION_ID not configured."
+            exit 0
+          fi
+          LOAD_TEST_LIGHT=1 ./scripts/load-test-gunicorn-sse.sh
+
+      - name: Upload perf artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gunicorn-perf-${{ github.sha }}
+          path: ci-artifacts/
+          if-no-files-found: ignore
