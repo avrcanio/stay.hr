@@ -264,7 +264,7 @@ def _detect_face_with_portrait_rotation(
     if h > w * 1.15 or w > h * 1.15:
         angles = (0, 90, -90)
 
-    best: tuple[float, tuple[int, int, int, int], int] | None = None
+    per_angle: dict[int, tuple[float, tuple[int, int, int, int]]] = {}
     for angle in angles:
         working = im if angle == 0 else im.rotate(angle, expand=True)
         bgr = cv2.cvtColor(np.array(working.convert("RGB")), cv2.COLOR_RGB2BGR)
@@ -276,12 +276,27 @@ def _detect_face_with_portrait_rotation(
             continue
         x, y, fw, fh = face_px
         score = _score_face_box(x, y, fw, fh, image_w=iw, image_h=ih)
-        if best is None or score > best[0]:
-            best = (score, face_px, angle)
+        prev = per_angle.get(angle)
+        if prev is None or score > prev[0]:
+            per_angle[angle] = (score, face_px)
 
-    if best is None:
+    if not per_angle:
         return None, 0
-    return best[1], best[2]
+
+    best_angle = max(per_angle, key=lambda angle: per_angle[angle][0])
+    best_score, best_face = per_angle[best_angle]
+
+    # Rotated snapshots can yield oversized false positives (signature strip, hologram).
+    if best_angle != 0 and 0 in per_angle:
+        zero_score, zero_face = per_angle[0]
+        _, _, rfw, rfh = best_face
+        _, _, zfw, zfh = zero_face
+        rot_area = rfw * rfh
+        zero_area = max(zfw * zfh, 1)
+        if rot_area > zero_area * 1.8 and zero_score >= best_score - 0.15:
+            return zero_face, 0
+
+    return best_face, best_angle
 
 
 def _square_crop_around_face(

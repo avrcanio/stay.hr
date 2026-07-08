@@ -5,6 +5,7 @@ from django.test import SimpleTestCase, override_settings
 from PIL import Image
 
 from apps.reservations.document_intake_face import (
+    _detect_face_with_portrait_rotation,
     _is_placeholder_llm_bbox,
     _select_best_face,
     crop_face_jpeg,
@@ -90,6 +91,24 @@ class FaceCropHeuristicsTests(SimpleTestCase):
 
     def test_rejects_list_placeholder_bbox(self):
         self.assertTrue(_is_placeholder_llm_bbox([0.1, 0.2, 0.3, 0.4]))
+
+    @patch("apps.reservations.document_intake_face._detect_faces_in_bgr_all")
+    def test_portrait_rotation_prefers_angle_zero_over_oversized_box(self, mock_faces):
+        """Handheld portrait photo of landscape DE ID (#2483 Lena Zoche)."""
+
+        def side_effect(bgr):
+            h, w = bgr.shape[:2]
+            if w == 1200 and h == 1600:
+                return [(104, 674, 244, 244)]
+            if w == 1600 and h == 1200:
+                return [(164, 446, 483, 483)]
+            return []
+
+        mock_faces.side_effect = side_effect
+        im = Image.new("RGB", (1200, 1600), color=(200, 180, 160))
+        face_px, angle = _detect_face_with_portrait_rotation(im)
+        self.assertEqual(angle, 0)
+        self.assertEqual(face_px, (104, 674, 244, 244))
 
 
 @override_settings(MEDIA_ROOT="/tmp/stay_test_face_media")
