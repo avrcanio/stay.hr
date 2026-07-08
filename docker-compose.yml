@@ -47,6 +47,13 @@ services:
       - traefik.http.routers.stay-admin.tls.certresolver=cloudflare
       - traefik.http.routers.stay-admin.service=stay-django
       - traefik.http.routers.stay-admin.priority=100
+      # Tenant custom domain: Django admin/static/media (must beat web-booking router)
+      - traefik.http.routers.stay-uzorita-admin.rule=Host(`booking.uzorita.hr`) && (PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/media`))
+      - traefik.http.routers.stay-uzorita-admin.entrypoints=websecure
+      - traefik.http.routers.stay-uzorita-admin.tls=true
+      - traefik.http.routers.stay-uzorita-admin.tls.certresolver=cloudflare
+      - traefik.http.routers.stay-uzorita-admin.service=stay-django
+      - traefik.http.routers.stay-uzorita-admin.priority=200
       - traefik.http.services.stay-django.loadbalancer.server.port=8000
 
   celery-worker:
@@ -116,6 +123,7 @@ services:
       - traefik.http.routers.stay-booking-uzorita.tls=true
       - traefik.http.routers.stay-booking-uzorita.tls.certresolver=cloudflare
       - traefik.http.routers.stay-booking-uzorita.service=stay-web-booking
+      - traefik.http.routers.stay-booking-uzorita.priority=50
 
   web-reception:
     build:
