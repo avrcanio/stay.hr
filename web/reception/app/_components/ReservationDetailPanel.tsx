@@ -75,6 +75,7 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
   useReservationVersionWatch({
     reservationId,
     scope: "payments",
+    transport: "poll",
     onVersionChange: () => {
       void load({ background: true });
     },

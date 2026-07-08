@@ -1,6 +1,6 @@
 # Incident: Gunicorn SSE worker exhaustion (2026-07-08)
 
-**Status:** Closed (mitigation deployed) · **Phase 1 validation:** pending (3–7 day window)
+**Status:** Mitigated (emergency hotfix deployed) · **Phase 1 validation:** pending (3–7 day window)
 
 **Related:** [ADR 0005 — Gunicorn worker scaling and SSE transport evolution](../../architecture/adr/0005-gunicorn-sse-worker-evolution.md) · [gunicorn-sse-monitoring.md](../gunicorn-sse-monitoring.md)
 
@@ -21,6 +21,8 @@ Reception reservation version SSE (`GET /api/v1/reception/reservation-versions/s
 | Detection | Daily ops report flagged health latency; log review showed `sse_stream_opened` distributed across workers with all workers holding long-lived streams. |
 | Mitigation (same day) | Container restart restored service. Follow-up operational tuning: `GUNICORN_WORKERS=12`, `GUNICORN_TIMEOUT=3600`, `GuestMessagesPanel` → `transport: "poll"` (1 SSE per reservation detail instead of 2). |
 | Post-incident | ADR 0005 amended with phased roadmap (2a Redis EventBus → 2b dedicated Uvicorn SSE). Phase 1 validation window started. |
+| Recurrence (same day) | With `GUNICORN_WORKERS=12`, **12× `sse_stream_opened`, 0× `sse_stream_closed`** — worker pool saturated again (`payments` SSE on every open reservation detail). Restart restored service. |
+| Emergency hotfix | Detail views → **poll only** (`messages` + `payments`). Backend **503** when per-worker SSE ≥ `GUNICORN_WORKERS - 1`. Polling retained until Phase 2a + 2b validated — see [runbook emergency section](../gunicorn-sse-monitoring.md#emergency-stabilization-2026-07-08-hotfix). |
 
 ---
 
@@ -45,7 +47,9 @@ Poll fallback (`useReservationVersionWatch` → `useTimelineVersionPoll`) kept U
 
 ---
 
-## Mitigation (Phase 1 operational tuning)
+## Mitigation
+
+### Phase 1 operational tuning (first response)
 
 Operational adjustments within existing Phase 1 architecture — **not** new architecture:
 
@@ -53,10 +57,26 @@ Operational adjustments within existing Phase 1 architecture — **not** new arc
 |--------|--------|-------|-----------|
 | `GUNICORN_WORKERS` | 8 (incident env: 2) | **12** | More headroom for concurrent SSE + REST |
 | `GUNICORN_TIMEOUT` | 120 (incident env) | **3600** | SSE connections are intentionally long-lived |
-| `GuestMessagesPanel` transport | `"sse"` | **`"poll"`** | 1 SSE per reservation detail (timeline watch only), not 2 |
+| `GuestMessagesPanel` transport | `"sse"` | **`"poll"`** | Reduce streams per reservation detail |
 | Observability | — | Phase 1 metrics already deployed | `sse_stream_opened`/`closed`, `/system/status/`, load test gate |
 
-**Note:** Tuning reduces incident frequency but does **not** replace Phase 2 (Redis EventBus for cross-worker push; dedicated Uvicorn SSE for transport scaling).
+Tuning alone was **insufficient**: recurrence showed 12 workers fully held by `payments` SSE on open detail tabs.
+
+### Emergency production stabilization (hotfix)
+
+Separate from Phase 2 architecture — keeps Reception REST healthy while Redis + Uvicorn are built:
+
+| Change | Rationale |
+|--------|-----------|
+| `ReservationDetailPanel` → `transport: "poll"` (`payments`) | Eliminates the dominant SSE source on detail views |
+| `GuestMessagesPanel` → `transport: "poll"` (`messages`) | No SSE from detail panels (both scopes poll) |
+| SSE saturation guard → **503** when per-worker active SSE ≥ `GUNICORN_WORKERS - 1` | Last-resort protection if SSE is re-enabled elsewhere |
+
+**Operational choice:** polling (~5 s delay) is acceptable until Phase **2a + 2b** are implemented and validated. Do **not** restore detail-view SSE until then.
+
+**Follow-up (investigation):** zero `sse_stream_closed` during saturation may reflect open tabs **or** WSGI disconnect cleanup lag. Run the [lifecycle check](../gunicorn-sse-monitoring.md#sse-lifecycle-check-disconnect-cleanup) on a single deliberate open/close before assuming a lifecycle bug.
+
+**Note:** Neither tuning nor hotfix replaces Phase 2 (Redis EventBus for cross-worker push; dedicated Uvicorn SSE for transport scaling).
 
 ---
 
@@ -98,6 +118,8 @@ Operational adjustments within existing Phase 1 architecture — **not** new arc
 | Item | Owner | Status |
 |------|-------|--------|
 | Deploy Phase 1 operational tuning (`GUNICORN_WORKERS=12`, messages poll) | Ops | Done |
+| Deploy emergency hotfix (detail poll + SSE 503 guard) | Ops / Engineering | Done |
+| SSE disconnect lifecycle check (single tab open/close) | Engineering | **Pending** |
 | Complete 3–7 day Phase 1 validation ([gunicorn-sse-monitoring.md](../gunicorn-sse-monitoring.md)) | Ops | **In progress** |
 | Merge ADR 0005 amendment (phases 2a/2b/2c, EventBus contract) | Engineering | Done |
 | Gate Phase 2a on: incident closed + validation + ADR triggers | Engineering / Ops | Pending validation |
