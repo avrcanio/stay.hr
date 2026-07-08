@@ -208,6 +208,11 @@ export type ReservationDetail = Reservation & {
   commission_percent?: string | null;
   commission_amount?: string | null;
   nights_count?: number | null;
+  booking_payout_received_at?: string | null;
+  booking_payout_id?: string;
+  booking_payout_net?: string | null;
+  booking_payout_service_fee?: string | null;
+  booking_payout_received?: boolean;
 };
 
 export type BookingPdfImportResult = ReservationDetail & {

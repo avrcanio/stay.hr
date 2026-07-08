@@ -12,6 +12,7 @@ import { ReservationFinancialSection } from "@/app/_components/ReservationFinanc
 import { ReservationInvoiceSection } from "@/app/_components/ReservationInvoiceSection";
 import { ReservationMoveDatesModal } from "@/app/_components/ReservationMoveDatesModal";
 import { useImportSourceLabel, useReservationStatusLabel } from "@/lib/i18n-ui";
+import { useReservationVersionWatch } from "@/lib/useReservationVersionWatch";
 import {
   checkInBlockedMessageKey,
   isCheckInActionDisabled,
@@ -49,8 +50,11 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
   const [guestInvoices, setGuestInvoices] = useState(false);
   const [channelManager, setChannelManager] = useState<string | undefined>();
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (options?: { background?: boolean }) => {
+    const background = options?.background ?? false;
+    if (!background) {
+      setLoading(true);
+    }
     setError("");
     try {
       const res = await fetch(`/api/stay/reception/reservations/${reservationId}/`);
@@ -58,11 +62,23 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
       setReservation((await res.json()) as ReservationDetail);
     } catch (err) {
       setError(err instanceof Error ? err.message : tc("error"));
-      setReservation(null);
+      if (!background) {
+        setReservation(null);
+      }
     } finally {
-      setLoading(false);
+      if (!background) {
+        setLoading(false);
+      }
     }
   }, [reservationId, t, tc]);
+
+  useReservationVersionWatch({
+    reservationId,
+    scope: "payments",
+    onVersionChange: () => {
+      void load({ background: true });
+    },
+  });
 
   useEffect(() => {
     void fetch("/api/stay/app/config")

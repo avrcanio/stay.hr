@@ -276,7 +276,12 @@
     "financialNet": "Neto vlasniku",
     "financialPaymentStatus": "Status plaćanja",
     "financialPaymentProvider": "Način plaćanja",
-    "financialEmpty": "Nema financijskih podataka za ovu rezervaciju."
+    "financialEmpty": "Nema financijskih podataka za ovu rezervaciju.",
+    "financialPayoutTitle": "Booking.com isplata",
+    "financialPayoutReceived": "Isplata primljena",
+    "financialPayoutId": "Payout ID",
+    "financialPayoutNet": "Neto isplate (Booking)",
+    "financialPayoutServiceFee": "Service fee (Booking)"
   },
   "guest": {
     "primary": "primarni",

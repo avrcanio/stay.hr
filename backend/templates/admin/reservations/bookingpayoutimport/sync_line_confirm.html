@@ -1,0 +1,72 @@
+{% extends "admin/base_site.html" %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Početna</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+  &rsaquo; <a href="{% url 'admin:reservations_bookingpayoutimport_changelist' %}">Booking payout imports</a>
+  &rsaquo; <a href="{% url 'admin:reservations_bookingpayoutimport_change' import_batch.pk %}">{{ import_batch.payout_id }}</a>
+  &rsaquo; {{ title }}
+</div>
+{% endblock %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<p>
+  Booking <strong>{{ line.booking_number }}</strong>
+  {% if line.reservation %}
+    → rezervacija <a href="{% url 'admin:reservations_reservation_change' line.reservation.pk %}">{{ line.reservation }}</a>
+  {% endif %}
+</p>
+
+{% if pdf_source %}
+<div class="messagelist">
+  <div class="warning">
+    Rezervacija ima PDF izvor financija. Ručni sync će prepisati iznose payout CSV-om.
+  </div>
+</div>
+{% endif %}
+
+{% if has_invoice %}
+<div class="messagelist">
+  <div class="error">
+    Rezervacija ima izdan račun — sync iznosa je blokiran.
+  </div>
+</div>
+{% else %}
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="revision" value="{{ revision }}">
+
+  <fieldset class="module aligned">
+    <h2>Promjene</h2>
+    <table style="width:100%">
+      <thead>
+        <tr>
+          <th>Polje</th>
+          <th>Trenutno</th>
+          <th>Novo</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for diff in field_diffs %}
+        <tr{% if diff.changed %} style="background:#fff3cd"{% endif %}>
+          <td><strong>{{ diff.field }}</strong></td>
+          <td>{{ diff.old|default:"—" }}</td>
+          <td>{{ diff.new|default:"—" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="3">Nema promjena.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </fieldset>
+
+  <div class="submit-row">
+    <input type="submit" value="Potvrdi sync" class="default">
+    <a href="{% url 'admin:reservations_bookingpayoutimport_change' import_batch.pk %}" class="button cancel-link">Odustani</a>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

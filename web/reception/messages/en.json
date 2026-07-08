@@ -276,7 +276,12 @@
     "financialNet": "Net to owner",
     "financialPaymentStatus": "Payment status",
     "financialPaymentProvider": "Payment method",
-    "financialEmpty": "No financial data for this reservation."
+    "financialEmpty": "No financial data for this reservation.",
+    "financialPayoutTitle": "Booking.com payout",
+    "financialPayoutReceived": "Payout received",
+    "financialPayoutId": "Payout ID",
+    "financialPayoutNet": "Payout net (Booking)",
+    "financialPayoutServiceFee": "Service fee (Booking)"
   },
   "guest": {
     "primary": "primary",

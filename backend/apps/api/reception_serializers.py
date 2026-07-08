@@ -160,6 +160,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
     confirmation_pdf_url = serializers.SerializerMethodField()
     invoice_summary = serializers.SerializerMethodField()
     expected_arrival_at = serializers.SerializerMethodField()
+    booking_payout_received = serializers.SerializerMethodField()
     property_slug = serializers.CharField(source="property.slug", read_only=True)
     property_name = serializers.CharField(source="property.name", read_only=True)
 
@@ -219,7 +220,15 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
             "guest_stated_arrival_at",
             "expected_arrival_at",
             "invoice_summary",
+            "booking_payout_received_at",
+            "booking_payout_id",
+            "booking_payout_net",
+            "booking_payout_service_fee",
+            "booking_payout_received",
         )
+
+    def get_booking_payout_received(self, obj) -> bool:
+        return obj.booking_payout_received_at is not None
 
     def get_expected_arrival_at(self, obj):
         from apps.core.timezone import effective_guest_stated_arrival_at

@@ -499,6 +499,8 @@ class ReceptionAPITests(TestCase):
             **self.auth,
         )
         self.assertEqual(detail.status_code, 200)
+        self.assertIn("booking_payout_received", detail.json())
+        self.assertFalse(detail.json()["booking_payout_received"])
 
         patch = self.client.patch(
             f"/api/v1/reception/reservations/{self.reservation.id}/",
@@ -515,6 +517,31 @@ class ReceptionAPITests(TestCase):
             Reservation.Status.CHECKED_IN,
             "tablet-a-uuid",
         )
+
+    def test_reservation_detail_includes_booking_payout_fields(self):
+        self.reservation.booking_payout_received_at = date(2026, 6, 11)
+        self.reservation.booking_payout_id = "mmDVC1NdWECBgRWk"
+        self.reservation.booking_payout_net = Decimal("74.77")
+        self.reservation.booking_payout_service_fee = Decimal("1.20")
+        self.reservation.save(
+            update_fields=[
+                "booking_payout_received_at",
+                "booking_payout_id",
+                "booking_payout_net",
+                "booking_payout_service_fee",
+            ]
+        )
+        response = self.client.get(
+            f"/api/v1/reception/reservations/{self.reservation.id}/",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["booking_payout_received"])
+        self.assertEqual(body["booking_payout_id"], "mmDVC1NdWECBgRWk")
+        self.assertEqual(body["booking_payout_net"], "74.77")
+        self.assertEqual(body["booking_payout_service_fee"], "1.20")
+        self.assertEqual(body["booking_payout_received_at"], "2026-06-11")
 
     @patch("apps.reservations.checkin.property_local_now")
     def test_check_in_rejected_before_arrival_date(self, mock_local_now):

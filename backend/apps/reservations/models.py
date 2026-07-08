@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
@@ -90,6 +91,39 @@ class Reservation(TenantScopedModel):
     )
     guest_stated_arrival_at = models.DateTimeField(null=True, blank=True)
     guest_stated_arrival_text = models.CharField(max_length=255, blank=True)
+    booking_payout_received_at = models.DateField(null=True, blank=True, db_index=True)
+    booking_payout_id = models.CharField(max_length=64, blank=True, db_index=True)
+    booking_payout_net = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    booking_payout_service_fee = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    booking_payout_line = models.ForeignKey(
+        "reservations.BookingPayoutLine",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="applied_reservations",
+    )
+
+    class FinancialSource(models.TextChoices):
+        BOOKING_PDF = "booking_pdf", "Booking PDF"
+        BOOKING_PAYOUT = "booking_payout", "Booking payout CSV"
+        CHANNEL_MANAGER = "channel_manager", "Channel manager"
+        MANUAL = "manual", "Manual"
+
+    financial_source = models.CharField(
+        max_length=32,
+        choices=FinancialSource.choices,
+        blank=True,
+    )
+    financial_synced_at = models.DateTimeField(null=True, blank=True)
+    financial_synced_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reservation_financial_syncs",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -717,3 +751,13 @@ class ReservationVersion(models.Model):
 
     def __str__(self) -> str:
         return f"ReservationVersion reservation={self.reservation_id} scope={self.scope} v={self.version}"
+
+
+from apps.reservations.booking_payout_models import (  # noqa: E402, F401
+    BookingPayoutImport,
+    BookingPayoutImportStatus,
+    BookingPayoutLine,
+    BookingPayoutLineSyncResult,
+    BookingPayoutMatchStatus,
+    BookingPayoutWarningSeverity,
+)

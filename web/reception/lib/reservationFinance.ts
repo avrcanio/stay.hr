@@ -27,10 +27,16 @@ export function hasFinancialData(reservation: {
   total_amount?: string | null;
   commission_amount?: string | null;
   payment_status?: string;
+  booking_payout_received?: boolean;
+  booking_payout_received_at?: string | null;
+  booking_payout_net?: string | null;
 }): boolean {
   return Boolean(
     (reservation.total_amount && reservation.total_amount.trim()) ||
       (reservation.commission_amount && reservation.commission_amount.trim()) ||
-      (reservation.payment_status && reservation.payment_status.trim()),
+      (reservation.payment_status && reservation.payment_status.trim()) ||
+      reservation.booking_payout_received ||
+      (reservation.booking_payout_received_at && reservation.booking_payout_received_at.trim()) ||
+      (reservation.booking_payout_net && reservation.booking_payout_net.trim()),
   );
 }
