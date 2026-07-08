@@ -189,6 +189,17 @@ DOCUMENT_INTAKE_REPORT_SNAPSHOT_PATH = env(
     "DOCUMENT_INTAKE_REPORT_SNAPSHOT_PATH", default=""
 )
 
+DAILY_OPS_REPORT_ENABLED = env.bool("DAILY_OPS_REPORT_ENABLED", default=False)
+DAILY_OPS_REPORT_EMAILS = env("DAILY_OPS_REPORT_EMAILS", default="")
+DAILY_OPS_REPORT_TENANT_ID = env.int("DAILY_OPS_REPORT_TENANT_ID", default=2)
+DAILY_OPS_REPORT_DB_SAMPLES = env.int("DAILY_OPS_REPORT_DB_SAMPLES", default=50)
+DAILY_OPS_REPORT_DISK_WARN_PCT = env.int("DAILY_OPS_REPORT_DISK_WARN_PCT", default=85)
+DAILY_OPS_REPORT_DISK_CRIT_PCT = env.int("DAILY_OPS_REPORT_DISK_CRIT_PCT", default=95)
+DAILY_OPS_REPORT_KEEP_DAYS = env.int("DAILY_OPS_REPORT_KEEP_DAYS", default=90)
+DAILY_OPS_REPORT_CELERY_EXPECTED = env(
+    "DAILY_OPS_REPORT_CELERY_EXPECTED", default="celery-worker,celery-beat"
+)
+
 # Property financial report — max check_out period length (days, half-open interval)
 PROPERTY_FINANCIAL_REPORT_MAX_DAYS = env.int(
     "PROPERTY_FINANCIAL_REPORT_MAX_DAYS", default=90
@@ -274,6 +285,10 @@ CELERY_BEAT_SCHEDULE = {
     "document-intake-quality-report-email": {
         "task": "reservations.send_document_intake_quality_report",
         "schedule": crontab(hour=9, minute=0, nowfun=_zagreb_now),
+    },
+    "daily-ops-report-email": {
+        "task": "core.send_daily_ops_report",
+        "schedule": crontab(hour=10, minute=0, nowfun=_zagreb_now),
     },
     "property-financial-report-monthly-email": {
         "task": "reservations.send_property_financial_reports_monthly",

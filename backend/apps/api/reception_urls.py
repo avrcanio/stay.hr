@@ -75,6 +75,7 @@ from apps.api.reception_views import (
     IdScanSampleUploadView,
     ReceptionGuestCountriesStatisticsView,
     ReceptionHealthView,
+    ReceptionSystemStatusView,
     ReceptionMonthlyStatisticsView,
     ReceptionSyncVersionsView,
     ReceptionReservationVersionStreamView,
@@ -112,6 +113,11 @@ urlpatterns = [
         name="reception-document-intake-apply",
     ),
     path("health/", ReceptionHealthView.as_view(), name="reception-health"),
+    path(
+        "system/status/",
+        ReceptionSystemStatusView.as_view(),
+        name="reception-system-status",
+    ),
     path(
         "sync-versions/",
         ReceptionSyncVersionsView.as_view(),

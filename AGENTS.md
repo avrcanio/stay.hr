@@ -120,6 +120,15 @@ Telemetry (OCR-D, write-only): [`docs/development/document-intake-telemetry.md`]
 - **3–7 day monitoring checklist:** [gunicorn-sse-monitoring.md](docs/operations/gunicorn-sse-monitoring.md). ADR: [0005](docs/architecture/adr/0005-gunicorn-sse-worker-evolution.md).
 - Phase 2 (Redis pub/sub → ASGI) if timeouts persist or SSE push critical — see ADR phase 2 trigger criteria.
 
+## Daily ops report
+
+- Celery task: `core.send_daily_ops_report` at 10:00 Europe/Zagreb
+- Env: `DAILY_OPS_REPORT_*` (see `.env.example`); no ops API token — collectors run in-process
+- Snapshot: `{MEDIA_ROOT}/ops/daily_ops_report/snapshot.json`; Markdown: `latest.md` + `YYYY-MM-DD.md`
+- After `.env` changes: `docker compose up -d django celery-worker celery-beat`
+- CLI: `python manage.py daily_ops_report` (`--print-markdown`, `--json`, `--no-email`, `--write-only`)
+- Experimental host helper: `./scripts/collect-docker-gunicorn-signals.sh` → `docker_signals.json`
+
 ## FCM push deployment
 
 Runbook: [docs/operations/fcm-push-guard.md](docs/operations/fcm-push-guard.md)
