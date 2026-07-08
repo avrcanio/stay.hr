@@ -215,6 +215,34 @@ class BookingPayoutManualSyncTests(BookingPayoutSyncTestBase):
         self.reservation.refresh_from_db()
         self.assertEqual(self.reservation.commission_amount, Decimal("34.35"))
 
+    def test_invoice_allows_safe_payout_sync(self):
+        TenantFiscalSettings.objects.create(tenant=self.tenant, is_vat_registered=True)
+        Invoice.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            invoice_number="2026-002",
+            sequence_number=1,
+            issued_at=timezone.now(),
+            buyer_name="John Doe",
+            subtotal=Decimal("178.00"),
+            vat_amount=Decimal("0.00"),
+            total=Decimal("178.00"),
+            currency="EUR",
+        )
+
+        result = sync_booking_payout_line(
+            self.line.pk,
+            applied_by=self.user,
+            policy=SyncPolicy.SAFE,
+            expected_revision=self.import_batch.revision,
+        )
+
+        self.assertEqual(result.result, "SUCCESS")
+        self.reservation.refresh_from_db()
+        self.assertEqual(self.reservation.commission_amount, Decimal("34.35"))
+        self.assertEqual(self.reservation.booking_payout_id, self.import_batch.payout_id)
+        self.assertEqual(self.reservation.booking_payout_net, self.line.net_amount)
+
     def test_payout_id_conflict(self):
         self.reservation.booking_payout_id = "OTHER-PAYOUT"
         self.reservation.save(update_fields=["booking_payout_id"])
@@ -414,6 +442,40 @@ class BookingPayoutAdminSyncTests(BookingPayoutSyncTestBase):
         self.assertContains(response, "32.04")
         self.assertContains(response, "Potvrdi sync")
 
+    def test_confirm_page_with_invoice_offers_safe_payout_sync(self):
+        TenantFiscalSettings.objects.create(tenant=self.tenant, is_vat_registered=True)
+        Invoice.objects.create(
+            tenant=self.tenant,
+            reservation=self.reservation,
+            invoice_number="2026-003",
+            sequence_number=1,
+            issued_at=timezone.now(),
+            buyer_name="John Doe",
+            subtotal=Decimal("178.00"),
+            vat_amount=Decimal("0.00"),
+            total=Decimal("178.00"),
+            currency="EUR",
+        )
+        url = reverse(
+            "admin:reservations_bookingpayoutimport_sync_line",
+            args=[self.import_batch.pk, self.line.pk],
+        )
+        response = self.client.get(url, HTTP_HOST="admin.stay.hr")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Primijeni samo payout polja")
+        self.assertNotContains(response, "Potvrdi sync")
+        self.assertContains(response, "blokirano zbog računa")
+
+        response = self.client.post(
+            url,
+            {"revision": self.import_batch.revision, "sync_policy": "safe"},
+            HTTP_HOST="admin.stay.hr",
+        )
+        self.assertEqual(response.status_code, 302)
+        self.reservation.refresh_from_db()
+        self.assertEqual(self.reservation.commission_amount, Decimal("34.35"))
+        self.assertEqual(self.reservation.booking_payout_id, self.import_batch.payout_id)
+
     def test_confirm_post_syncs_line(self):
         url = reverse(
             "admin:reservations_bookingpayoutimport_sync_line",
@@ -421,7 +483,7 @@ class BookingPayoutAdminSyncTests(BookingPayoutSyncTestBase):
         )
         response = self.client.post(
             url,
-            {"revision": self.import_batch.revision},
+            {"revision": self.import_batch.revision, "sync_policy": "manual"},
             HTTP_HOST="admin.stay.hr",
         )
         self.assertEqual(response.status_code, 302)

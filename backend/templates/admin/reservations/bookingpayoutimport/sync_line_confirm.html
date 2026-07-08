@@ -23,7 +23,7 @@
 {% if pdf_source %}
 <div class="messagelist">
   <div class="warning">
-    Rezervacija ima PDF izvor financija. Ručni sync će prepisati iznose payout CSV-om.
+    Rezervacija ima PDF izvor financija. Ručni sync iznosa će prepisati gross/commission payout CSV-om.
   </div>
 </div>
 {% endif %}
@@ -31,13 +31,87 @@
 {% if has_invoice %}
 <div class="messagelist">
   <div class="error">
-    Rezervacija ima izdan račun — sync iznosa je blokiran.
+    Rezervacija ima izdan račun — sync iznosa (<code>amount</code>, <code>commission_amount</code>) je blokiran.
+    Payout polja (<code>booking_payout_*</code>) možete primijeniti ispod.
   </div>
 </div>
-{% else %}
+{% endif %}
+
+{% if has_invoice and has_safe_changes %}
 <form method="post">
   {% csrf_token %}
   <input type="hidden" name="revision" value="{{ revision }}">
+  <input type="hidden" name="sync_policy" value="safe">
+
+  <fieldset class="module aligned">
+    <h2>Payout polja (dozvoljeno)</h2>
+    <table style="width:100%">
+      <thead>
+        <tr>
+          <th>Polje</th>
+          <th>Trenutno</th>
+          <th>Novo</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for diff in safe_field_diffs %}
+        <tr{% if diff.changed %} style="background:#fff3cd"{% endif %}>
+          <td><strong>{{ diff.field }}</strong></td>
+          <td>{{ diff.old|default:"—" }}</td>
+          <td>{{ diff.new|default:"—" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="3">Nema promjena.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </fieldset>
+
+  <div class="submit-row">
+    <input type="submit" value="Primijeni samo payout polja" class="default">
+    <a href="{% url 'admin:reservations_bookingpayoutimport_change' import_batch.pk %}" class="button cancel-link">Odustani</a>
+  </div>
+</form>
+{% endif %}
+
+{% if has_invoice %}
+<fieldset class="module aligned">
+  <h2>Iznosi (blokirano zbog računa)</h2>
+  <table style="width:100%">
+    <thead>
+      <tr>
+        <th>Polje</th>
+        <th>Trenutno</th>
+        <th>CSV (nije primjenjivo)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for diff in field_diffs %}
+      {% if diff.field == "amount" or diff.field == "commission_amount" or diff.field == "currency" %}
+      <tr{% if diff.changed %} style="background:#f8d7da"{% endif %}>
+        <td><strong>{{ diff.field }}</strong></td>
+        <td>{{ diff.old|default:"—" }}</td>
+        <td>{{ diff.new|default:"—" }}</td>
+      </tr>
+      {% endif %}
+      {% empty %}
+      <tr><td colspan="3">Nema promjena.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</fieldset>
+
+{% if not has_safe_changes %}
+<div class="submit-row">
+  <a href="{% url 'admin:reservations_bookingpayoutimport_change' import_batch.pk %}" class="button cancel-link">Natrag</a>
+</div>
+{% endif %}
+
+{% elif can_manual_sync %}
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="revision" value="{{ revision }}">
+  <input type="hidden" name="sync_policy" value="manual">
 
   <fieldset class="module aligned">
     <h2>Promjene</h2>
