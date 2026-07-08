@@ -37,6 +37,7 @@ class PropertySummarySerializer(serializers.ModelSerializer):
             "language",
             "check_in_time",
             "check_out_time",
+            "financial_report_recipients",
         )
 
 

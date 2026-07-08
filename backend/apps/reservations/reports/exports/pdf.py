@@ -13,7 +13,9 @@ from apps.reservations.reports.exports._formatting import (
     format_date_hr,
     format_datetime_hr,
     format_decimal_hr,
-    format_guest_names,
+    display_booking_reference,
+    display_external_reference,
+    truncate_pdf_text,
 )
 from apps.reservations.reports.types import PropertyFinancialReportResult
 
@@ -33,17 +35,26 @@ def _template_context(result: PropertyFinancialReportResult) -> dict:
         },
         "rows": [
             {
-                "booking_code": row.booking_code,
-                "external_id": row.external_id,
+                "booking_label": display_booking_reference(
+                    booking_code=row.booking_code,
+                    external_id=row.external_id,
+                )
+                or "—",
+                "external_id_short": truncate_pdf_text(
+                    display_external_reference(
+                        booking_code=row.booking_code,
+                        external_id=row.external_id,
+                    )
+                ),
                 "check_in": format_date_hr(row.check_in),
                 "check_out": format_date_hr(row.check_out),
-                "room_labels": ", ".join(row.room_labels),
+                "room_labels": truncate_pdf_text(", ".join(row.room_labels), max_len=28),
                 "nights": row.nights,
                 "gross": format_decimal_hr(row.gross, null_as_zero=True),
                 "commission": format_decimal_hr(row.commission),
                 "net": format_decimal_hr(row.net),
-                "source": row.source,
-                "guests": format_guest_names(row.guests),
+                "source": truncate_pdf_text(row.source, max_len=12),
+                "guest_names": [guest.name for guest in row.guests],
             }
             for row in result.rows
         ],

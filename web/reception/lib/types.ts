@@ -44,7 +44,7 @@ export type Room = {
 
 export type AppConfig = {
   tenant: { name: string; slug: string };
-  properties: Array<{ name: string; slug: string }>;
+  properties: Array<{ name: string; slug: string; financial_report_recipients?: string }>;
   units?: Array<{ id: number; code: string; property_slug?: string; name?: string }>;
   channel_manager?: string;
   feature_flags: Record<string, boolean>;

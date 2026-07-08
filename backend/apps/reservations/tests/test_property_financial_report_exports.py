@@ -51,6 +51,23 @@ class PropertyFinancialReportExportTests(SimpleTestCase):
         self.assertIn("150,00", html)
         self.assertIn("10.03.2026", html)
 
+    def test_pdf_hides_channex_internal_ids(self):
+        from dataclasses import replace
+
+        from apps.reservations.reports.types import PropertyFinancialReportRow
+
+        channex_row = replace(
+            self.result.rows[0],
+            booking_code="5123456789",
+            external_id="channex:f33c5d9f-454c-4a2b-9c1d-abcdef123456",
+        )
+        result = replace(self.result, rows=(channex_row,))
+
+        html = render_property_financial_report_html(result)
+        self.assertIn("5123456789", html)
+        self.assertNotIn("channex:", html)
+        self.assertNotIn("f33c5d9f", html)
+
     def test_pdf_filename(self):
         self.assertEqual(
             property_financial_report_pdf_filename(self.result),

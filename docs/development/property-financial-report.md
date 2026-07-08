@@ -33,6 +33,60 @@ GET /api/v1/reception/reports/property-financial/
 
 Maximum span: `PROPERTY_FINANCIAL_REPORT_MAX_DAYS` (default **90**). Meta echoes `max_period_days` for UI hints.
 
+## Email delivery
+
+### POST send-email (Reception UI / API)
+
+```
+POST /api/v1/reception/reports/property-financial/send-email/
+```
+
+| | |
+|--|--|
+| **Auth** | Bearer token with `reception:write` scope |
+| **Body (JSON)** | `property_slug`, `check_out_from`, `check_out_to` (same semantics as GET); optional `recipients` (string array) |
+| **Response** | `200` — `{ "status": "sent", "recipients": [...], "subject": "...", "reservation_count": N }` |
+| **Attachments** | PDF + Excel (same exporters as GET `format=pdf\|xlsx`) |
+| **From address** | `Stay.hr reports <DEFAULT_FROM_EMAIL>` |
+
+When `recipients` is omitted, addresses are parsed from `Property.financial_report_recipients` (comma/semicolon/whitespace separated). Configure per property in Django admin (**Financijski izvještaj** fieldset) or pass explicitly from Reception UI.
+
+| Code | When |
+|------|------|
+| `no_recipient` | No valid addresses in body or on property |
+| `no_smtp` | `EMAIL_HOST` not configured |
+| `no_from_address` | `DEFAULT_FROM_EMAIL` / `EMAIL_HOST_USER` missing |
+| `send_failed` | SMTP send failed for all recipients |
+| `period_invalid`, `period_too_long`, `property_required` | Same as GET |
+
+**Management command (ops / manual):**
+
+```bash
+docker compose run --rm django python manage.py send_property_financial_report_email \
+  --tenant-slug uzorita --property-slug uzorita \
+  --check-out-from 2026-06-01 --check-out-to 2026-06-30 \
+  --recipient owner@example.com
+```
+
+Add `--dry-run` to build and print totals without sending.
+
+### Monthly Celery job
+
+| | |
+|--|--|
+| **Task** | `reservations.send_property_financial_reports_monthly` |
+| **Schedule** | 1st of each month, **08:00 Europe/Zagreb** (previous calendar month check-out period) |
+| **Recipients** | `Property.financial_report_recipients` per property (skipped when empty) |
+| **Gate** | `PROPERTY_FINANCIAL_REPORT_EMAIL_ENABLED=true` (default `false`) |
+
+After changing `.env`:
+
+```bash
+docker compose up -d django celery-worker celery-beat
+```
+
+Properties without `financial_report_recipients` are skipped silently.
+
 ## Error responses (400)
 
 All errors return JSON `{ "code": "<code>", ... }`.
@@ -201,3 +255,15 @@ Reception monthly statistics (`GET /api/v1/reception/statistics/monthly/`) bucke
 | JSON adapter | `backend/apps/api/reception_report_serializers.py` |
 | API view | `backend/apps/api/reception_report_views.py` |
 | Snapshot fixture | `backend/apps/api/tests/fixtures/property_financial_report_snapshot.json` |
+| Email delivery | `backend/apps/reservations/reports/email.py`, `delivery.py` |
+| Celery task | `backend/apps/reservations/reports/tasks.py` |
+| Recipients parse | `backend/apps/reservations/reports/recipients.py` |
+
+## Environment
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PROPERTY_FINANCIAL_REPORT_MAX_DAYS` | `90` | Max inclusive check-out period length |
+| `PROPERTY_FINANCIAL_REPORT_EMAIL_ENABLED` | `false` | Enable monthly Celery email on 1st at 08:00 Zagreb |
+
+See also `.env.example`. SMTP (`EMAIL_HOST`, `DEFAULT_FROM_EMAIL`) must be configured for any email send.

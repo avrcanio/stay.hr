@@ -11,6 +11,8 @@ from apps.reservations.reports.exports._formatting import (
     EXCEL_DATE_NUMBER_FORMAT,
     EXCEL_DATETIME_NUMBER_FORMAT,
     EXCEL_SHEET_TITLE,
+    display_booking_reference,
+    display_external_reference,
     export_filename,
     format_guest_names,
     format_period_iso,
@@ -70,8 +72,18 @@ def render_property_financial_report_xlsx(result: PropertyFinancialReportResult)
 
     for offset, row in enumerate(result.rows, start=1):
         excel_row = HEADER_ROW + offset
-        sheet.cell(row=excel_row, column=1, value=row.booking_code)
-        sheet.cell(row=excel_row, column=2, value=row.external_id)
+        sheet.cell(row=excel_row, column=1, value=display_booking_reference(
+            booking_code=row.booking_code,
+            external_id=row.external_id,
+        ))
+        sheet.cell(
+            row=excel_row,
+            column=2,
+            value=display_external_reference(
+                booking_code=row.booking_code,
+                external_id=row.external_id,
+            ),
+        )
         _write_excel_date_cell(sheet.cell(row=excel_row, column=3), row.check_in)
         _write_excel_date_cell(sheet.cell(row=excel_row, column=4), row.check_out)
         sheet.cell(row=excel_row, column=5, value=", ".join(row.room_labels))

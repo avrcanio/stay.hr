@@ -50,7 +50,10 @@ from apps.api.reception_reviews_views import (
     ReceptionReviewReplyView,
     ReceptionReviewsListView,
 )
-from apps.api.reception_report_views import PropertyFinancialReportView
+from apps.api.reception_report_views import (
+    PropertyFinancialReportSendEmailView,
+    PropertyFinancialReportView,
+)
 from apps.api.reception_booking_reconcile_views import (
     BookingReconcileApplyView,
     BookingReconcileCompareView,
@@ -73,7 +76,6 @@ from apps.api.reception_views import (
     ReceptionGuestCountriesStatisticsView,
     ReceptionHealthView,
     ReceptionMonthlyStatisticsView,
-    ReceptionSystemStatusView,
     ReceptionSyncVersionsView,
     ReceptionReservationVersionStreamView,
     ReservationConfirmationPdfView,
@@ -111,11 +113,6 @@ urlpatterns = [
     ),
     path("health/", ReceptionHealthView.as_view(), name="reception-health"),
     path(
-        "system/status/",
-        ReceptionSystemStatusView.as_view(),
-        name="reception-system-status",
-    ),
-    path(
         "sync-versions/",
         ReceptionSyncVersionsView.as_view(),
         name="reception-sync-versions",
@@ -139,6 +136,11 @@ urlpatterns = [
         "reports/property-financial/",
         PropertyFinancialReportView.as_view(),
         name="reception-reports-property-financial",
+    ),
+    path(
+        "reports/property-financial/send-email/",
+        PropertyFinancialReportSendEmailView.as_view(),
+        name="reception-reports-property-financial-send-email",
     ),
     path(
         "reports/booking-reconcile/compare/",

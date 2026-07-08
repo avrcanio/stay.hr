@@ -143,6 +143,17 @@ class PropertyAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             },
         ),
         (
+            "Financijski izvještaj",
+            {
+                "fields": ("financial_report_recipients",),
+                "description": (
+                    "Email primatelji za mjesečni financijski izvještaj (odjava u prethodnom mjesecu). "
+                    "Zarezom odvojene adrese. Celery šalje 1. u mjesecu ako je "
+                    "PROPERTY_FINANCIAL_REPORT_EMAIL_ENABLED=true."
+                ),
+            },
+        ),
+        (
             "Turistička pristojba",
             {
                 "fields": ("tourist_tax_zone", "tourist_tax_category"),

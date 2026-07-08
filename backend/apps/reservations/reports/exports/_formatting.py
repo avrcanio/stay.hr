@@ -12,6 +12,33 @@ EXCEL_SHEET_TITLE = "Financial report"
 EXCEL_MONEY_NUMBER_FORMAT = "#,##0.00"
 EXCEL_DATE_NUMBER_FORMAT = "dd.mm.yyyy"
 EXCEL_DATETIME_NUMBER_FORMAT = "dd.mm.yyyy hh:mm"
+CHANNEX_EXTERNAL_ID_PREFIX = "channex:"
+
+
+def is_channex_reference(value: str) -> bool:
+    return (value or "").strip().lower().startswith(CHANNEX_EXTERNAL_ID_PREFIX)
+
+
+def display_booking_reference(*, booking_code: str, external_id: str) -> str:
+    """Human-facing reservation code for exports (never internal channex: UUID)."""
+    code = (booking_code or "").strip()
+    if code and not is_channex_reference(code):
+        return code
+    ext = (external_id or "").strip()
+    if ext and not is_channex_reference(ext):
+        return ext
+    return ""
+
+
+def display_external_reference(*, booking_code: str, external_id: str) -> str:
+    """Secondary external reference when it adds info beyond booking_code."""
+    ext = (external_id or "").strip()
+    if not ext or is_channex_reference(ext):
+        return ""
+    code = display_booking_reference(booking_code=booking_code, external_id=external_id)
+    if ext == code:
+        return ""
+    return ext
 
 
 def format_decimal(value: Decimal | None, *, null_as_zero: bool = False) -> str:
@@ -45,6 +72,13 @@ def format_guest_names(result_row_guests) -> str:
     if not result_row_guests:
         return ""
     return "; ".join(guest.name for guest in result_row_guests)
+
+
+def truncate_pdf_text(value: str, *, max_len: int = 22) -> str:
+    text = (value or "").strip()
+    if len(text) <= max_len:
+        return text
+    return f"{text[: max_len - 1]}…"
 
 
 def export_filename(result: PropertyFinancialReportResult, extension: str) -> str:
