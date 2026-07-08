@@ -71,10 +71,10 @@ output_file="$(mktemp)"
 trap 'rm -f "$output_file"' EXIT
 
 set +e
-docker compose run --rm \
+docker compose --profile test-run run --rm \
   -e DJANGO_SETTINGS_MODULE=config.settings.test_postgis \
   -e TEST_DB_NAME=stay_platform_test_db \
-  django python manage.py test "$@" 2>&1 | tee "$output_file"
+  django-run python manage.py test "$@" 2>&1 | tee "$output_file"
 test_exit="${PIPESTATUS[0]}"
 set -e
 

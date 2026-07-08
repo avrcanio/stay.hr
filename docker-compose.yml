@@ -56,6 +56,22 @@ services:
       - traefik.http.routers.stay-uzorita-admin.priority=200
       - traefik.http.services.stay-django.loadbalancer.server.port=8000
 
+  # One-off manage.py / tests — NOT registered with Traefik (no proxy network, no labels).
+  # Usage: docker compose --profile test-run run --rm django-run python manage.py …
+  django-run:
+    profiles: ["test-run"]
+    build: .
+    image: stay-hr-django:latest
+    env_file:
+      - .env
+    volumes:
+      - ./data/media:/app/backend/media
+      - ./hospira-fc0dc-f77596470912.json:/run/secrets/firebase-service-account.json:ro
+    networks:
+      postgis: {}
+      stay_internal: {}
+      hetzner_net: {}
+
   celery-worker:
     build: .
     image: stay-hr-django:latest

@@ -80,10 +80,10 @@ Vidi [Recommended workflow](#recommended-workflow) iznad. Test baza: `stay_platf
 ```bash
 cd /opt/stacks/stay.hr
 docker compose build django
-docker compose run --rm \
+docker compose --profile test-run run --rm \
   -e DJANGO_SETTINGS_MODULE=config.settings.test_postgis \
   -e TEST_DB_NAME=stay_platform_test_db \
-  django python manage.py test \
+  django-run python manage.py test \
   apps.api.tests \
   apps.core.tests \
   apps.tenants.tests \
@@ -97,7 +97,7 @@ docker compose run --rm \
 ### Default `manage.py test` (djelomično)
 
 ```bash
-docker compose run --rm django python manage.py test
+docker compose --profile test-run run --rm django-run python manage.py test
 ```
 
 Pronalazi samo **~53 testa** (uglavnom `api`, `core`, `tenants`). Ne uključuje automatski `integrations`, `properties`, `reservations`, `legacy_import` — koristi eksplicitne labele iznad.
@@ -111,7 +111,7 @@ Pronalazi samo **~53 testa** (uglavnom `api`, `core`, `tenants`). Ne uključuje 
 Ili bez skripte (legacy):
 
 ```bash
-docker compose run --rm django python manage.py test apps.integrations.tests -v 2
+docker compose --profile test-run run --rm django-run python manage.py test apps.integrations.tests -v 2
 ```
 
 ### Channex cert (plan ispravki)
