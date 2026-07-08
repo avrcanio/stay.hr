@@ -148,11 +148,22 @@ def sync_booking_payout_queryset(
             )
 
         _transition_import_status(import_batch, policy=policy)
-        if policy == SyncPolicy.SAFE and line_results:
+        if line_results and (
+            policy == SyncPolicy.SAFE
+            or (
+                policy == SyncPolicy.MANUAL_OVERRIDE
+                and import_batch.status == BookingPayoutImportStatus.APPLIED
+            )
+        ):
             now = timezone.now()
-            import_batch.applied_at = now
-            import_batch.applied_by = applied_by
-            import_batch.save(update_fields=["status", "applied_at", "applied_by"])
+            if import_batch.applied_at is None:
+                import_batch.applied_at = now
+                import_batch.applied_by = applied_by
+                import_batch.save(
+                    update_fields=["status", "applied_at", "applied_by"]
+                )
+            else:
+                import_batch.save(update_fields=["status"])
         else:
             import_batch.save(update_fields=["status"])
 

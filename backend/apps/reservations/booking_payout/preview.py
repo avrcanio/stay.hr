@@ -19,6 +19,34 @@ from apps.reservations.booking_payout_models import (
 from apps.tenants.models import Tenant
 
 
+def _duplicate_batch_errors(
+    *,
+    property_obj: Property,
+    source_sha256: str,
+    payout_id: str,
+) -> list[str]:
+    errors: list[str] = []
+    if BookingPayoutImport.objects.filter(
+        property_obj=property_obj,
+        source_sha256=source_sha256,
+    ).exists():
+        errors.append(
+            "Datoteka s istim SHA-256 već je uvezena za objekt "
+            f"{property_obj.slug}. Otvorite postojeći import u listi."
+        )
+    existing = BookingPayoutImport.objects.filter(
+        property_obj=property_obj,
+        payout_id=payout_id,
+    ).first()
+    if existing is not None:
+        errors.append(
+            f"Payout ID {payout_id!r} već postoji za objekt {property_obj.slug} "
+            f"(import #{existing.pk}, status={existing.status}). "
+            f"Dupli upload nije potreban — otvorite postojeći import."
+        )
+    return errors
+
+
 def preview_booking_payout_csv(
     content: bytes,
     *,
@@ -48,29 +76,16 @@ def preview_booking_payout_csv(
         batch_errors=batch_errors,
     )
 
+    batch_errors.extend(
+        _duplicate_batch_errors(
+            property_obj=property_obj,
+            source_sha256=source_sha256,
+            payout_id=first.payout_id,
+        )
+    )
+    preview.batch_errors = batch_errors
+
     if batch_errors or not persist:
-        return preview, None
-
-    duplicate_sha = BookingPayoutImport.objects.filter(
-        property_obj=property_obj,
-        source_sha256=source_sha256,
-    ).exists()
-    if duplicate_sha:
-        batch_errors.append(
-            f"File with identical SHA-256 already imported for property {property_obj.slug}"
-        )
-        preview.batch_errors = batch_errors
-        return preview, None
-
-    existing = BookingPayoutImport.objects.filter(
-        property_obj=property_obj,
-        payout_id=first.payout_id,
-    ).first()
-    if existing is not None:
-        batch_errors.append(
-            f"Payout ID {first.payout_id!r} already exists for property {property_obj.slug}"
-        )
-        preview.batch_errors = batch_errors
         return preview, None
 
     with transaction.atomic():

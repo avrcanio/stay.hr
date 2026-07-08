@@ -6,6 +6,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 from django.urls import reverse
@@ -498,3 +499,41 @@ class BookingPayoutAdminSyncTests(BookingPayoutSyncTestBase):
         response = self.client.get(url, HTTP_HOST="admin.stay.hr")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Reconciliation")
+
+
+class BookingPayoutDuplicateImportTests(BookingPayoutSyncTestBase):
+    def test_preview_without_persist_rejects_duplicate_payout_id(self):
+        preview, import_batch = preview_booking_payout_csv(
+            _csv_content(),
+            tenant=self.tenant,
+            property_obj=self.property,
+            filename="payout-duplicate.csv",
+            persist=False,
+        )
+        self.assertIsNone(import_batch)
+        self.assertTrue(preview.batch_errors)
+        self.assertTrue(
+            any("već postoji" in err for err in preview.batch_errors),
+            preview.batch_errors,
+        )
+
+    def test_admin_add_rejects_duplicate_payout_id_without_500(self):
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        self.client.login(username="sync_user", password="test-pass-123")
+        url = reverse("admin:reservations_bookingpayoutimport_add")
+        response = self.client.post(
+            url,
+            {
+                "tenant": self.tenant.pk,
+                "property_obj": self.property.pk,
+                "source_file": SimpleUploadedFile(
+                    "payout-duplicate.csv",
+                    _csv_content(),
+                    content_type="text/csv",
+                ),
+            },
+            HTTP_HOST="admin.stay.hr",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "već postoji")

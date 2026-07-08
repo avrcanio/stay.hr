@@ -401,6 +401,15 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
             return readonly
         return ()
 
+    def add_view(self, request, form_url="", extra_context=None):
+        try:
+            return super().add_view(request, form_url, extra_context)
+        except forms.ValidationError as exc:
+            message = exc.messages[0] if getattr(exc, "messages", None) else str(exc)
+            messages.error(request, message)
+            url = reverse("admin:reservations_bookingpayoutimport_add")
+            return HttpResponseRedirect(url)
+
     def save_model(self, request, obj, form, change):
         self.apply_host_tenant(request, obj)
         if change:
@@ -421,7 +430,10 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
             persist=True,
         )
         if import_batch is None:
-            raise forms.ValidationError("Failed to create payout import batch.")
+            errors = preview.batch_errors if preview else []
+            raise forms.ValidationError(
+                "; ".join(errors) if errors else "Neuspjeh kreiranja payout importa."
+            )
 
         self._created_import = import_batch
 
@@ -476,9 +488,27 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
     def warning_count_display(self, obj: BookingPayoutImport) -> int:
         return obj.warning_count
 
-    @admin.display(description="Applied")
-    def applied_count_display(self, obj: BookingPayoutImport) -> int:
-        return obj.applied_count
+    @admin.display(description="Confirmed")
+    def applied_count_display(self, obj: BookingPayoutImport) -> str:
+        matched = obj.matched_lines_count
+        confirmed = max(obj.applied_count, obj.synced_lines_count)
+        if matched:
+            return f"{confirmed}/{matched}"
+        return str(confirmed)
+
+    def _bulk_apply_skip_reason(self, import_batch: BookingPayoutImport) -> str | None:
+        if import_batch.status in (
+            BookingPayoutImportStatus.PARSED,
+            BookingPayoutImportStatus.PARTIALLY_SYNCED,
+        ):
+            return None
+        if import_batch.status == BookingPayoutImportStatus.APPLIED:
+            if import_batch.is_fully_synced:
+                return "already_applied"
+            return None
+        if import_batch.status == BookingPayoutImportStatus.FAILED:
+            return "failed"
+        return "pending"
 
     @admin.display(description="Errors")
     def error_count_display(self, obj: BookingPayoutImport) -> int:
@@ -492,14 +522,26 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
     @admin.action(description="Apply payout to reservations")
     def apply_payout_to_reservations(self, request, queryset):
         applied_batches = 0
+        already_applied_batches = 0
         for import_batch in queryset:
-            if import_batch.status not in (
-                BookingPayoutImportStatus.PARSED,
-                BookingPayoutImportStatus.PARTIALLY_SYNCED,
-            ):
+            skip_reason = self._bulk_apply_skip_reason(import_batch)
+            if skip_reason == "already_applied":
+                already_applied_batches += 1
+                import_batch.ensure_applied_audit()
+                messages.info(
+                    request,
+                    (
+                        f"Import {import_batch.payout_id} već je primijenjen "
+                        f"({import_batch.synced_lines_count}/{import_batch.matched_lines_count} "
+                        f"linija usklađeno, status={import_batch.status}). "
+                        f"Nema potrebe za ponovnim applyem."
+                    ),
+                )
+                continue
+            if skip_reason is not None:
                 messages.error(
                     request,
-                    f"Import {import_batch.payout_id} is not PARSED/PARTIALLY_SYNCED "
+                    f"Import {import_batch.payout_id} nije spreman za apply "
                     f"(status={import_batch.status}).",
                 )
                 continue
@@ -521,8 +563,8 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
                     f"({result.duration_ms} ms)."
                 ),
             )
-        if applied_batches == 0:
-            messages.warning(request, "No imports were applied.")
+        if applied_batches == 0 and already_applied_batches == 0:
+            messages.warning(request, "Nijedan import nije primijenjen.")
 
     @admin.action(description="Primijeni i ispravi sve matched")
     def sync_and_correct_all_matched(self, request, queryset):
@@ -531,14 +573,26 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
             return
 
         synced_batches = 0
+        already_synced_batches = 0
         for import_batch in queryset:
-            if import_batch.status not in (
-                BookingPayoutImportStatus.PARSED,
-                BookingPayoutImportStatus.PARTIALLY_SYNCED,
-            ):
+            skip_reason = self._bulk_apply_skip_reason(import_batch)
+            if skip_reason == "already_applied":
+                already_synced_batches += 1
+                import_batch.ensure_applied_audit()
+                messages.info(
+                    request,
+                    (
+                        f"Import {import_batch.payout_id} već je usklađen "
+                        f"({import_batch.synced_lines_count}/{import_batch.matched_lines_count} "
+                        f"linija, status={import_batch.status}). "
+                        f"Za pojedinačnu liniju koristite „Primijeni i ispravi”."
+                    ),
+                )
+                continue
+            if skip_reason is not None:
                 messages.error(
                     request,
-                    f"Import {import_batch.payout_id} nije u PARSED/PARTIALLY_SYNCED "
+                    f"Import {import_batch.payout_id} nije spreman za sync "
                     f"(status={import_batch.status}).",
                 )
                 continue
@@ -576,8 +630,8 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
                     + f" ({result.duration_ms} ms)."
                 ),
             )
-        if synced_batches == 0:
-            messages.warning(request, "No imports were synced.")
+        if synced_batches == 0 and already_synced_batches == 0:
+            messages.warning(request, "Nijedan import nije usklađen.")
 
 
 _FINANCE_FIELDSET_TITLE = "Financije (rezervacija)"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from apps.core.models import TenantScopedModel
 from apps.reservations.models import Reservation
@@ -129,6 +130,30 @@ class BookingPayoutImport(TenantScopedModel):
         if matched == 0:
             return 0
         return round(100 * self.synced_lines_count / matched)
+
+    def ensure_applied_audit(self) -> bool:
+        """Backfill applied_at/applied_by when batch is APPLIED and fully confirmed."""
+        if self.applied_at is not None:
+            return False
+        if self.status != BookingPayoutImportStatus.APPLIED or not self.is_fully_synced:
+            return False
+
+        line = (
+            self.lines.filter(reservation_synced_at__isnull=False)
+            .order_by("reservation_synced_at")
+            .first()
+        )
+        if line is None:
+            line = self.lines.filter(applied_at__isnull=False).order_by("applied_at").first()
+        if line is None:
+            return False
+
+        self.applied_at = line.reservation_synced_at or line.applied_at or timezone.now()
+        self.applied_by_id = (
+            line.reservation_synced_by_id or self.uploaded_by_id
+        )
+        self.save(update_fields=["applied_at", "applied_by"])
+        return True
 
 
 class BookingPayoutLine(models.Model):
