@@ -1,4 +1,5 @@
 import io
+import os
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -1167,6 +1168,33 @@ class ReceptionAPITests(TestCase):
         first_chunk = next(response.streaming_content).decode("utf-8")
         self.assertIn("event: connected", first_chunk)
         self.assertIn('"scope":"messages"', first_chunk)
+
+    @patch.dict(os.environ, {"GUNICORN_WORKERS": "2"}, clear=False)
+    @patch(
+        "apps.api.reception_views.get_sse_connection_stats",
+        return_value={"active_connections": 1},
+    )
+    def test_reservation_version_stream_rejects_when_worker_saturated(self, _mock_stats):
+        response = self.client.get(
+            f"/api/v1/reception/reservation-versions/stream/?reservation_id={self.reservation.id}&scope=messages",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("poll fallback", response.json()["detail"])
+
+    def test_reservation_version_stream_closed_on_client_disconnect(self):
+        with self.assertLogs("apps.api.reception_views", level="INFO") as logs:
+            response = self.client.get(
+                f"/api/v1/reception/reservation-versions/stream/?reservation_id={self.reservation.id}&scope=messages",
+                **self.auth,
+            )
+            self.assertEqual(response.status_code, 200)
+            next(response.streaming_content)
+            response.close()
+        self.assertTrue(
+            any("sse_stream_closed" in line for line in logs.output),
+            logs.output,
+        )
 
     def test_monthly_statistics(self):
         self.reservation.status = Reservation.Status.CHECKED_IN

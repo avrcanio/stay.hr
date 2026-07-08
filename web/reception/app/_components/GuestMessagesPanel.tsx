@@ -187,6 +187,7 @@ export function GuestMessagesPanel({ reservationId }: Props) {
   useReservationVersionWatch({
     reservationId,
     scope: "messages",
+    transport: "poll",
     onVersionChange: () => {
       void loadTimeline({ sync: 0, background: true });
     },

@@ -4,6 +4,35 @@ Operational runbook after [ADR 0005 — Gunicorn worker scaling](../architecture
 
 **Incident postmortem:** [2026-07-08 SSE worker exhaustion](incidents/2026-07-08-sse-worker-exhaustion.md)
 
+## Emergency stabilization (2026-07-08 hotfix)
+
+Reception reservation **detail views** temporarily use **poll only** — no SSE streams from detail panels:
+
+| Component | Scope | Transport |
+|-----------|-------|-----------|
+| `GuestMessagesPanel` | `messages` | `poll` |
+| `ReservationDetailPanel` | `payments` | `poll` |
+
+Backend guard: before opening a new SSE stream, reject with **503** when the **current worker's** active SSE count is `>= GUNICORN_WORKERS - 1` (log: `sse_stream_rejected`). Clients with SSE enabled elsewhere should fall back to poll on 503.
+
+**Keep polling on detail views** until Phase **2a** (Redis `ReservationVersionEventBus`) and **2b** (dedicated Uvicorn SSE) are deployed **and** pass their validation windows. Do not re-enable SSE on detail views just because Uvicorn exists — restore only after the full Redis + Uvicorn path is stable.
+
+To restore SSE on detail views later: remove explicit `transport: "poll"` from the two components above after ops sign-off on Post-Phase 2b validation.
+
+### SSE lifecycle check (disconnect cleanup)
+
+`opened` vs `closed` log totals are **per worker** and only increment on that worker process. Zero `sse_stream_closed` during saturation can mean many tabs still open **or** a disconnect cleanup gap.
+
+Verify cleanup after a deliberate tab close:
+
+1. Hard-refresh Reception so detail panels use poll (no new SSE from detail).
+2. From a test client or browser devtools, open **one** SSE stream (e.g. list view or manual `EventSource` to `reservation-versions/stream/`).
+3. Confirm `sse_stream_opened` in django logs for that `reservation_id` / `scope`.
+4. Close the tab or call `EventSource.close()`.
+5. Within ~30 s (next heartbeat), confirm `sse_stream_closed` for the same worker PID.
+
+If step 5 never fires after a clean single-tab test, file a follow-up bug for WSGI disconnect detection — independent of the poll hotfix.
+
 ## Quick checks
 
 ```bash

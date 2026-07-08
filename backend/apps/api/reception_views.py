@@ -77,6 +77,7 @@ from apps.reservations.sync_versions import (
 )
 from apps.reservations.reservation_version_events import (
     format_sse,
+    get_sse_connection_stats,
     record_sse_stream_closed,
     subscribe,
     unsubscribe,
@@ -299,6 +300,22 @@ class ReceptionReservationVersionStreamView(ReceptionReadView):
         payload = build_scoped_versions_payload(request.tenant, reservation_id, scope)
         if payload is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
+
+        max_workers = int(os.environ.get("GUNICORN_WORKERS", "8"))
+        active_sse = int(get_sse_connection_stats().get("active_connections") or 0)
+        reserve = max(max_workers - 1, 1)
+        if active_sse >= reserve:
+            logger.warning(
+                "sse_stream_rejected reservation_id=%s scope=%s active=%s reserve=%s",
+                reservation_id,
+                scope,
+                active_sse,
+                reserve,
+            )
+            return Response(
+                {"detail": "SSE capacity saturated; use poll fallback."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         event_queue = subscribe(reservation_id, scope)
         initial_version = payload["versions"][scope]
