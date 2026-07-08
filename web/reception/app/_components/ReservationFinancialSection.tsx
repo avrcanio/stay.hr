@@ -56,6 +56,27 @@ export function ReservationFinancialSection({ reservation }: Props) {
       ? String(reservation.nights_count)
       : dashChar;
 
+  const payoutReceivedFormatted = reservation.booking_payout_received_at
+    ? new Intl.DateTimeFormat(locale === "hr" ? "hr-HR" : "en-GB", {
+        dateStyle: "medium",
+      }).format(new Date(reservation.booking_payout_received_at))
+    : dashChar;
+
+  const payoutNetFormatted = reservation.booking_payout_net
+    ? `${formatReservationAmount(reservation.booking_payout_net, locale)} ${currency}`
+    : dashChar;
+
+  const payoutServiceFeeFormatted = reservation.booking_payout_service_fee
+    ? `${formatReservationAmount(reservation.booking_payout_service_fee, locale)} ${currency}`
+    : dashChar;
+
+  const showPayoutSection = Boolean(
+    reservation.booking_payout_received ||
+      reservation.booking_payout_received_at ||
+      reservation.booking_payout_id ||
+      reservation.booking_payout_net,
+  );
+
   return (
     <div>
       <h2 className="mb-2 font-semibold">{t("financialTitle")}</h2>
@@ -85,6 +106,32 @@ export function ReservationFinancialSection({ reservation }: Props) {
           <dd className="font-medium">{dash(reservation.payment_provider, dashChar)}</dd>
         </div>
       </dl>
+
+      {showPayoutSection ? (
+        <div className="mt-4 border-t border-border pt-4">
+          <h3 className="mb-2 text-sm font-semibold">{t("financialPayoutTitle")}</h3>
+          <dl className="grid gap-2 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-muted">{t("financialPayoutReceived")}</dt>
+              <dd className="font-medium">{payoutReceivedFormatted}</dd>
+            </div>
+            <div>
+              <dt className="text-muted">{t("financialPayoutId")}</dt>
+              <dd className="font-medium">{dash(reservation.booking_payout_id, dashChar)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted">{t("financialPayoutNet")}</dt>
+              <dd className="font-medium">{payoutNetFormatted}</dd>
+            </div>
+            {reservation.booking_payout_service_fee ? (
+              <div>
+                <dt className="text-muted">{t("financialPayoutServiceFee")}</dt>
+                <dd className="font-medium">{payoutServiceFeeFormatted}</dd>
+              </div>
+            ) : null}
+          </dl>
+        </div>
+      ) : null}
     </div>
   );
 }

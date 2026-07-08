@@ -274,3 +274,10 @@ class EvisitorSubmissionAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("guest", "status", "registration_id", "submitted_at", "tenant")
     list_filter = ("status", "tenant")
     raw_id_fields = ("tenant", "guest")
+
+
+from apps.reservations.booking_payout_admin import (  # noqa: E402
+    extend_reservation_admin,
+)
+
+extend_reservation_admin(ReservationAdmin)

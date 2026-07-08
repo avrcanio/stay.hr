@@ -2,28 +2,75 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from django.contrib.auth.models import AnonymousUser
 
+from apps.tenants.middleware import PLATFORM_ADMIN_HOSTS, resolve_tenant_host
 from apps.tenants.models import Tenant, TenantMembership
 
 
-def is_platform_admin(user) -> bool:
+@dataclass(frozen=True)
+class AdminScope:
+    platform_admin: bool
+    tenant_id: int | None
+
+
+def resolve_admin_scope(request) -> AdminScope:
+    host = resolve_tenant_host(request)
+    if host in PLATFORM_ADMIN_HOSTS:
+        return AdminScope(platform_admin=True, tenant_id=None)
+    tenant = getattr(request, "tenant", None)
+    if tenant is not None:
+        return AdminScope(platform_admin=False, tenant_id=tenant.pk)
+    return AdminScope(platform_admin=False, tenant_id=None)
+
+
+def is_superuser(user) -> bool:
     return bool(user and user.is_authenticated and user.is_superuser)
+
+
+def is_platform_admin(request) -> bool:
+    """Superuser on platform admin host (unscoped multi-tenant access)."""
+    scope = resolve_admin_scope(request)
+    return scope.platform_admin and is_superuser(request.user)
 
 
 def get_allowed_tenant_ids(request) -> list[int] | None:
     """
-    Return None for superuser (no filter), or a list of tenant PKs for staff.
+    Return None for unscoped superuser (no filter), or a list of tenant PKs.
     Staff without memberships get an empty list.
     """
     user = request.user
-    if not user.is_authenticated or user.is_superuser:
-        return None
+    if not user.is_authenticated:
+        return []
+
+    scope = resolve_admin_scope(request)
+
+    if scope.platform_admin:
+        if user.is_superuser:
+            return None
+        if not user.is_staff:
+            return []
+        return list(
+            TenantMembership.objects.filter(user=user).values_list("tenant_id", flat=True),
+        )
+
+    if scope.tenant_id is None:
+        return []
+
+    if user.is_superuser:
+        return [scope.tenant_id]
+
     if not user.is_staff:
         return []
-    return list(
+
+    member_ids = set(
         TenantMembership.objects.filter(user=user).values_list("tenant_id", flat=True),
     )
+    if scope.tenant_id in member_ids:
+        return [scope.tenant_id]
+    return []
 
 
 def get_allowed_tenants(request):
@@ -49,10 +96,14 @@ def staff_has_tenant_membership(request) -> bool:
     if not user.is_authenticated or isinstance(user, AnonymousUser):
         return False
     if user.is_superuser:
-        return True
+        scope = resolve_admin_scope(request)
+        if scope.platform_admin:
+            return True
+        return scope.tenant_id is not None
     if not user.is_staff:
         return False
-    return TenantMembership.objects.filter(user=user).exists()
+    allowed = get_allowed_tenant_ids(request)
+    return bool(allowed)
 
 
 def get_object_tenant_id(obj, tenant_field: str = "tenant") -> int | None:
