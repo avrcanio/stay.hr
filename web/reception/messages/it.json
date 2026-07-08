@@ -181,5 +181,50 @@
     "selectTenant": "Seleziona un tenant per accedere.",
     "loginFailed": "Accesso non riuscito.",
     "loginFailedDetail": "Accesso non riuscito: {detail}"
+  },
+  "reportsNav": {
+    "title": "Report",
+    "propertyFinancial": "Report finanziario",
+    "bookingReconcile": "Riconciliazione Booking"
+  },
+  "bookingReconcile": {
+    "title": "Riconciliazione export Booking",
+    "subtitle": "Confronta il .xls Booking.com con stay.hr e applica le correzioni.",
+    "property": "Struttura",
+    "propertyPlaceholder": "Seleziona struttura…",
+    "dateAxis": "Asse data",
+    "noPeriodFilter": "Nessun filtro periodo",
+    "checkOutAxis": "Check-out",
+    "checkInAxis": "Check-in",
+    "dateFrom": "Da",
+    "dateTo": "A",
+    "compare": "Confronta",
+    "applyFillEmpty": "Applica selezione (riempi vuoti)",
+    "applyOverwrite": "Sovrascrivi selezione",
+    "confirmOverwrite": "Sovrascrivere i campi selezionati?",
+    "applyResultsTitle": "Risultato applicazione",
+    "applySuccess": "applicato",
+    "applySkipped": "saltato ({reason})",
+    "noDiff": "Nessuna differenza",
+    "summary": {
+      "matched": "Allineati",
+      "differences": "Con differenze",
+      "fixable": "Correggibili",
+      "missingInStay": "Mancante in stay.hr"
+    },
+    "columns": {
+      "booking": "N. Booking",
+      "guest": "Ospite",
+      "checkOut": "Check-out",
+      "status": "Stato B/S",
+      "gross": "Lordo B/S",
+      "commission": "Commissione B/S",
+      "diff": "Differenze"
+    },
+    "errors": {
+      "propertyRequired": "La struttura è obbligatoria.",
+      "compareFailed": "Confronto non riuscito.",
+      "applyFailed": "Applicazione non riuscita."
+    }
   }
 }

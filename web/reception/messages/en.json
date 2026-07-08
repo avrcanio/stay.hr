@@ -513,5 +513,50 @@
       "periodTooLong": "Period is too long (max {maxDays} days).",
       "propertyRequired": "Select a property."
     }
+  },
+  "reportsNav": {
+    "title": "Reports",
+    "propertyFinancial": "Financial report",
+    "bookingReconcile": "Booking reconcile"
+  },
+  "bookingReconcile": {
+    "title": "Booking export reconcile",
+    "subtitle": "Compare Booking.com .xls with stay.hr and apply selected fixes.",
+    "property": "Property",
+    "propertyPlaceholder": "Select property…",
+    "dateAxis": "Date axis",
+    "noPeriodFilter": "No period filter",
+    "checkOutAxis": "Check-out",
+    "checkInAxis": "Check-in",
+    "dateFrom": "From",
+    "dateTo": "To",
+    "compare": "Compare",
+    "applyFillEmpty": "Apply selected (fill empty)",
+    "applyOverwrite": "Overwrite selected",
+    "confirmOverwrite": "Overwrite selected fields?",
+    "applyResultsTitle": "Apply results",
+    "applySuccess": "applied",
+    "applySkipped": "skipped ({reason})",
+    "noDiff": "No difference",
+    "summary": {
+      "matched": "Matched",
+      "differences": "With differences",
+      "fixable": "Fixable",
+      "missingInStay": "Missing in stay.hr"
+    },
+    "columns": {
+      "booking": "Booking no.",
+      "guest": "Guest",
+      "checkOut": "Check-out",
+      "status": "Status B/S",
+      "gross": "Gross B/S",
+      "commission": "Commission B/S",
+      "diff": "Differences"
+    },
+    "errors": {
+      "propertyRequired": "Property is required.",
+      "compareFailed": "Compare failed.",
+      "applyFailed": "Apply failed."
+    }
   }
 }

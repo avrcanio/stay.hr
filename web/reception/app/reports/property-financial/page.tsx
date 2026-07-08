@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { ReceptionNav } from "@/app/_components/ReceptionNav";
+import { ReportsSubNav } from "@/app/_components/ReportsSubNav";
 import { singlePropertySlug } from "@/lib/app-config";
 import {
   parsePropertyFinancialReportError,
@@ -144,6 +145,7 @@ export default function PropertyFinancialReportPage() {
     <div>
       <ReceptionNav tenantName={tenantName} />
       <main className="mx-auto max-w-6xl space-y-4 px-4 py-6">
+        <ReportsSubNav />
         <div>
           <h1 className="text-xl font-semibold text-stay-navy">{t("title")}</h1>
           <p className="mt-1 text-sm text-muted">{t("subtitle")}</p>

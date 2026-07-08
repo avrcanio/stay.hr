@@ -513,5 +513,50 @@
       "periodTooLong": "Razdoblje je predugo (maks. {maxDays} dana).",
       "propertyRequired": "Odaberite objekt."
     }
+  },
+  "reportsNav": {
+    "title": "Izvještaji",
+    "propertyFinancial": "Financijski izvještaj",
+    "bookingReconcile": "Booking usporedba"
+  },
+  "bookingReconcile": {
+    "title": "Usporedba Booking exporta",
+    "subtitle": "Usporedite Booking.com .xls sa stay.hr i primijenite odabrane ispravke.",
+    "property": "Objekt",
+    "propertyPlaceholder": "Odaberite objekt…",
+    "dateAxis": "Os datuma",
+    "noPeriodFilter": "Bez filtera razdoblja",
+    "checkOutAxis": "Check-out",
+    "checkInAxis": "Check-in",
+    "dateFrom": "Od",
+    "dateTo": "Do",
+    "compare": "Usporedi",
+    "applyFillEmpty": "Primijeni odabrano (dopuni prazno)",
+    "applyOverwrite": "Prepiši odabrano",
+    "confirmOverwrite": "Prepisati odabrana polja?",
+    "applyResultsTitle": "Rezultat primjene",
+    "applySuccess": "primijenjeno",
+    "applySkipped": "preskočeno ({reason})",
+    "noDiff": "Nema razlike",
+    "summary": {
+      "matched": "Usklađeno",
+      "differences": "S razlikama",
+      "fixable": "Ispravljivo",
+      "missingInStay": "Nedostaje u stay.hr"
+    },
+    "columns": {
+      "booking": "Booking br.",
+      "guest": "Gost",
+      "checkOut": "Check-out",
+      "status": "Status B/S",
+      "gross": "Bruto B/S",
+      "commission": "Provizija B/S",
+      "diff": "Razlike"
+    },
+    "errors": {
+      "propertyRequired": "Objekt je obavezan.",
+      "compareFailed": "Usporedba nije uspjela.",
+      "applyFailed": "Primjena nije uspjela."
+    }
   }
 }

@@ -181,5 +181,50 @@
     "selectTenant": "Sélectionnez un tenant pour vous connecter.",
     "loginFailed": "Échec de la connexion.",
     "loginFailedDetail": "Échec de la connexion : {detail}"
+  },
+  "reportsNav": {
+    "title": "Rapports",
+    "propertyFinancial": "Rapport financier",
+    "bookingReconcile": "Rapprochement Booking"
+  },
+  "bookingReconcile": {
+    "title": "Rapprochement export Booking",
+    "subtitle": "Comparez le .xls Booking.com avec stay.hr et appliquez les corrections.",
+    "property": "Établissement",
+    "propertyPlaceholder": "Choisir un établissement…",
+    "dateAxis": "Axe de date",
+    "noPeriodFilter": "Sans filtre de période",
+    "checkOutAxis": "Check-out",
+    "checkInAxis": "Check-in",
+    "dateFrom": "Du",
+    "dateTo": "Au",
+    "compare": "Comparer",
+    "applyFillEmpty": "Appliquer (remplir vide)",
+    "applyOverwrite": "Écraser la sélection",
+    "confirmOverwrite": "Écraser les champs sélectionnés ?",
+    "applyResultsTitle": "Résultat d'application",
+    "applySuccess": "appliqué",
+    "applySkipped": "ignoré ({reason})",
+    "noDiff": "Aucune différence",
+    "summary": {
+      "matched": "Correspondants",
+      "differences": "Avec différences",
+      "fixable": "Corrigeables",
+      "missingInStay": "Manquant dans stay.hr"
+    },
+    "columns": {
+      "booking": "N° Booking",
+      "guest": "Invité",
+      "checkOut": "Check-out",
+      "status": "Statut B/S",
+      "gross": "Brut B/S",
+      "commission": "Commission B/S",
+      "diff": "Différences"
+    },
+    "errors": {
+      "propertyRequired": "L'établissement est requis.",
+      "compareFailed": "Échec de la comparaison.",
+      "applyFailed": "Échec de l'application."
+    }
   }
 }

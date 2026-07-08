@@ -181,5 +181,50 @@
     "selectTenant": "Wählen Sie einen Tenant zur Anmeldung.",
     "loginFailed": "Anmeldung fehlgeschlagen.",
     "loginFailedDetail": "Anmeldung fehlgeschlagen: {detail}"
+  },
+  "reportsNav": {
+    "title": "Berichte",
+    "propertyFinancial": "Finanzbericht",
+    "bookingReconcile": "Booking-Abgleich"
+  },
+  "bookingReconcile": {
+    "title": "Booking-Export Abgleich",
+    "subtitle": "Booking.com .xls mit stay.hr vergleichen und ausgewählte Korrekturen anwenden.",
+    "property": "Objekt",
+    "propertyPlaceholder": "Objekt wählen…",
+    "dateAxis": "Datumsachse",
+    "noPeriodFilter": "Kein Zeitraumfilter",
+    "checkOutAxis": "Check-out",
+    "checkInAxis": "Check-in",
+    "dateFrom": "Von",
+    "dateTo": "Bis",
+    "compare": "Vergleichen",
+    "applyFillEmpty": "Auswahl anwenden (leere Felder)",
+    "applyOverwrite": "Auswahl überschreiben",
+    "confirmOverwrite": "Ausgewählte Felder wirklich überschreiben?",
+    "applyResultsTitle": "Anwendungsergebnis",
+    "applySuccess": "angewendet",
+    "applySkipped": "übersprungen ({reason})",
+    "noDiff": "Keine Abweichung",
+    "summary": {
+      "matched": "Abgeglichen",
+      "differences": "Mit Abweichungen",
+      "fixable": "Korrigierbar",
+      "missingInStay": "Fehlt in stay.hr"
+    },
+    "columns": {
+      "booking": "Booking-Nr.",
+      "guest": "Gast",
+      "checkOut": "Check-out",
+      "status": "Status B/S",
+      "gross": "Brutto B/S",
+      "commission": "Provision B/S",
+      "diff": "Abweichungen"
+    },
+    "errors": {
+      "propertyRequired": "Objekt ist erforderlich.",
+      "compareFailed": "Vergleich fehlgeschlagen.",
+      "applyFailed": "Anwendung fehlgeschlagen."
+    }
   }
 }

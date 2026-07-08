@@ -51,6 +51,11 @@ from apps.api.reception_reviews_views import (
     ReceptionReviewsListView,
 )
 from apps.api.reception_report_views import PropertyFinancialReportView
+from apps.api.reception_booking_reconcile_views import (
+    BookingReconcileApplyView,
+    BookingReconcileCompareView,
+    BookingReconcileRecompareView,
+)
 from apps.api.reception_document_intake_views import (
     DocumentIntakeBatchView,
     DocumentIntakeJobApplyView,
@@ -128,6 +133,21 @@ urlpatterns = [
         "reports/property-financial/",
         PropertyFinancialReportView.as_view(),
         name="reception-reports-property-financial",
+    ),
+    path(
+        "reports/booking-reconcile/compare/",
+        BookingReconcileCompareView.as_view(),
+        name="reception-reports-booking-reconcile-compare",
+    ),
+    path(
+        "reports/booking-reconcile/apply/",
+        BookingReconcileApplyView.as_view(),
+        name="reception-reports-booking-reconcile-apply",
+    ),
+    path(
+        "reports/booking-reconcile/recompare/",
+        BookingReconcileRecompareView.as_view(),
+        name="reception-reports-booking-reconcile-recompare",
     ),
     path(
         "reservations/",
