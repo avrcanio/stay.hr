@@ -20,6 +20,7 @@ from apps.reservations.booking_payout.sync import (
 )
 from apps.reservations.booking_payout.types import (
     BookingPayoutSyncError,
+    BookingPayoutSyncErrorCode,
     SyncPolicy,
     highest_warning_severity,
 )
@@ -123,11 +124,20 @@ class BookingPayoutLineInline(admin.TabularInline):
     def sync_result_badge(self, obj: BookingPayoutLine) -> str:
         if not obj.last_sync_result:
             return "—"
-        color = _SYNC_RESULT_COLORS.get(obj.last_sync_result, "#ffffff")
+        if (
+            obj.last_sync_result == BookingPayoutLineSyncResult.FAILED
+            and obj.applied_at
+            and not obj.reservation_synced_at
+        ):
+            color = "#fff3cd"
+            label = "Payout OK · iznosi blokirani"
+        else:
+            color = _SYNC_RESULT_COLORS.get(obj.last_sync_result, "#ffffff")
+            label = obj.get_last_sync_result_display()
         return format_html(
             '<span style="background:{}; padding:2px 6px; border-radius:4px;">{}</span>',
             color,
-            obj.get_last_sync_result_display(),
+            label,
         )
 
     @admin.display(description="Action")
@@ -228,6 +238,10 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
             line,
             policy=SyncPolicy.MANUAL_OVERRIDE,
         )
+        safe_field_diffs = build_line_sync_preview(
+            line,
+            policy=SyncPolicy.SAFE,
+        )
         has_invoice = False
         if line.reservation_id:
             from apps.billing.models import Invoice
@@ -243,6 +257,28 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
         )
 
         if request.method == "POST":
+            sync_policy = request.POST.get("sync_policy", "manual")
+            if sync_policy not in ("manual", "safe"):
+                messages.error(request, "Nevažeća sync policy vrijednost.")
+                return HttpResponseRedirect(
+                    reverse(
+                        "admin:reservations_bookingpayoutimport_change",
+                        args=[import_batch.pk],
+                    )
+                )
+            if sync_policy == "manual" and has_invoice:
+                messages.error(
+                    request,
+                    "Sync iznosa nije moguć — rezervacija ima izdan račun. "
+                    "Koristite „Primijeni samo payout polja”.",
+                )
+                return HttpResponseRedirect(
+                    reverse(
+                        "admin:reservations_bookingpayoutimport_sync_line",
+                        args=[import_batch.pk, line.pk],
+                    )
+                )
+
             try:
                 expected_revision = int(request.POST.get("revision", ""))
             except (TypeError, ValueError):
@@ -254,11 +290,14 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
                     )
                 )
 
+            policy = (
+                SyncPolicy.SAFE if sync_policy == "safe" else SyncPolicy.MANUAL_OVERRIDE
+            )
             try:
                 result = sync_booking_payout_line(
                     line.pk,
                     applied_by=request.user,
-                    policy=SyncPolicy.MANUAL_OVERRIDE,
+                    policy=policy,
                     expected_revision=expected_revision,
                 )
             except BookingPayoutSyncError as exc:
@@ -271,10 +310,17 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
                 )
 
             if result.result == "SUCCESS":
-                messages.success(
-                    request,
-                    f"Linija {line.line_number} usklađena ({result.updated_fields_count} polja).",
-                )
+                if policy == SyncPolicy.SAFE:
+                    messages.success(
+                        request,
+                        f"Linija {line.line_number}: payout polja primijenjena "
+                        f"({result.updated_fields_count} polja).",
+                    )
+                else:
+                    messages.success(
+                        request,
+                        f"Linija {line.line_number} usklađena ({result.updated_fields_count} polja).",
+                    )
             elif result.result == "NO_CHANGES":
                 messages.info(request, f"Linija {line.line_number}: nema promjena.")
             else:
@@ -288,13 +334,17 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
                 )
             )
 
+        has_safe_changes = any(d.changed for d in safe_field_diffs)
         context = {
             **self.admin_site.each_context(request),
             "opts": self.model._meta,
             "import_batch": import_batch,
             "line": line,
             "field_diffs": field_diffs,
+            "safe_field_diffs": safe_field_diffs,
             "has_invoice": has_invoice,
+            "has_safe_changes": has_safe_changes,
+            "can_manual_sync": not has_invoice,
             "pdf_source": pdf_source,
             "revision": import_batch.revision,
             "title": f"Primijeni i ispravi — linija {line.line_number}",
@@ -443,10 +493,14 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
     def apply_payout_to_reservations(self, request, queryset):
         applied_batches = 0
         for import_batch in queryset:
-            if import_batch.status != BookingPayoutImportStatus.PARSED:
+            if import_batch.status not in (
+                BookingPayoutImportStatus.PARSED,
+                BookingPayoutImportStatus.PARTIALLY_SYNCED,
+            ):
                 messages.error(
                     request,
-                    f"Import {import_batch.payout_id} is not PARSED (status={import_batch.status}).",
+                    f"Import {import_batch.payout_id} is not PARSED/PARTIALLY_SYNCED "
+                    f"(status={import_batch.status}).",
                 )
                 continue
             try:
@@ -502,12 +556,24 @@ class BookingPayoutImportAdmin(TenantHostScopedAdminMixin, admin.ModelAdmin):
                 )
                 continue
             synced_batches += 1
+            blocked = sum(
+                1
+                for r in result.line_results
+                if r.result == "FAILED"
+                and r.error_code == BookingPayoutSyncErrorCode.INVOICE_EXISTS
+            )
             messages.success(
                 request,
                 (
                     f"Synced {import_batch.payout_id}: "
                     f"{result.success} success, {result.no_changes} unchanged, "
-                    f"{result.failed} failed ({result.duration_ms} ms)."
+                    f"{result.failed} failed"
+                    + (
+                        f", {blocked} blocked by invoice (use payout-only sync)"
+                        if blocked
+                        else ""
+                    )
+                    + f" ({result.duration_ms} ms)."
                 ),
             )
         if synced_batches == 0:

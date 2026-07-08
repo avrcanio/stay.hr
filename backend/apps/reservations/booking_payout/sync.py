@@ -226,8 +226,16 @@ def _sync_line(
 
     validation_error = _validate_sync(line, policy=policy)
     if validation_error is not None:
-        line.last_sync_result = BookingPayoutLineSyncResult.FAILED
-        line.save(update_fields=["last_sync_result"])
+        if (
+            validation_error == BookingPayoutSyncErrorCode.INVOICE_EXISTS
+            and policy == SyncPolicy.MANUAL_OVERRIDE
+            and line.applied_at
+        ):
+            line.last_sync_result = BookingPayoutLineSyncResult.NO_CHANGES
+            line.save(update_fields=["last_sync_result"])
+        else:
+            line.last_sync_result = BookingPayoutLineSyncResult.FAILED
+            line.save(update_fields=["last_sync_result"])
         return _failed_result(line, validation_error, started)
 
     reservation = line.reservation

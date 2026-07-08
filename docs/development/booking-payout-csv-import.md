@@ -42,7 +42,7 @@ Confirm POST šalje `revision`. Ako se import promijenio u međuvremenu: *„Imp
 
 | Guard | Error code | Ponašanje |
 |-------|------------|-----------|
-| Račun na rezervaciji | `INVOICE_EXISTS` | Blokira MANUAL_OVERRIDE |
+| Račun na rezervaciji | `INVOICE_EXISTS` | Blokira MANUAL_OVERRIDE (iznosi); per-linija **Primijeni samo payout polja** (`SAFE`) i dalje radi |
 | Drugi payout ID | `PAYOUT_ID_CONFLICT` | Blokira sync |
 | Nema dozvole | `PERMISSION_DENIED` | Codename `reservations.apply_booking_payout_line` |
 | Stale revision | `STALE_REVISION` | Osvježi stranicu |
