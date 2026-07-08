@@ -3,7 +3,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import mimetypes
+import os
 import queue
 import time
 from datetime import date as date_type
@@ -75,9 +77,14 @@ from apps.reservations.sync_versions import (
 )
 from apps.reservations.reservation_version_events import (
     format_sse,
+    get_sse_connection_stats,
     subscribe,
     unsubscribe,
 )
+from apps.core.runtime_stats import gunicorn_config_from_env, worker_uptime_seconds
+
+
+logger = logging.getLogger(__name__)
 
 
 class ReceptionReadView(TenantAPIView):
@@ -152,6 +159,32 @@ class ReceptionHealthView(APIView):
 
     def get(self, request):
         return Response({"service": "reception", "status": "ok"})
+
+
+class ReceptionSystemStatusView(APIView):
+    """Operational metrics — public for load balancers and ops probes (phase 1)."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        gunicorn_config = gunicorn_config_from_env()
+        return Response(
+            {
+                "gunicorn": {
+                    **gunicorn_config,
+                    "uptime_seconds": worker_uptime_seconds(),
+                },
+                "sse": get_sse_connection_stats(),
+            }
+        )
+
+
+def _sse_client_ip(request) -> str:
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "")
 
 
 class ReceptionSyncVersionsView(ReceptionReadView):
@@ -281,8 +314,18 @@ class ReceptionReservationVersionStreamView(ReceptionReadView):
 
         event_queue = subscribe(reservation_id, scope)
         initial_version = payload["versions"][scope]
+        worker_pid = os.getpid()
+        client_ip = _sse_client_ip(request)
 
         def event_stream():
+            started_at = time.monotonic()
+            logger.info(
+                "sse_stream_opened reservation_id=%s scope=%s worker_pid=%s client=%s",
+                reservation_id,
+                scope,
+                worker_pid,
+                client_ip,
+            )
             try:
                 yield format_sse(
                     "connected",
@@ -300,6 +343,14 @@ class ReceptionReservationVersionStreamView(ReceptionReadView):
                         continue
                     yield format_sse("reservation_version_changed", event)
             finally:
+                duration_s = time.monotonic() - started_at
+                logger.info(
+                    "sse_stream_closed reservation_id=%s scope=%s worker_pid=%s duration_s=%s",
+                    reservation_id,
+                    scope,
+                    worker_pid,
+                    int(duration_s),
+                )
                 unsubscribe(reservation_id, scope, event_queue)
 
         response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
