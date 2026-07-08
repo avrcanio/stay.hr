@@ -385,6 +385,14 @@ export default function PropertyFinancialReportPage() {
               </p>
             ) : null}
 
+            {report.meta.rows_without_confirmed_payout > 0 ? (
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {t("missingPayoutWarning", {
+                  count: report.meta.rows_without_confirmed_payout,
+                })}
+              </p>
+            ) : null}
+
             {report.rows.length === 0 ? (
               <p className="text-muted">{t("noRows")}</p>
             ) : (
@@ -400,6 +408,8 @@ export default function PropertyFinancialReportPage() {
                       <th className="px-2 py-2 font-medium text-right">{t("columns.gross")}</th>
                       <th className="px-2 py-2 font-medium text-right">{t("columns.commission")}</th>
                       <th className="px-2 py-2 font-medium text-right">{t("columns.net")}</th>
+                      <th className="px-2 py-2 font-medium">{t("columns.payoutStatus")}</th>
+                      <th className="px-2 py-2 font-medium">{t("columns.payoutDate")}</th>
                       <th className="px-2 py-2 font-medium">{t("columns.source")}</th>
                       <th className="px-2 py-2 font-medium">{t("columns.guests")}</th>
                     </tr>
@@ -423,6 +433,12 @@ export default function PropertyFinancialReportPage() {
                         <td className="px-2 py-2 text-right">{formatAmount(row.gross)}</td>
                         <td className="px-2 py-2 text-right">{formatAmount(row.commission)}</td>
                         <td className="px-2 py-2 text-right">{formatAmount(row.net)}</td>
+                        <td className="px-2 py-2">
+                          {t(`payoutStatus.${row.payout_status}`)}
+                        </td>
+                        <td className="px-2 py-2">
+                          {row.payout_received_at || tc("dash")}
+                        </td>
                         <td className="px-2 py-2">{row.source || tc("dash")}</td>
                         <td className="px-2 py-2">
                           {row.guests.length
@@ -442,7 +458,7 @@ export default function PropertyFinancialReportPage() {
                       <td className="px-2 py-3 text-right">{formatAmount(report.totals.gross)}</td>
                       <td className="px-2 py-3 text-right">{formatAmount(report.totals.commission)}</td>
                       <td className="px-2 py-3 text-right">{formatAmount(report.totals.net)}</td>
-                      <td className="px-2 py-3" colSpan={2} />
+                      <td className="px-2 py-3" colSpan={3} />
                     </tr>
                   </tfoot>
                 </table>

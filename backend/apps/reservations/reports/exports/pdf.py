@@ -17,7 +17,15 @@ from apps.reservations.reports.exports._formatting import (
     display_external_reference,
     truncate_pdf_text,
 )
-from apps.reservations.reports.types import PropertyFinancialReportResult
+from apps.reservations.reports.types import PayoutStatus, PropertyFinancialReportResult
+
+
+def _payout_status_label(status: PayoutStatus) -> str:
+    if status is PayoutStatus.PAID:
+        return "Plaćeno"
+    if status is PayoutStatus.NOT_PAID:
+        return "Nije plaćeno"
+    return "—"
 
 
 def _template_context(result: PropertyFinancialReportResult) -> dict:
@@ -32,6 +40,7 @@ def _template_context(result: PropertyFinancialReportResult) -> dict:
             "generated_at": format_datetime_hr(meta.generated_at),
             "currency": meta.currency,
             "rows_with_missing_commission": meta.rows_with_missing_commission,
+            "rows_without_confirmed_payout": meta.rows_without_confirmed_payout,
         },
         "rows": [
             {
@@ -54,6 +63,12 @@ def _template_context(result: PropertyFinancialReportResult) -> dict:
                 "commission": format_decimal_hr(row.commission),
                 "net": format_decimal_hr(row.net),
                 "source": truncate_pdf_text(row.source, max_len=12),
+                "payout_status": _payout_status_label(row.payout_status),
+                "payout_received_at": (
+                    format_date_hr(row.payout_received_at)
+                    if row.payout_received_at
+                    else "—"
+                ),
                 "guest_names": [guest.name for guest in row.guests],
             }
             for row in result.rows

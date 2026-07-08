@@ -2,6 +2,7 @@ import io
 import numbers
 import zipfile
 from datetime import date, datetime
+from decimal import Decimal
 
 from django.test import SimpleTestCase
 from openpyxl import load_workbook
@@ -10,6 +11,7 @@ from apps.reservations.reports.exports._formatting import (
     EXCEL_MONEY_NUMBER_FORMAT,
     EXCEL_SHEET_TITLE,
     export_filename,
+    format_decimal_hr,
 )
 from apps.reservations.reports.exports.excel import HEADERS, HEADER_ROW, render_property_financial_report_xlsx
 from apps.reservations.reports.exports.pdf import (
@@ -50,6 +52,29 @@ class PropertyFinancialReportExportTests(SimpleTestCase):
         self.assertIn("Uzorita Luxury Rooms", html)
         self.assertIn("150,00", html)
         self.assertIn("10.03.2026", html)
+
+    def test_format_decimal_hr_uses_dot_thousands_separator(self):
+        self.assertEqual(format_decimal_hr(Decimal("7915.61")), "7.915,61")
+        self.assertEqual(format_decimal_hr(Decimal("1416.74")), "1.416,74")
+        self.assertEqual(format_decimal_hr(Decimal("150.00")), "150,00")
+
+    def test_pdf_totals_use_dot_thousands_separator(self):
+        from dataclasses import replace
+
+        from apps.reservations.reports.types import PropertyFinancialReportTotals
+
+        totals = PropertyFinancialReportTotals(
+            reservation_count=60,
+            nights=86,
+            gross=Decimal("7915.61"),
+            commission=Decimal("1416.74"),
+            net=Decimal("6418.87"),
+        )
+        result = replace(self.result, totals=totals)
+        html = render_property_financial_report_html(result)
+        self.assertIn("bruto 7.915,61", html)
+        self.assertIn("provizija 1.416,74", html)
+        self.assertIn("neto 6.418,87", html)
 
     def test_pdf_hides_channex_internal_ids(self):
         from dataclasses import replace

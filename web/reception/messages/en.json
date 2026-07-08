@@ -496,6 +496,7 @@
     "generatedAt": "Generated: {value}",
     "maxPeriodDays": "Max period: {days} days",
     "missingCommissionWarning": "{count} row(s) missing commission — net total excludes those rows.",
+    "missingPayoutWarning": "{count} Booking row(s) without confirmed payout — apply payout CSV in admin.",
     "noRows": "No reservations in the selected period.",
     "totalsLabel": "Totals ({count} reservations)",
     "columns": {
@@ -508,7 +509,14 @@
       "commission": "Commission",
       "net": "Net",
       "source": "Source",
-      "guests": "Guests"
+      "guests": "Guests",
+      "payoutStatus": "Paid",
+      "payoutDate": "Payment date"
+    },
+    "payoutStatus": {
+      "paid": "Paid",
+      "not_paid": "Not paid",
+      "not_applicable": "—"
     },
     "errors": {
       "loadFailed": "Failed to load report.",

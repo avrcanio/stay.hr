@@ -7,6 +7,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from apps.reservations.reports.types import (
+    PayoutStatus,
     PropertyFinancialReportGuestRow,
     PropertyFinancialReportMeta,
     PropertyFinancialReportResult,
@@ -26,6 +27,7 @@ def sample_property_financial_report_result() -> PropertyFinancialReportResult:
             currency="EUR",
             max_period_days=90,
             rows_with_missing_commission=1,
+            rows_without_confirmed_payout=1,
         ),
         rows=(
             PropertyFinancialReportRow(
@@ -54,6 +56,9 @@ def sample_property_financial_report_result() -> PropertyFinancialReportResult:
                         is_primary=False,
                     ),
                 ),
+                payout_status=PayoutStatus.NOT_PAID,
+                payout_received_at=None,
+                paid_amount=None,
             ),
             PropertyFinancialReportRow(
                 reservation_id=102,
@@ -70,6 +75,9 @@ def sample_property_financial_report_result() -> PropertyFinancialReportResult:
                 currency="EUR",
                 source="direct",
                 guests=(),
+                payout_status=PayoutStatus.NOT_APPLICABLE,
+                payout_received_at=None,
+                paid_amount=None,
             ),
         ),
         totals=PropertyFinancialReportTotals(

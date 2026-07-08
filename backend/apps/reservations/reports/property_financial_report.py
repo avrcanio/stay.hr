@@ -11,6 +11,7 @@ from django.utils import timezone
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.reservations.nationality_display import guest_nationality_iso2
 from apps.reservations.reports.types import (
+    PayoutStatus,
     PropertyFinancialReportGuestRow,
     PropertyFinancialReportMeta,
     PropertyFinancialReportParams,
@@ -52,6 +53,26 @@ def _row_net(amount: Decimal | None, commission: Decimal | None) -> Decimal | No
     return gross - commission
 
 
+def _is_booking_payout_channel(reservation: Reservation) -> bool:
+    provider = (reservation.payment_provider or "").lower()
+    source = (reservation.source or "").lower()
+    return "booking" in provider or "booking" in source
+
+
+def _payout_fields_for_reservation(
+    reservation: Reservation,
+) -> tuple[PayoutStatus, date | None, Decimal | None]:
+    if not _is_booking_payout_channel(reservation):
+        return PayoutStatus.NOT_APPLICABLE, None, None
+    if reservation.booking_payout_received_at is not None:
+        return (
+            PayoutStatus.PAID,
+            reservation.booking_payout_received_at,
+            reservation.booking_payout_net,
+        )
+    return PayoutStatus.NOT_PAID, None, None
+
+
 def build_property_financial_report(
     params: PropertyFinancialReportParams,
 ) -> PropertyFinancialReportResult:
@@ -84,12 +105,19 @@ def build_property_financial_report(
     total_commission = Decimal("0")
     total_net = Decimal("0")
     rows_with_missing_commission = 0
+    rows_without_confirmed_payout = 0
 
     for reservation in queryset:
         nights = _effective_nights(reservation)
         gross = reservation.amount
         commission = reservation.commission_amount
         net = _row_net(gross, commission)
+        payout_status, payout_received_at, paid_amount = _payout_fields_for_reservation(
+            reservation
+        )
+
+        if payout_status is PayoutStatus.NOT_PAID:
+            rows_without_confirmed_payout += 1
 
         if reservation.currency:
             currency = reservation.currency
@@ -118,6 +146,9 @@ def build_property_financial_report(
                 currency=reservation.currency or DEFAULT_CURRENCY,
                 source=reservation.source or "",
                 guests=_guest_rows(reservation),
+                payout_status=payout_status,
+                payout_received_at=payout_received_at,
+                paid_amount=paid_amount,
             )
         )
 
@@ -131,6 +162,7 @@ def build_property_financial_report(
             currency=currency,
             max_period_days=settings.PROPERTY_FINANCIAL_REPORT_MAX_DAYS,
             rows_with_missing_commission=rows_with_missing_commission,
+            rows_without_confirmed_payout=rows_without_confirmed_payout,
         ),
         rows=tuple(rows),
         totals=PropertyFinancialReportTotals(

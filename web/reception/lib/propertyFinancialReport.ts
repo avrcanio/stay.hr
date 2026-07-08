@@ -4,6 +4,8 @@ export type PropertyFinancialReportGuest = {
   is_primary: boolean;
 };
 
+export type PayoutStatus = "paid" | "not_paid" | "not_applicable";
+
 export type PropertyFinancialReportRow = {
   reservation_id: number;
   booking_code: string;
@@ -19,6 +21,9 @@ export type PropertyFinancialReportRow = {
   currency: string;
   source: string;
   guests: PropertyFinancialReportGuest[];
+  payout_status: PayoutStatus;
+  payout_received_at: string | null;
+  paid_amount: string | null;
 };
 
 export type PropertyFinancialReportMeta = {
@@ -30,6 +35,7 @@ export type PropertyFinancialReportMeta = {
   currency: string;
   max_period_days: number;
   rows_with_missing_commission: number;
+  rows_without_confirmed_payout: number;
 };
 
 export type PropertyFinancialReportTotals = {

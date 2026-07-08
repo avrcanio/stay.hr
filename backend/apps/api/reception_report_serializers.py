@@ -44,6 +44,11 @@ def _report_row_payload(row: PropertyFinancialReportRow) -> dict:
         "currency": row.currency,
         "source": row.source,
         "guests": [_guest_row_payload(guest) for guest in row.guests],
+        "payout_status": row.payout_status.value,
+        "payout_received_at": (
+            row.payout_received_at.isoformat() if row.payout_received_at else None
+        ),
+        "paid_amount": _decimal_str(row.paid_amount),
     }
 
 
@@ -60,6 +65,7 @@ def property_financial_report_to_dict(result: PropertyFinancialReportResult) -> 
             "currency": meta.currency,
             "max_period_days": meta.max_period_days,
             "rows_with_missing_commission": meta.rows_with_missing_commission,
+            "rows_without_confirmed_payout": meta.rows_without_confirmed_payout,
         },
         "rows": [_report_row_payload(row) for row in result.rows],
         "totals": {

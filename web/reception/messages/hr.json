@@ -496,6 +496,7 @@
     "generatedAt": "Generirano: {value}",
     "maxPeriodDays": "Maks. razdoblje: {days} dana",
     "missingCommissionWarning": "{count} red(ova) bez provizije — neto zbroj ne uključuje te stavke.",
+    "missingPayoutWarning": "{count} Booking red(ova) bez potvrđene isplate — primijenite payout CSV u adminu.",
     "noRows": "Nema rezervacija u odabranom razdoblju.",
     "totalsLabel": "Ukupno ({count} rezervacija)",
     "columns": {
@@ -508,7 +509,14 @@
       "commission": "Provizija",
       "net": "Neto",
       "source": "Izvor",
-      "guests": "Gosti"
+      "guests": "Gosti",
+      "payoutStatus": "Plaćeno",
+      "payoutDate": "Datum plaćanja"
+    },
+    "payoutStatus": {
+      "paid": "Plaćeno",
+      "not_paid": "Nije plaćeno",
+      "not_applicable": "—"
     },
     "errors": {
       "loadFailed": "Učitavanje izvještaja nije uspjelo.",

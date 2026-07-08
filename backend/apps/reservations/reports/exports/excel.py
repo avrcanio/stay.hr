@@ -34,6 +34,8 @@ HEADERS = (
     "Currency",
     "Source",
     "Guests",
+    "Payout status",
+    "Payout date",
 )
 
 
@@ -65,6 +67,9 @@ def render_property_financial_report_xlsx(result: PropertyFinancialReportResult)
     if meta.rows_with_missing_commission:
         sheet["A6"] = "Rows with missing commission"
         sheet["B6"] = meta.rows_with_missing_commission
+    if meta.rows_without_confirmed_payout:
+        sheet["A7"] = "Rows without confirmed payout"
+        sheet["B7"] = meta.rows_without_confirmed_payout
 
     for column, title in enumerate(HEADERS, start=1):
         cell = sheet.cell(row=HEADER_ROW, column=column, value=title)
@@ -98,6 +103,12 @@ def render_property_financial_report_xlsx(result: PropertyFinancialReportResult)
         sheet.cell(row=excel_row, column=10, value=row.currency)
         sheet.cell(row=excel_row, column=11, value=row.source)
         sheet.cell(row=excel_row, column=12, value=format_guest_names(row.guests))
+        sheet.cell(row=excel_row, column=13, value=row.payout_status.value)
+        payout_date_cell = sheet.cell(row=excel_row, column=14)
+        if row.payout_received_at is not None:
+            _write_excel_date_cell(payout_date_cell, row.payout_received_at)
+        else:
+            payout_date_cell.value = None
 
     totals_row = HEADER_ROW + len(result.rows) + 2
     totals = result.totals

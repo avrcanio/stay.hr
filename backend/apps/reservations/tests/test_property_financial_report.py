@@ -7,6 +7,7 @@ from apps.properties.models import Property, Unit
 from apps.reservations.models import Guest, Reservation, ReservationUnit
 from apps.reservations.reports.property_financial_report import build_property_financial_report
 from apps.reservations.reports.types import (
+    PayoutStatus,
     PropertyFinancialReportParams,
     PropertyFinancialReportParamsError,
 )
@@ -115,6 +116,7 @@ class PropertyFinancialReportServiceTests(TestCase):
         self.assertEqual(result.totals.commission, Decimal("20.00"))
         self.assertEqual(result.totals.net, Decimal("180.00"))
         self.assertEqual(result.meta.rows_with_missing_commission, 0)
+        self.assertEqual(result.meta.rows_without_confirmed_payout, 0)
 
         row = result.rows[0]
         self.assertEqual(row.reservation_id, reservation.id)
@@ -202,6 +204,70 @@ class PropertyFinancialReportServiceTests(TestCase):
         self.assertEqual(result.rows[0].net, None)
         self.assertEqual(result.meta.rows_with_missing_commission, 1)
         self.assertEqual(result.totals.net, Decimal("0"))
+
+    def test_booking_without_payout_is_not_paid_and_increments_meta(self):
+        self._create_reservation(
+            check_in=date(2026, 3, 1),
+            check_out=date(2026, 3, 4),
+            booking_code="BK-UNPAID",
+            amount=Decimal("120.00"),
+            commission_amount=Decimal("12.00"),
+        )
+        Reservation.objects.filter(booking_code="BK-UNPAID").update(source="booking.com")
+
+        result = build_property_financial_report(
+            self._params(check_out_from=date(2026, 3, 1), check_out_to=date(2026, 3, 31))
+        )
+
+        row = result.rows[0]
+        self.assertEqual(row.payout_status, PayoutStatus.NOT_PAID)
+        self.assertIsNone(row.payout_received_at)
+        self.assertIsNone(row.paid_amount)
+        self.assertEqual(result.meta.rows_without_confirmed_payout, 1)
+
+    def test_booking_with_payout_is_paid(self):
+        reservation = self._create_reservation(
+            check_in=date(2026, 3, 1),
+            check_out=date(2026, 3, 4),
+            booking_code="BK-PAID",
+            amount=Decimal("120.00"),
+            commission_amount=Decimal("12.00"),
+        )
+        Reservation.objects.filter(pk=reservation.pk).update(
+            source="booking.com",
+            booking_payout_received_at=date(2026, 4, 5),
+            booking_payout_net=Decimal("105.50"),
+        )
+
+        result = build_property_financial_report(
+            self._params(check_out_from=date(2026, 3, 1), check_out_to=date(2026, 3, 31))
+        )
+
+        row = result.rows[0]
+        self.assertEqual(row.payout_status, PayoutStatus.PAID)
+        self.assertEqual(row.payout_received_at, date(2026, 4, 5))
+        self.assertEqual(row.paid_amount, Decimal("105.50"))
+        self.assertEqual(result.meta.rows_without_confirmed_payout, 0)
+
+    def test_direct_reservation_payout_not_applicable(self):
+        self._create_reservation(
+            check_in=date(2026, 3, 1),
+            check_out=date(2026, 3, 4),
+            booking_code="DIRECT-1",
+            amount=Decimal("90.00"),
+            commission_amount=Decimal("0.00"),
+        )
+        Reservation.objects.filter(booking_code="DIRECT-1").update(source="direct")
+
+        result = build_property_financial_report(
+            self._params(check_out_from=date(2026, 3, 1), check_out_to=date(2026, 3, 31))
+        )
+
+        row = result.rows[0]
+        self.assertEqual(row.payout_status, PayoutStatus.NOT_APPLICABLE)
+        self.assertIsNone(row.payout_received_at)
+        self.assertIsNone(row.paid_amount)
+        self.assertEqual(result.meta.rows_without_confirmed_payout, 0)
 
     def test_filters_by_property(self):
         self._create_reservation(

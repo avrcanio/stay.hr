@@ -53,7 +53,25 @@ def format_decimal_hr(value: Decimal | None, *, null_as_zero: bool = False) -> s
     text = format_decimal(value, null_as_zero=null_as_zero)
     if not text:
         return "—"
-    return text.replace(".", ",")
+    if "." in text:
+        int_part, frac_part = text.split(".", 1)
+    else:
+        int_part, frac_part = text, ""
+
+    sign = ""
+    if int_part.startswith("-"):
+        sign = "-"
+        int_part = int_part[1:]
+
+    groups: list[str] = []
+    while int_part:
+        groups.append(int_part[-3:])
+        int_part = int_part[:-3]
+    grouped_int = ".".join(reversed(groups))
+
+    if frac_part:
+        return f"{sign}{grouped_int},{frac_part}"
+    return f"{sign}{grouped_int}"
 
 
 def format_date_hr(value: date) -> str:

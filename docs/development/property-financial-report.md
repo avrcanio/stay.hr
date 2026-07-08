@@ -116,6 +116,7 @@ Decimal amounts in JSON are **strings** with two fractional digits (e.g. `"150.0
 | `currency` | string | Report currency (last row currency seen, default EUR) |
 | `max_period_days` | integer | Configured max span (`PROPERTY_FINANCIAL_REPORT_MAX_DAYS`) |
 | `rows_with_missing_commission` | integer | Count of rows where `commission` is null (net unknown) |
+| `rows_without_confirmed_payout` | integer | Booking-channel rows where payout is not yet confirmed (`payout_status = not_paid`) |
 
 ### `rows[]`
 
@@ -137,6 +138,11 @@ One object per reservation with `status = checked_out` and `check_out` in the pe
 | `currency` | string | Row currency |
 | `source` | string | Booking source/channel (may be empty) |
 | `guests` | object[] | See `guests[]` below |
+| `payout_status` | string | `"paid"`, `"not_paid"`, or `"not_applicable"` — separate from gross/commission/net |
+| `payout_received_at` | string (date) \| null | When Booking payout was confirmed (`Reservation.booking_payout_received_at`) |
+| `paid_amount` | string \| null | Booking bank payout net (`Reservation.booking_payout_net`); optional in v1 UI |
+
+**Payout vs settlement:** `gross`, `commission`, and `net` describe owner settlement. `paid_amount` is what Booking actually paid out (after service fee) — a different concept. Non-Booking channels use `payout_status = not_applicable`.
 
 ### `rows[].guests[]`
 
@@ -160,6 +166,8 @@ Aggregates over all rows in the period.
 
 When some rows lack commission, `totals.net` excludes those rows; use `meta.rows_with_missing_commission` to flag incomplete settlement data.
 
+Use `meta.rows_without_confirmed_payout` as an operational signal that Booking payout CSV imports are still pending for some rows.
+
 ## Canonical example
 
 The CI snapshot fixture is the authoritative v1 example:
@@ -176,7 +184,8 @@ The CI snapshot fixture is the authoritative v1 example:
     "generated_at": "2026-04-01T08:30:00+02:00",
     "currency": "EUR",
     "max_period_days": 90,
-    "rows_with_missing_commission": 1
+    "rows_with_missing_commission": 1,
+    "rows_without_confirmed_payout": 1
   },
   "rows": [
     {
@@ -204,7 +213,10 @@ The CI snapshot fixture is the authoritative v1 example:
           "nationality_iso2": "DE",
           "is_primary": false
         }
-      ]
+      ],
+      "payout_status": "not_paid",
+      "payout_received_at": null,
+      "paid_amount": null
     },
     {
       "reservation_id": 0,
@@ -220,7 +232,10 @@ The CI snapshot fixture is the authoritative v1 example:
       "net": null,
       "currency": "EUR",
       "source": "direct",
-      "guests": []
+      "guests": [],
+      "payout_status": "not_applicable",
+      "payout_received_at": null,
+      "paid_amount": null
     }
   ],
   "totals": {

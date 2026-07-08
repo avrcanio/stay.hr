@@ -78,7 +78,7 @@
         <th class="nowrap">Dolazak<br>Odlazak</th>
         <th>Sobe</th>
         <th class="right">Noći</th>
-        <th class="nowrap">Izvor<br>Bruto<br>Provizija<br>Neto</th>
+        <th class="nowrap">Izvor<br>Bruto<br>Provizija<br>Neto<br>Plaćeno<br>Datum plać.</th>
         <th>Gosti</th>
       </tr>
     </thead>
@@ -102,6 +102,8 @@
           <div>{{ row.gross }}</div>
           <div>{{ row.commission }}</div>
           <div>{{ row.net }}</div>
+          <div>{{ row.payout_status }}</div>
+          <div>{{ row.payout_received_at }}</div>
         </td>
         <td class="guests">
           {% for name in row.guest_names %}
@@ -127,6 +129,11 @@
   {% if meta.rows_with_missing_commission %}
   <p class="warning">
     {{ meta.rows_with_missing_commission }} red(ova) bez provizije — neto zbroj ne uključuje te stavke.
+  </p>
+  {% endif %}
+  {% if meta.rows_without_confirmed_payout %}
+  <p class="warning">
+    {{ meta.rows_without_confirmed_payout }} Booking red(ova) bez potvrđene isplate (payout CSV nije primijenjen).
   </p>
   {% endif %}
 </body>

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from enum import StrEnum
 
 from django.conf import settings
 from django.utils.dateparse import parse_date
@@ -86,6 +87,12 @@ class PropertyFinancialReportParams:
         return self.check_out_to_exclusive - timedelta(days=1)
 
 
+class PayoutStatus(StrEnum):
+    PAID = "paid"
+    NOT_PAID = "not_paid"
+    NOT_APPLICABLE = "not_applicable"
+
+
 @dataclass(frozen=True)
 class PropertyFinancialReportGuestRow:
     name: str
@@ -109,6 +116,9 @@ class PropertyFinancialReportRow:
     currency: str
     source: str
     guests: tuple[PropertyFinancialReportGuestRow, ...]
+    payout_status: PayoutStatus
+    payout_received_at: date | None
+    paid_amount: Decimal | None
 
 
 @dataclass(frozen=True)
@@ -130,6 +140,7 @@ class PropertyFinancialReportMeta:
     currency: str
     max_period_days: int
     rows_with_missing_commission: int
+    rows_without_confirmed_payout: int
 
 
 @dataclass(frozen=True)
