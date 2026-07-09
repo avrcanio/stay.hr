@@ -571,6 +571,29 @@ class ReservationDetailView(TenantAPIView, generics.RetrieveUpdateAPIView):
         return Response(output.data)
 
 
+class GuestCheckInRegenerateView(ReceptionWriteView, APIView):
+    """Revoke the active guest check-in session and issue a new link (staff)."""
+
+    def post(self, request, pk: int):
+        reservation = _get_reservation(request.tenant, pk)
+        from apps.reservations.guest_checkin_orchestrator import GuestCheckInOrchestrator
+        from apps.reservations.guest_checkin_progress import checkin_progress_for_reservation
+        from apps.reservations.models import GuestCheckInSessionCreatedFrom
+
+        result = GuestCheckInOrchestrator.regenerate_link(
+            reservation,
+            created_from=GuestCheckInSessionCreatedFrom.RECEPTION_MANUAL,
+        )
+        return Response(
+            {
+                "url": result.url,
+                "token": str(result.session.token),
+                "checkin_progress": checkin_progress_for_reservation(reservation),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class ReservationGuestListCreateView(ReceptionWriteView, generics.CreateAPIView):
     serializer_class = GuestCreateSerializer
 

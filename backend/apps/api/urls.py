@@ -16,6 +16,12 @@ from apps.api.views import (
 )
 from apps.api.site_context_views import SiteContextView
 from apps.api.fcm_views import FcmTokenRegisterView
+from apps.api.guest_checkin_views import (
+    GuestCheckInCompleteView,
+    GuestCheckInProgressView,
+    GuestCheckInSessionView,
+    GuestCheckInSlotView,
+)
 
 urlpatterns = [
     path("auth/reception-login/", ReceptionLoginView.as_view(), name="reception-login"),
@@ -58,5 +64,25 @@ urlpatterns = [
         "public/reservations/<str:booking_code>",
         PublicReservationStatusView.as_view(),
         name="public-reservation-status",
+    ),
+    path(
+        "public/check-in/<uuid:token>/",
+        GuestCheckInSessionView.as_view(),
+        name="public-guest-checkin-session",
+    ),
+    path(
+        "public/check-in/<uuid:token>/progress/",
+        GuestCheckInProgressView.as_view(),
+        name="public-guest-checkin-progress",
+    ),
+    path(
+        "public/check-in/<uuid:token>/slots/<int:position>/",
+        GuestCheckInSlotView.as_view(),
+        name="public-guest-checkin-slot",
+    ),
+    path(
+        "public/check-in/<uuid:token>/complete/",
+        GuestCheckInCompleteView.as_view(),
+        name="public-guest-checkin-complete",
     ),
 ]

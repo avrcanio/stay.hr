@@ -75,3 +75,66 @@ export type ReservationStatusResponse = {
   unit_code: string;
   booker_name: string;
 };
+
+export type GuestCheckInGuestFields = {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  date_of_birth: string | null;
+  document_number: string;
+  nationality: string;
+  sex: string;
+  address: string;
+  document_type: string;
+};
+
+export type FieldConfidence = Record<string, "high" | "medium" | "low">;
+
+export type GuestCheckInSlot = {
+  position: number;
+  guest_id: number;
+  status: string;
+  missing_fields: string[];
+  field_confidence?: FieldConfidence;
+  guest: GuestCheckInGuestFields;
+};
+
+export type GuestCheckInSessionResponse = {
+  status: string;
+  effective_status: string;
+  required_slots: number;
+  ready_slots: number;
+  can_complete: boolean;
+  waiting_positions: number[];
+  booking_code: string;
+  property_name: string;
+  check_in: string;
+  check_out: string;
+  opens_at: string;
+  expires_at: string;
+  slots: GuestCheckInSlot[];
+};
+
+export type GuestCheckInProgressResponse = {
+  status: string;
+  effective_status: string;
+  required_slots: number;
+  ready_slots: number;
+  can_complete: boolean;
+};
+
+export type GuestCheckInJobResponse = {
+  job_id: number;
+  status: string;
+  position: number;
+  error_message?: string;
+  guest_preview?: GuestCheckInGuestFields;
+  field_confidence?: FieldConfidence;
+  applied?: boolean;
+  effective_status?: string;
+  ready_slots?: number;
+  can_complete?: boolean;
+  slot?: GuestCheckInSlot;
+  slots?: GuestCheckInSlot[];
+};

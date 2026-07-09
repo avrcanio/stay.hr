@@ -54,6 +54,7 @@ from apps.api.reception_report_views import (
     PropertyFinancialReportSendEmailView,
     PropertyFinancialReportView,
 )
+from apps.api.reception_guest_checkin_report_views import GuestCheckInReportView
 from apps.api.reception_booking_reconcile_views import (
     BookingReconcileApplyView,
     BookingReconcileCompareView,
@@ -80,6 +81,7 @@ from apps.api.reception_views import (
     ReceptionSyncVersionsView,
     ReceptionReservationVersionStreamView,
     ReservationConfirmationPdfView,
+    GuestCheckInRegenerateView,
     ReservationDetailView,
     ReservationGuestDetailView,
     ReservationGuestListCreateView,
@@ -149,6 +151,11 @@ urlpatterns = [
         name="reception-reports-property-financial-send-email",
     ),
     path(
+        "reports/guest-checkin/",
+        GuestCheckInReportView.as_view(),
+        name="reception-reports-guest-checkin",
+    ),
+    path(
         "reports/booking-reconcile/compare/",
         BookingReconcileCompareView.as_view(),
         name="reception-reports-booking-reconcile-compare",
@@ -207,6 +214,11 @@ urlpatterns = [
         "reservations/<int:pk>/",
         ReservationDetailView.as_view(),
         name="reception-reservation-detail",
+    ),
+    path(
+        "reservations/<int:pk>/guest-checkin/regenerate/",
+        GuestCheckInRegenerateView.as_view(),
+        name="reception-guest-checkin-regenerate",
     ),
     path(
         "reservations/<int:reservation_id>/channex-messages/",

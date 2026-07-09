@@ -9,3 +9,4 @@ class ReservationsConfig(AppConfig):
     def ready(self) -> None:
         from apps.reservations import signals  # noqa: F401
         from apps.reservations import booking_payout_admin  # noqa: F401
+        from apps.reservations import guest_checkin_events  # noqa: F401

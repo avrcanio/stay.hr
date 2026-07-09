@@ -57,6 +57,12 @@ class Property(TenantScopedModel):
         default=30,
         help_text="Intro email this many minutes before whatsapp_autocheckin_time (same day).",
     )
+    guest_checkin_opens_days_before = models.PositiveSmallIntegerField(
+        default=7,
+        help_text=(
+            "Days before arrival when guest web check-in opens (session opens_at, wizard link validity)."
+        ),
+    )
     financial_report_recipients = models.TextField(
         blank=True,
         default="",

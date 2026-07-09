@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -436,6 +438,7 @@ class DocumentIntakeJobSource(models.TextChoices):
     HOSPIRA_BATCH = "hospira_batch", "Hospira batch"
     WHATSAPP = "whatsapp", "WhatsApp"
     WHATSAPP_OPERATOR = "whatsapp_operator", "WhatsApp operator"
+    WEB_GUEST = "web_guest", "Web guest check-in"
 
 
 def document_intake_image_upload_to(instance, filename: str) -> str:
@@ -473,6 +476,7 @@ class DocumentIntakeJob(TenantScopedModel):
         related_name="document_intake_jobs",
     )
     whatsapp_reply_sent = models.BooleanField(default=False)
+    guest_checkin_slot_position = models.PositiveSmallIntegerField(null=True, blank=True)
     device_id = models.CharField(max_length=128, blank=True, default="")
     ocr_result = models.JSONField(default=dict, blank=True)
     matches = models.JSONField(default=list, blank=True)
@@ -680,6 +684,72 @@ class WhatsAppGuestAutocheckinSession(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"WhatsAppGuestAutocheckinSession #{self.pk} wa_id={self.wa_id}"
+
+
+class GuestCheckInSessionStatus(models.TextChoices):
+    ACTIVE = "active", "Active"
+    COMPLETED = "completed", "Completed"
+    EXPIRED = "expired", "Expired"
+    REVOKED = "revoked", "Revoked"
+
+
+class GuestCheckInSessionCreatedFrom(models.TextChoices):
+    EMAIL = "email", "Email"
+    WHATSAPP_AUTOCHECKIN = "whatsapp_autocheckin", "WhatsApp autocheck-in"
+    CHANNEX = "channex", "Channex"
+    RECEPTION_MANUAL = "reception_manual", "Reception manual"
+
+
+class GuestCheckInSession(TenantScopedModel):
+    """Token-scoped guest web check-in session (one active per reservation)."""
+
+    reservation = models.ForeignKey(
+        Reservation,
+        on_delete=models.CASCADE,
+        related_name="guest_checkin_sessions",
+    )
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    status = models.CharField(
+        max_length=16,
+        choices=GuestCheckInSessionStatus.choices,
+        default=GuestCheckInSessionStatus.ACTIVE,
+    )
+    opens_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    completed_at = models.DateTimeField(null=True, blank=True)
+    ready_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="First time all required slots became ready (analytics; set once).",
+    )
+    created_from = models.CharField(
+        max_length=32,
+        choices=GuestCheckInSessionCreatedFrom.choices,
+    )
+    last_activity_at = models.DateTimeField(auto_now=True)
+    wa_id = models.CharField(max_length=32, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+        indexes = [
+            models.Index(fields=["reservation", "status"]),
+            models.Index(fields=["token"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reservation"],
+                condition=models.Q(status=GuestCheckInSessionStatus.ACTIVE),
+                name="reservations_guest_checkin_one_active_per_reservation",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"GuestCheckInSession #{self.pk} reservation={self.reservation_id} "
+            f"status={self.status}"
+        )
 
 
 class MonthlyStatisticsOverride(TenantScopedModel):

@@ -208,6 +208,10 @@ PROPERTY_FINANCIAL_REPORT_EMAIL_ENABLED = env.bool(
     "PROPERTY_FINANCIAL_REPORT_EMAIL_ENABLED", default=False
 )
 
+GUEST_CHECKIN_REMINDER_ENABLED = env.bool("GUEST_CHECKIN_REMINDER_ENABLED", default=True)
+GUEST_CHECKIN_REMINDER_DAYS_BEFORE = env("GUEST_CHECKIN_REMINDER_DAYS_BEFORE", default="7,0")
+GUEST_CHECKIN_METRICS_DAYS = env.int("GUEST_CHECKIN_METRICS_DAYS", default=30)
+
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
@@ -285,6 +289,18 @@ CELERY_BEAT_SCHEDULE = {
     "document-intake-quality-report-email": {
         "task": "reservations.send_document_intake_quality_report",
         "schedule": crontab(hour=9, minute=0, nowfun=_zagreb_now),
+    },
+    "guest-checkin-expire-sessions": {
+        "task": "reservations.expire_guest_checkin_sessions",
+        "schedule": 3600.0,
+    },
+    "guest-checkin-pre-arrival-reminders": {
+        "task": "communications.send_pre_arrival_checkin_reminders",
+        "schedule": 900.0,
+    },
+    "guest-checkin-metrics-daily": {
+        "task": "reservations.log_guest_checkin_metrics",
+        "schedule": crontab(hour=7, minute=30, nowfun=_zagreb_now),
     },
     "daily-ops-report-email": {
         "task": "core.send_daily_ops_report",

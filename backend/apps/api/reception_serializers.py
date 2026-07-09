@@ -18,6 +18,7 @@ from apps.reservations.checkout import CheckoutBlockedError, perform_reservation
 from apps.reservations.confirmation_pdf import reservation_confirmation_pdf_url
 from apps.reservations.face_photo import guest_face_photo_url
 from apps.reservations.guest_slots import guests_for_checkout
+from apps.reservations.guest_checkin_progress import checkin_progress_for_reservation
 from apps.reservations.nationality_display import reservation_nationality_iso2
 from apps.reservations.models import (
     EvisitorGuestStatus,
@@ -155,6 +156,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
     payment_status_key = serializers.SerializerMethodField()
     evisitor_summary = serializers.SerializerMethodField()
     evisitor_progress = serializers.SerializerMethodField()
+    checkin_progress = serializers.SerializerMethodField()
     check_in_allowed = serializers.SerializerMethodField()
     check_in_blocked_code = serializers.SerializerMethodField()
     confirmation_pdf_url = serializers.SerializerMethodField()
@@ -214,6 +216,7 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
             "guests",
             "evisitor_summary",
             "evisitor_progress",
+            "checkin_progress",
             "check_in_allowed",
             "check_in_blocked_code",
             "guest_stated_arrival_text",
@@ -268,6 +271,9 @@ class ReservationTimelineSerializer(serializers.ModelSerializer):
 
     def get_evisitor_progress(self, obj) -> dict[str, int]:
         return evisitor_progress_for_reservation(obj)
+
+    def get_checkin_progress(self, obj) -> dict:
+        return checkin_progress_for_reservation(obj)
 
     def _tenant_for_check_in(self, obj):
         request = self.context.get("request")

@@ -59,6 +59,7 @@ HINT_DOCS_AWAITING_ARRIVAL = "docs awaiting arrival"
 HINT_ARRIVAL_AUTO_REPLY = "arrival auto reply"
 HINT_PARKING_AUTO_REPLY = "parking auto reply"
 HINT_WHATSAPP_AUTOCHECKIN_MAINTENANCE = "whatsapp autocheckin maintenance"
+HINT_GUEST_WEB_CHECKIN_REMINDER = "guest web checkin reminder"
 
 FOOTER = "Managed by stay.hr — https://stay.hr/"
 
@@ -809,6 +810,146 @@ def render_documents_message(reservation: Reservation) -> str:
     """Document upload instructions after Auto check-in quick reply."""
     context = build_compose_context(reservation)
     return _render_documents_fallback(reservation, context)
+
+
+_GUEST_WEB_CHECKIN_REMINDER = {
+    "hr": (
+        "Podsjetnik: molimo unesite podatke gostiju prije dolaska ({check_in}) "
+        "kako bi check-in na recepciji prošao brzo.\n\n"
+        "Sigurni obrazac:\n{checkin_url}\n\n"
+        "Rezervacija: {booking_code}"
+    ),
+    "en": (
+        "Reminder: please submit your guest details before arrival ({check_in}) "
+        "so check-in at reception is quick and smooth.\n\n"
+        "Secure form:\n{checkin_url}\n\n"
+        "Booking: {booking_code}"
+    ),
+    "de": (
+        "Erinnerung: Bitte geben Sie Ihre Gästedaten vor der Anreise ein ({check_in}), "
+        "damit der Check-in an der Rezeption schnell verläuft.\n\n"
+        "Sicheres Formular:\n{checkin_url}\n\n"
+        "Buchung: {booking_code}"
+    ),
+    "es": (
+        "Recordatorio: envíe los datos de los huéspedes antes de la llegada ({check_in}) "
+        "para agilizar el check-in en recepción.\n\n"
+        "Formulario seguro:\n{checkin_url}\n\n"
+        "Reserva: {booking_code}"
+    ),
+    "fr": (
+        "Rappel : veuillez saisir les données des voyageurs avant l'arrivée ({check_in}) "
+        "pour un enregistrement rapide à la réception.\n\n"
+        "Formulaire sécurisé :\n{checkin_url}\n\n"
+        "Réservation : {booking_code}"
+    ),
+}
+
+_GUEST_WEB_CHECKIN_REMINDER_SUBJECT = {
+    "hr": "Unesite podatke gostiju — {property_name}",
+    "en": "Submit your guest details — {property_name}",
+    "de": "Gästedaten eingeben — {property_name}",
+    "es": "Envíe los datos de los huéspedes — {property_name}",
+    "fr": "Saisissez les données des voyageurs — {property_name}",
+}
+
+_CHANNEX_GUEST_CHECKIN_LINK = {
+    "hr": (
+        "Hvala na rezervaciji!\n\n"
+        "Podatke gostiju možete unijeti putem našeg web obrasca prije dolaska "
+        "kako bi check-in na recepciji prošao brzo:\n"
+        "{checkin_url}\n\n"
+        "Rezervacija: {booking_code}"
+    ),
+    "en": (
+        "Thank you for your booking!\n\n"
+        "You can submit guest details via our secure web form before arrival "
+        "so check-in at reception is quick and smooth:\n"
+        "{checkin_url}\n\n"
+        "Booking: {booking_code}"
+    ),
+    "de": (
+        "Vielen Dank für Ihre Buchung!\n\n"
+        "Sie können Gästedaten vor der Anreise über unser Webformular eingeben, "
+        "damit der Check-in an der Rezeption schnell verläuft:\n"
+        "{checkin_url}\n\n"
+        "Buchung: {booking_code}"
+    ),
+    "es": (
+        "¡Gracias por su reserva!\n\n"
+        "Puede enviar los datos de los huéspedes a través de nuestro formulario web "
+        "antes de la llegada para agilizar el check-in en recepción:\n"
+        "{checkin_url}\n\n"
+        "Reserva: {booking_code}"
+    ),
+    "fr": (
+        "Merci pour votre réservation !\n\n"
+        "Vous pouvez saisir les données des voyageurs via notre formulaire web "
+        "avant l'arrivée pour un enregistrement rapide à la réception :\n"
+        "{checkin_url}\n\n"
+        "Réservation : {booking_code}"
+    ),
+}
+
+
+def guest_web_checkin_reminder_hint(*, days_before: int) -> str:
+    return f"{HINT_GUEST_WEB_CHECKIN_REMINDER} d{max(int(days_before), 0)}"
+
+
+def render_guest_web_checkin_reminder_message(
+    reservation: Reservation,
+    *,
+    checkin_url: str,
+) -> str:
+    """Pre-arrival reminder with guest web check-in link."""
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    body = _text_for_lang(_GUEST_WEB_CHECKIN_REMINDER, lang).format(
+        checkin_url=checkin_url,
+        check_in=context["check_in"],
+        booking_code=context["booking_code"] or str(reservation.pk),
+    )
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
+
+
+def guest_web_checkin_reminder_email_subject(reservation: Reservation) -> str:
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    template = _text_for_lang(_GUEST_WEB_CHECKIN_REMINDER_SUBJECT, lang)
+    return template.format(property_name=context["property_name"])
+
+
+def render_channex_guest_checkin_link_message(
+    reservation: Reservation,
+    *,
+    checkin_url: str,
+) -> str:
+    """OTA inbox message with guest web check-in link (Channex channel)."""
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    body = _text_for_lang(_CHANNEX_GUEST_CHECKIN_LINK, lang).format(
+        checkin_url=checkin_url,
+        booking_code=context["booking_code"] or str(reservation.pk),
+    )
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
 
 
 def render_documents_batch_confirm_message(reservation: Reservation) -> str:
