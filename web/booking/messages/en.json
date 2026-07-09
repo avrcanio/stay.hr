@@ -319,7 +319,7 @@
     }
   },
   "checkIn": {
-    "title": "Online check-in",
+    "title": "Guest details",
     "loading": "Loading…",
     "loadFailed": "Check-in is not available right now.",
     "saveFailed": "Could not save your details.",

@@ -319,7 +319,7 @@
     }
   },
   "checkIn": {
-    "title": "Online check-in",
+    "title": "Unos podataka gostiju",
     "loading": "Učitavanje…",
     "loadFailed": "Check-in trenutno nije dostupan.",
     "saveFailed": "Spremanje nije uspjelo.",
