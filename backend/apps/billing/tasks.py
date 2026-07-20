@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from celery import shared_task
-from django.utils import timezone
+from django.conf import settings as django_settings
 
 from apps.billing.models import Invoice, TenantFiscalSettings
 from apps.billing.services.fisk1.connector import (
@@ -35,17 +35,29 @@ def fiscalize_invoice(self, invoice_id: int) -> dict:
         return {"status": "failed", "invoice_id": invoice_id}
 
     attempt_no = invoice.fiscalization_attempts.count() + 1
-    connector = Fisk1Connector()
+    fiskal_request_id = None
     try:
-        result = connector.fiscalize(invoice, settings)
+        if django_settings.FISKAL_EXECUTION_ENABLED:
+            from apps.billing.services.fiskal_platform.submit import fiscalize_via_platform
+
+            result = fiscalize_via_platform(invoice, settings)
+            fiskal_request_id = result.fiskal_request_id
+        else:
+            result = Fisk1Connector().fiscalize(invoice, settings)
         apply_fiscalization_result(invoice, settings, result, attempt_no=attempt_no)
-        return {"status": "fiscalized", "invoice_id": invoice_id, "jir": result.jir}
+        return {
+            "status": "fiscalized",
+            "invoice_id": invoice_id,
+            "jir": result.jir,
+            "fiskal_request_id": str(fiskal_request_id) if fiskal_request_id else None,
+        }
     except Exception as exc:
         logger.exception("Fiscalization failed invoice_id=%s", invoice_id)
         record_fiscalization_failure(
             invoice,
             attempt_no=attempt_no,
             error_message=str(exc),
+            fiskal_request_id=fiskal_request_id or getattr(exc, "fiskal_request_id", None),
         )
         raise self.retry(exc=exc) from exc
 

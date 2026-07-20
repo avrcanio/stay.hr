@@ -145,6 +145,7 @@ def apply_fiscalization_result(
     result: FiscalResult,
     *,
     attempt_no: int,
+    fiskal_request_id=None,
 ) -> None:
     invoice.jir = result.jir
     invoice.fiscal_status = Invoice.FiscalStatus.FISCALIZED
@@ -165,6 +166,7 @@ def apply_fiscalization_result(
         success=True,
         request_snapshot=result.request_snapshot,
         response_snapshot=result.response_snapshot,
+        fiskal_request_id=fiskal_request_id or result.fiskal_request_id,
     )
     render_invoice_pdf(invoice, settings)
 
@@ -176,6 +178,7 @@ def record_fiscalization_failure(
     error_message: str,
     request_snapshot: str = "",
     response_snapshot: str = "",
+    fiskal_request_id=None,
 ) -> None:
     invoice.fiscal_status = Invoice.FiscalStatus.FAILED
     invoice.fiscal_error = error_message[:2000]
@@ -187,4 +190,5 @@ def record_fiscalization_failure(
         error_message=error_message[:2000],
         request_snapshot=request_snapshot[:4000],
         response_snapshot=response_snapshot[:4000],
+        fiskal_request_id=fiskal_request_id,
     )

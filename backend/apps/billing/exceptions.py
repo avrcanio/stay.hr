@@ -12,3 +12,7 @@ class FiscalConfigError(BillingError):
 
 class FiscalizationError(BillingError):
     """Fiskalizacija 1.0 request failed."""
+
+    def __init__(self, message: str, *, fiskal_request_id=None) -> None:
+        super().__init__(message)
+        self.fiskal_request_id = fiskal_request_id

@@ -197,6 +197,7 @@ class FiscalizationAttempt(models.Model):
         related_name="fiscalization_attempts",
     )
     attempt_no = models.PositiveSmallIntegerField()
+    fiskal_request_id = models.UUIDField(null=True, blank=True)
     success = models.BooleanField(default=False)
     request_snapshot = models.TextField(blank=True, default="")
     response_snapshot = models.TextField(blank=True, default="")
