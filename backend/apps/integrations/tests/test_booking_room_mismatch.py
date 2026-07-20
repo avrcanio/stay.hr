@@ -45,11 +45,12 @@ def _assert_single_reception_push(
 
 class BookingRoomMismatchTests(TestCase):
     def setUp(self):
-        self.tenant = Tenant.objects.create(slug="uzorita", name="Uzorita")
+        # Generic fixture — not production tenant id 2 / uzorita.
+        self.tenant = Tenant.objects.create(slug="mismatch-demo", name="Mismatch Demo")
         self.property = Property.objects.create(
             tenant=self.tenant,
-            slug="uzorita",
-            name="Uzorita",
+            slug="mismatch-villa",
+            name="Mismatch Villa",
             timezone="Europe/Zagreb",
         )
         self.unit_r6 = Unit.objects.create(
@@ -126,8 +127,12 @@ class BookingRoomMismatchTests(TestCase):
         issues = detect_channex_room_mismatch(reservation, channex_rooms_count=1)
         self.assertTrue(any("multi-room" in issue.lower() or "mapped" in issue for issue in issues))
 
+    @patch(
+        "apps.integrations.channex.reservation_availability_service."
+        "force_close_property_channex_availability"
+    )
     @patch("apps.core.notifications.send_tenant_reception_push")
-    def test_flag_appends_note_and_notifies(self, mock_push):
+    def test_flag_appends_note_and_notifies(self, mock_push, mock_force_close):
         reservation = self._reservation(units_count=2)
         ReservationUnit.objects.create(
             tenant=self.tenant,
@@ -145,9 +150,17 @@ class BookingRoomMismatchTests(TestCase):
             event_type="reservation.channex_rooms_mismatch",
             reservation_id=reservation.pk,
         )
+        mock_force_close.assert_called_once_with(
+            reservation,
+            reason="channex_rooms_mismatch",
+        )
 
+    @patch(
+        "apps.integrations.channex.reservation_availability_service."
+        "force_close_property_channex_availability"
+    )
     @patch("apps.core.notifications.send_tenant_reception_push")
-    def test_ingest_warning_empty_channex_rooms(self, mock_push):
+    def test_ingest_warning_empty_channex_rooms(self, mock_push, mock_force_close):
         reservation = self._reservation(units_count=0, adults_count=2)
         issues = flag_channex_ingest_room_warnings(
             reservation,
@@ -163,9 +176,17 @@ class BookingRoomMismatchTests(TestCase):
             event_type="reservation.channex_rooms_mismatch",
             reservation_id=reservation.pk,
         )
+        mock_force_close.assert_called_once_with(
+            reservation,
+            reason="channex_empty_rooms",
+        )
 
+    @patch(
+        "apps.integrations.channex.reservation_availability_service."
+        "force_close_property_channex_availability"
+    )
     @patch("apps.core.notifications.send_tenant_reception_push")
-    def test_ingest_warning_multi_room_suspect(self, mock_push):
+    def test_ingest_warning_multi_room_suspect(self, mock_push, mock_force_close):
         reservation = self._reservation(units_count=1, adults_count=4)
         ReservationUnit.objects.create(
             tenant=self.tenant,
@@ -186,4 +207,8 @@ class BookingRoomMismatchTests(TestCase):
             mock_push,
             event_type="reservation.channex_rooms_mismatch",
             reservation_id=reservation.pk,
+        )
+        mock_force_close.assert_called_once_with(
+            reservation,
+            reason="multi_room_suspect",
         )

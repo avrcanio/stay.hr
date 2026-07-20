@@ -5,9 +5,18 @@ import logging
 from celery import shared_task
 
 from apps.integrations.channex.ari_service import flush_channex_ari_outbox, get_active_channex_integration
+from apps.integrations.channex.availability_verify_service import (
+    DEFAULT_VERIFY_DAYS,
+    verify_and_repair_availability,
+)
 from apps.integrations.channex.exceptions import ChannexBookingIngestError
+from apps.tenants.models import Tenant
 
 logger = logging.getLogger(__name__)
+
+# Ops default for live Celery runs until more Channex clients are online.
+# Beat schedule also passes kwargs tenant_id=2 — keep in sync.
+OPS_DEFAULT_TENANT_ID = 2
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
@@ -37,3 +46,26 @@ def flush_channex_ari_outbox_task(self, tenant_slug: str = "demo") -> list[dict]
     except Exception as exc:
         logger.exception("channex ari flush failed")
         raise self.retry(exc=exc) from exc
+
+
+@shared_task
+def verify_channex_availability_daily(
+    tenant_id: int = OPS_DEFAULT_TENANT_ID,
+    days: int = DEFAULT_VERIFY_DAYS,
+) -> dict:
+    """Daily GET /availability verify + ARI re-push for one tenant (default: 2)."""
+    tenant = Tenant.objects.filter(pk=tenant_id).first()
+    if tenant is None:
+        return {"skipped": True, "reason": "tenant_not_found", "tenant_id": tenant_id}
+
+    slug = (tenant.slug or "").strip()
+    if not slug:
+        return {"skipped": True, "reason": "tenant_slug_missing", "tenant_id": tenant_id}
+
+    result = verify_and_repair_availability(
+        tenant_slug=slug,
+        days=days,
+        repair=True,
+        notify=True,
+    )
+    return {"tenant_id": tenant_id, **result}

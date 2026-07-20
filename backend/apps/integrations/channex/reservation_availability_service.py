@@ -9,7 +9,7 @@ from apps.integrations.channex.ari_service import apply_availability_updates, ge
 from apps.integrations.channex.exceptions import ChannexBookingIngestError
 from apps.integrations.channel_manager.resolver import get_channel_manager
 from apps.integrations.models import UnitAvailabilityBlock
-from apps.properties.models import Unit
+from apps.properties.models import Property, Unit
 from apps.reservations.models import Reservation, ReservationUnit
 from apps.tenants.models import ChannelManager
 
@@ -19,6 +19,10 @@ IMPORT_SOURCE_CHANNEX = "channex"
 
 # Uzorita: multi-room / whole-property bookings must close all B.com listings.
 UZORITA_WHOLE_PROPERTY_UNIT_CODES = frozenset({"R1", "R2", "R3", "R6"})
+
+# Durable ARI close for property room types not held by ReservationUnit
+# (multi-room suspect / mismatch / whole-property extras). Cleared on cancel.
+PROPERTY_CLOSE_BLOCK_REF_PREFIX = "property-close:"
 
 SYNC_AVAILABILITY_STATUSES = frozenset(
     {
@@ -123,34 +127,135 @@ def _mapped_unit_codes_on_reservation(reservation: Reservation) -> set[str]:
     }
 
 
-def qualifies_for_whole_property_sync(reservation: Reservation) -> bool:
-    """True when 2+ uzorita core rooms are assigned (whole-object / multi-room)."""
-    if reservation.property.slug != "uzorita":
+def _property_close_block_ref(reservation_id: int, unit_id: int) -> str:
+    return f"{PROPERTY_CLOSE_BLOCK_REF_PREFIX}{reservation_id}:{unit_id}"
+
+
+def mapped_channex_unit_codes_for_property(*, integration, property: Property) -> frozenset[str]:
+    """Active stay.hr unit codes that have a Channex room-type mapping for this property."""
+    config = integration.get_config_dict()
+    mapped = {
+        str(row.get("unit_code") or "")
+        for row in (config.get("room_types") or []) + (config.get("booking_test_rooms") or [])
+        if row.get("unit_code")
+    }
+    if not mapped:
+        return frozenset()
+    return frozenset(
+        Unit.objects.filter(
+            tenant=integration.tenant,
+            property=property,
+            code__in=mapped,
+            is_active=True,
+        ).values_list("code", flat=True)
+    )
+
+
+def property_whole_close_unit_codes(*, integration, property: Property) -> frozenset[str]:
+    """
+    Unit codes to close for whole-property / multi-room-suspect inventory.
+
+    Uzorita keeps the explicit whole-property listing set; other properties close
+    every active Channex-mapped room type on that property.
+    """
+    if property.slug == "uzorita":
+        return UZORITA_WHOLE_PROPERTY_UNIT_CODES
+    return mapped_channex_unit_codes_for_property(integration=integration, property=property)
+
+
+def qualifies_for_whole_property_sync(
+    reservation: Reservation,
+    integration=None,
+) -> bool:
+    """True when multi-room assignment warrants closing all property listings."""
+    close_codes = _resolve_property_close_codes(reservation, integration)
+    if not close_codes:
         return False
     codes = _mapped_unit_codes_on_reservation(reservation)
-    overlap = codes & UZORITA_WHOLE_PROPERTY_UNIT_CODES
+    overlap = codes & close_codes
     return len(overlap) >= 2 or (
         (reservation.units_count or 0) >= 2 and len(overlap) >= 1
     )
 
 
-def maybe_push_whole_property_availability(
+def _resolve_property_close_codes(reservation: Reservation, integration=None) -> frozenset[str]:
+    if reservation.property.slug == "uzorita":
+        return UZORITA_WHOLE_PROPERTY_UNIT_CODES
+    if integration is None:
+        try:
+            integration = get_active_channex_integration(reservation.tenant.slug)
+        except ChannexBookingIngestError:
+            return frozenset()
+    return property_whole_close_unit_codes(
+        integration=integration,
+        property=reservation.property,
+    )
+
+
+def _ensure_property_close_block(reservation: Reservation, unit: Unit) -> UnitAvailabilityBlock:
+    """Block a competing listing for this stay so compute_unit_availability stays at 0."""
+    block_ref = _property_close_block_ref(reservation.pk, unit.pk)
+    block, _ = UnitAvailabilityBlock.objects.update_or_create(
+        tenant=reservation.tenant,
+        block_ref=block_ref,
+        defaults={
+            "unit": unit,
+            "reservation": reservation,
+            "check_in": reservation.check_in,
+            "check_out": reservation.check_out,
+            "created_via": UnitAvailabilityBlock.CreatedVia.STAY,
+        },
+    )
+    return block
+
+
+def _clear_property_close_blocks(reservation: Reservation) -> list[Unit]:
+    """Remove property-close blocks for a reservation; return units that were blocked."""
+    blocks = list(
+        UnitAvailabilityBlock.objects.filter(
+            tenant=reservation.tenant,
+            reservation=reservation,
+            block_ref__startswith=PROPERTY_CLOSE_BLOCK_REF_PREFIX,
+        ).select_related("unit")
+    )
+    units = [b.unit for b in blocks if b.unit_id]
+    if blocks:
+        UnitAvailabilityBlock.objects.filter(pk__in=[b.pk for b in blocks]).delete()
+    return units
+
+
+def _push_property_close_units(
     reservation: Reservation,
     integration,
     *,
+    close_codes: frozenset[str],
     results: list[dict],
+    force_unmapped: bool,
 ) -> None:
-    if not qualifies_for_whole_property_sync(reservation):
-        return
+    """
+    Push ARI for property close codes.
+
+    When force_unmapped is True, units not held by ReservationUnit get a durable
+    property-close block so availability computes to 0 (and survives verify/full sync).
+    """
     tenant = reservation.tenant
     pushed_codes = {r.get("unit_code") for r in results if r.get("unit_code")}
+    mapped_unit_ids = set(
+        ReservationUnit.objects.filter(
+            reservation=reservation,
+            unit_id__isnull=False,
+        ).values_list("unit_id", flat=True)
+    )
     for unit in Unit.objects.filter(
         tenant=tenant,
         property=reservation.property,
-        code__in=UZORITA_WHOLE_PROPERTY_UNIT_CODES,
+        code__in=close_codes,
+        is_active=True,
     ):
         if unit.code in pushed_codes:
             continue
+        if force_unmapped and unit.pk not in mapped_unit_ids:
+            _ensure_property_close_block(reservation, unit)
         results.append(
             push_availability_range_for_unit(
                 tenant,
@@ -159,6 +264,112 @@ def maybe_push_whole_property_availability(
                 reservation.check_out,
             )
         )
+
+
+def maybe_push_whole_property_availability(
+    reservation: Reservation,
+    integration,
+    *,
+    results: list[dict],
+) -> None:
+    if not qualifies_for_whole_property_sync(reservation, integration):
+        return
+    close_codes = property_whole_close_unit_codes(
+        integration=integration,
+        property=reservation.property,
+    )
+    _push_property_close_units(
+        reservation,
+        integration,
+        close_codes=close_codes,
+        results=results,
+        force_unmapped=True,
+    )
+
+
+def force_close_property_channex_availability(
+    reservation: Reservation,
+    *,
+    reason: str = "",
+) -> dict:
+    """
+    Force ARI close for all property room types over the reservation stay.
+
+    Used on MULTI_ROOM_SUSPECT / CHANNEX_EMPTY_ROOMS / rooms mismatch so under-
+    reported multi-room bookings cannot leave competing listings open — even when
+    stay.hr has 0–1 mapped units.
+    """
+    if get_channel_manager(reservation.tenant) != ChannelManager.CHANNEX:
+        return {"skipped": True, "reason": "not_channex", "reservation_id": reservation.pk}
+
+    if reservation.status in {Reservation.Status.CANCELED, Reservation.Status.NO_SHOW}:
+        return {"skipped": True, "reason": "inactive_status", "reservation_id": reservation.pk}
+
+    if reservation.status not in SYNC_AVAILABILITY_STATUSES:
+        return {
+            "skipped": True,
+            "reason": "status_not_syncable",
+            "reservation_id": reservation.pk,
+        }
+
+    try:
+        integration = get_active_channex_integration(reservation.tenant.slug)
+    except ChannexBookingIngestError as exc:
+        return {"skipped": True, "reason": str(exc), "reservation_id": reservation.pk}
+
+    close_codes = property_whole_close_unit_codes(
+        integration=integration,
+        property=reservation.property,
+    )
+    if not close_codes:
+        return {
+            "skipped": True,
+            "reason": "no_property_close_codes",
+            "reservation_id": reservation.pk,
+        }
+
+    results: list[dict] = []
+    # Refresh mapped units first (occupancy-driven), then force-close the rest.
+    for row in ReservationUnit.objects.filter(reservation=reservation).select_related("unit"):
+        if row.unit is None:
+            continue
+        results.append(
+            push_availability_range_for_unit(
+                reservation.tenant,
+                row.unit,
+                reservation.check_in,
+                reservation.check_out,
+            )
+        )
+
+    _push_property_close_units(
+        reservation,
+        integration,
+        close_codes=close_codes,
+        results=results,
+        force_unmapped=True,
+    )
+
+    from apps.integrations.channex.ari_service import push_channex_ari
+
+    push_channex_ari(integration)
+    logger.warning(
+        "channex property-wide ARI close forced",
+        extra={
+            "reservation_id": reservation.pk,
+            "booking_code": reservation.booking_code,
+            "reason": reason,
+            "close_codes": sorted(close_codes),
+            "units": len(results),
+        },
+    )
+    return {
+        "reservation_id": reservation.pk,
+        "pushed": True,
+        "forced": True,
+        "reason": reason,
+        "units": results,
+    }
 
 
 def push_reservation_channex_availability_unconditional(reservation: Reservation) -> dict:
@@ -273,10 +484,14 @@ def remove_reservation_channex_availability(reservation: Reservation) -> dict:
         return {"skipped": True, "reason": "not_channex", "reservation_id": reservation.pk}
 
     integration = get_active_channex_integration(reservation.tenant.slug)
+    # Drop property-close blocks before recompute so competing listings reopen.
+    blocked_units = _clear_property_close_blocks(reservation)
     results: list[dict] = []
+    seen_unit_ids: set[int] = set()
     for row in ReservationUnit.objects.filter(reservation=reservation).select_related("unit"):
         if row.unit is None:
             continue
+        seen_unit_ids.add(row.unit_id)
         result = push_availability_range_for_unit(
             reservation.tenant,
             row.unit,
@@ -284,6 +499,19 @@ def remove_reservation_channex_availability(reservation: Reservation) -> dict:
             reservation.check_out,
         )
         results.append(result)
+
+    for unit in blocked_units:
+        if unit.pk in seen_unit_ids:
+            continue
+        seen_unit_ids.add(unit.pk)
+        results.append(
+            push_availability_range_for_unit(
+                reservation.tenant,
+                unit,
+                reservation.check_in,
+                reservation.check_out,
+            )
+        )
 
     from apps.integrations.channex.ari_service import push_channex_ari
 

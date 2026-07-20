@@ -150,20 +150,30 @@ def flag_channex_room_mismatch(
         },
     )
     _notify_channex_room_mismatch(reservation, issues)
-    mapped = _count_mapped_units(reservation)
-    if mapped >= 2 and channex_rooms_count < mapped:
-        try:
-            from apps.integrations.channex.reservation_availability_service import (
-                push_reservation_channex_availability_unconditional,
-            )
-
-            push_reservation_channex_availability_unconditional(reservation)
-        except Exception:
-            logger.exception(
-                "channex ARI auto-push failed after room mismatch",
-                extra={"reservation_id": reservation.pk},
-            )
+    _force_property_close_after_room_warning(
+        reservation,
+        reason="channex_rooms_mismatch",
+    )
     return issues
+
+
+def _force_property_close_after_room_warning(
+    reservation: Reservation,
+    *,
+    reason: str,
+) -> None:
+    """Close all property room types so under-reported multi-room cannot resell nights."""
+    try:
+        from apps.integrations.channex.reservation_availability_service import (
+            force_close_property_channex_availability,
+        )
+
+        force_close_property_channex_availability(reservation, reason=reason)
+    except Exception:
+        logger.exception(
+            "channex property-wide ARI close failed after room warning",
+            extra={"reservation_id": reservation.pk, "reason": reason},
+        )
 
 
 def _append_reservation_warning_note(
@@ -229,6 +239,12 @@ def flag_channex_ingest_room_warnings(
                 "issues": issues,
             },
         )
+        reason = (
+            "channex_empty_rooms"
+            if channex_rooms_count == 0
+            else "multi_room_suspect"
+        )
+        _force_property_close_after_room_warning(reservation, reason=reason)
     return issues
 
 

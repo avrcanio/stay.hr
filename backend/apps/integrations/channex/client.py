@@ -99,6 +99,33 @@ class ChannexClient:
                 revision_ids.append(str(item["id"]))
         return revision_ids
 
+    def get_availability(
+        self,
+        *,
+        property_id: str,
+        date_from: str,
+        date_to: str,
+    ) -> dict[str, Any]:
+        """GET room-type availability for a property date range.
+
+        Returns the Availability object: ``{room_type_id: {YYYY-MM-DD: avail}}``.
+        """
+        payload = self._request(
+            "GET",
+            "/availability",
+            params={
+                "filter[property_id]": property_id,
+                "filter[date][gte]": date_from,
+                "filter[date][lte]": date_to,
+            },
+        )
+        data = payload.get("data")
+        if data is None:
+            return {}
+        if not isinstance(data, dict):
+            raise ChannexApiError("Unexpected Channex availability response shape")
+        return data
+
     def update_availability(self, values: list[dict[str, Any]]) -> dict[str, Any]:
         return self._request("POST", "/availability", json={"values": values})
 

@@ -12,7 +12,7 @@ Ovaj runbook sprječava tip overbookinga iz 2026.: PMS ima manje soba nego Booki
 - Nova rezervacija s **2+ soba** ili PDF s više `Luxury Room Uzorita - R*`
 - Rezervacija „cijeli objekt“ (4 sobe: R1, R2, R3, R6)
 - Nakon **PDF importa** koji mijenja dodjelu soba
-- Dnevno (automatski): Celery `detect_overbooking` (06:00) + `detect_multi_room_gaps` (06:15) + push ako ima konflikata
+- Dnevno (automatski): Celery `detect_overbooking` (06:00) + `detect_multi_room_gaps` (06:15) + `verify_channex_availability` (06:30) + push ako ima konflikata / ARI mismatch
 
 ---
 
@@ -25,13 +25,22 @@ Ovaj runbook sprječava tip overbookinga iz 2026.: PMS ima manje soba nego Booki
    - `import_source=booking_pdf` za autoritativne multi-room (Channex ne smije smanjiti broj soba)
 3. **Channex inventar** (automatski nakon PDF importa u stay.hr od 6/2026.; ručno ako treba):
    ```bash
-   docker compose exec django python manage.py channex_ari_full_sync uzorita
+   docker compose exec django python manage.py channex_ari_full_sync --tenant-slug uzorita
    ```
-4. **Detekcija konflikta**:
+4. **Verify live Channex availability** (GET vs stay.hr; re-push on mismatch):
+   ```bash
+   docker compose exec django python manage.py verify_channex_availability --tenant-slug uzorita --dry-run
+   # bez --dry-run: re-push + reception push
+   ```
+5. **Detekcija konflikta**:
    ```bash
    docker compose exec django python manage.py detect_overbooking --tenant-id 2 --from-date YYYY-MM-DD
    ```
-5. Ako `detect_overbooking` > 0 ili reception push „Overbooking“ — **ne check-in** kasnijeg gosta na zauzetu sobu; otkaz / relocacija prema [booking-com-konflikt](booking-com-konflikt-dvostruka-rezervacija.md) uzorcima.
+6. **Multi-room inventar gapovi** (nepotpuni `ReservationUnit` / Channex calendar mismatch):
+   ```bash
+   docker compose exec django python manage.py detect_multi_room_gaps --tenant-id 2 --from-date YYYY-MM-DD
+   ```
+7. Ako `detect_overbooking` > 0 ili reception push „Overbooking“ — **ne check-in** kasnijeg gosta na zauzetu sobu; otkaz / relocacija prema [booking-com-konflikt](booking-com-konflikt-dvostruka-rezervacija.md) uzorcima.
 
 ---
 

@@ -289,6 +289,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(hour=6, minute=15),
         "kwargs": {"tenant_id": 2},
     },
+    "verify-channex-availability-daily": {
+        "task": "apps.integrations.channex.tasks.verify_channex_availability_daily",
+        "schedule": crontab(hour=6, minute=30),
+        "kwargs": {"tenant_id": 2},
+    },
     "reconcile-guest-document-batches": {
         "task": "apps.integrations.whatsapp.guest_document_batch_reconcile.reconcile_guest_document_batches",
         "schedule": 900.0,

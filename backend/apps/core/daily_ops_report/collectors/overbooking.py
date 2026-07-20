@@ -1,4 +1,4 @@
-"""Overbooking and multi-room gap scans (read-only)."""
+"""Overbooking, multi-room gaps, and Channex ARI verify (read-only)."""
 
 from __future__ import annotations
 
@@ -33,6 +33,12 @@ class OverbookingCollector:
                     status=Severity.WARN,
                     display=f"tenant {tenant_id} not found",
                 ),
+                MetricResult(
+                    key="channex.ari_mismatch_count",
+                    value=None,
+                    status=Severity.WARN,
+                    display=f"tenant {tenant_id} not found",
+                ),
             ]
             return ReportSection(
                 title=self.title,
@@ -49,6 +55,8 @@ class OverbookingCollector:
         conflict_status = Severity.WARN if conflict_count > 0 else Severity.OK
         gap_status = Severity.WARN if gap_count > 0 else Severity.OK
 
+        ari_metric = self._ari_mismatch_metric(tenant)
+
         rows = [
             MetricResult(
                 key="overbooking.conflict_count",
@@ -62,6 +70,7 @@ class OverbookingCollector:
                 status=gap_status,
                 display=str(gap_count),
             ),
+            ari_metric,
         ]
 
         summary = f"Tenant {tenant.slug} (id={tenant_id}), from_date={today.isoformat()}."
@@ -70,4 +79,42 @@ class OverbookingCollector:
             severity=max_severity(*(row.status for row in rows)),
             rows=rows,
             summary=summary,
+        )
+
+    @staticmethod
+    def _ari_mismatch_metric(tenant: Tenant) -> MetricResult:
+        """Read-only Channex GET verify for DAILY_OPS_REPORT_TENANT_ID (default 2)."""
+        from apps.integrations.channex.availability_verify_service import (
+            DEFAULT_VERIFY_DAYS,
+            verify_and_repair_availability,
+        )
+
+        slug = (tenant.slug or "").strip()
+        if not slug:
+            return MetricResult(
+                key="channex.ari_mismatch_count",
+                value=None,
+                status=Severity.WARN,
+                display="tenant_slug_missing",
+            )
+
+        result = verify_and_repair_availability(
+            tenant_slug=slug,
+            days=DEFAULT_VERIFY_DAYS,
+            repair=False,
+            notify=False,
+        )
+        if result.get("skipped"):
+            return MetricResult(
+                key="channex.ari_mismatch_count",
+                value=None,
+                status=Severity.WARN,
+                display=str(result.get("reason") or "skipped"),
+            )
+        mismatch_count = int(result.get("mismatch_count") or 0)
+        return MetricResult(
+            key="channex.ari_mismatch_count",
+            value=mismatch_count,
+            status=Severity.WARN if mismatch_count > 0 else Severity.OK,
+            display=str(mismatch_count),
         )

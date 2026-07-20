@@ -17,6 +17,35 @@ class ChannexClientAttachmentTests(TestCase):
         return ChannexClient(config)
 
     @patch("httpx.Client.request")
+    def test_get_availability_returns_data_object(self, mock_request):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        payload = {
+            "data": {
+                "rt-1": {"2026-08-01": 1, "2026-08-02": 0},
+            }
+        }
+        mock_response.content = b'{"data":{}}'
+        mock_response.json.return_value = payload
+        mock_request.return_value = mock_response
+
+        client = self._client()
+        try:
+            data = client.get_availability(
+                property_id="prop-1",
+                date_from="2026-08-01",
+                date_to="2026-08-02",
+            )
+        finally:
+            client.close()
+
+        self.assertEqual(data["rt-1"]["2026-08-01"], 1)
+        _args, kwargs = mock_request.call_args
+        self.assertEqual(kwargs["params"]["filter[property_id]"], "prop-1")
+        self.assertEqual(kwargs["params"]["filter[date][gte]"], "2026-08-01")
+        self.assertEqual(kwargs["params"]["filter[date][lte]"], "2026-08-02")
+
+    @patch("httpx.Client.request")
     def test_upload_attachment_returns_id(self, mock_request):
         mock_response = MagicMock()
         mock_response.status_code = 200
