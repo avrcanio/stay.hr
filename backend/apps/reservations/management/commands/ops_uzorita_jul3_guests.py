@@ -1,4 +1,4 @@
-"""Ops flow for Uzorita reservations #965 and #821 — Jul 3 eVisitor + checkout."""
+"""Ops flow for Uzorita reservations #965, #821, #822 — eVisitor + checkout."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from apps.reservations.checkout import CheckoutBlockedError, perform_reservation
 from apps.reservations.models import EvisitorGuestStatus, Guest, Reservation
 from apps.reservations.reservation_checkin_complete import mark_reservation_checked_in
 
-DEFAULT_RESERVATION_IDS = (965, 821)
+DEFAULT_RESERVATION_IDS = (965, 821, 822)
 
 OPS_CONFIG: dict[int, dict] = {
     965: {
@@ -45,12 +45,27 @@ OPS_CONFIG: dict[int, dict] = {
             "date_of_expiry": date(2030, 1, 1),
         },
     },
+    822: {
+        "delete_guest_id": 2235,
+        "primary_guest_id": 2234,
+        "guest_data": {
+            "sex": "F",
+            "date_of_birth": date(1987, 6, 14),
+            "document_type": "Putovnica",
+            "document_code": "P",
+            "document_number": "22AB12345",
+            "nationality": "FR",
+            "document_country_iso3": "FRA",
+            "address": "Paris, 12 Rue de Rivoli",
+            "date_of_expiry": date(2032, 6, 14),
+        },
+    },
 }
 
 
 class Command(BaseCommand):
     help = (
-        "Uzorita ops (#965, #821): remove placeholder guests, fill eVisitor data, "
+        "Uzorita ops (#965, #821, #822): remove placeholder guests, fill eVisitor data, "
         "check-in, eVisitor submit, checkout."
     )
 
@@ -64,7 +79,7 @@ class Command(BaseCommand):
             "--reservation-id",
             type=int,
             choices=DEFAULT_RESERVATION_IDS,
-            help="Process a single reservation (965 or 821).",
+            help="Process a single reservation (965, 821, or 822).",
         )
 
     def handle(self, *args, **options):
