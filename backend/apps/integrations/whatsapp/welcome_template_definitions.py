@@ -104,6 +104,56 @@ WELCOME_TEMPLATE_DEFINITIONS: dict[str, WelcomeTemplateDefinition] = {
         ),
         button_text="Auto check-in",
     ),
+    "hu": WelcomeTemplateDefinition(
+        name=DEFAULT_WELCOME_TEMPLATES["hu"],
+        language="hu",
+        body_text=_body(
+            greeting="Szia {{1}}!",
+            welcome_line="Üdvözöljük a Stay.hr-nál.",
+            reservation_line="Foglalás {{2}} — {{3}} ({{4}} – {{5}}).",
+            cta_line=(
+                "Az autocheck-in-t most elindíthatja — időt takarít meg a recepción."
+            ),
+        ),
+        button_text="Autocheck-in",
+    ),
+    "cs": WelcomeTemplateDefinition(
+        name=DEFAULT_WELCOME_TEMPLATES["cs"],
+        language="cs",
+        body_text=_body(
+            greeting="Ahoj {{1}}!",
+            welcome_line="Vítejte ve Stay.hr.",
+            reservation_line="Rezervace {{2}} v {{3}} ({{4}} – {{5}}).",
+            cta_line="Autocheck-in můžete spustit hned — ušetříte čas na recepci.",
+        ),
+        button_text="Autocheck-in",
+    ),
+    "ro": WelcomeTemplateDefinition(
+        name=DEFAULT_WELCOME_TEMPLATES["ro"],
+        language="ro",
+        body_text=_body(
+            greeting="Bună {{1}}!",
+            welcome_line="Bine ați venit la Stay.hr.",
+            reservation_line="Rezervarea {{2}} la {{3}} ({{4}} – {{5}}).",
+            cta_line=(
+                "Puteți începe autocheck-in-ul acum — economisiți timp la recepție."
+            ),
+        ),
+        button_text="Autocheck-in",
+    ),
+    "ua": WelcomeTemplateDefinition(
+        name=DEFAULT_WELCOME_TEMPLATES["ua"],
+        language="uk",
+        body_text=_body(
+            greeting="Вітаємо, {{1}}!",
+            welcome_line="Ласкаво просимо до Stay.hr.",
+            reservation_line="Бронювання {{2}} у {{3}} ({{4}} – {{5}}).",
+            cta_line=(
+                "Ви можете розпочати autocheck-in зараз — заощадьте час на ресепції."
+            ),
+        ),
+        button_text="Autocheck-in",
+    ),
 }
 
 

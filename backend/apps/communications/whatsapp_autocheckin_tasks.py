@@ -40,6 +40,7 @@ from apps.integrations.whatsapp.phone import normalize_phone
 from apps.integrations.whatsapp.welcome_template import (
     build_welcome_template_parameters,
     welcome_header_image_url,
+    welcome_meta_language_code,
     welcome_template_name,
 )
 from apps.properties.models import Property
@@ -248,6 +249,7 @@ def send_welcome_template_for_reservation(
     config = integration_row.get_config_dict()
     lang, body_params = build_welcome_template_parameters(reservation)
     template_name = welcome_template_name(config=config, lang=lang)
+    meta_lang = welcome_meta_language_code(lang)
     header_url = welcome_header_image_url(config)
 
     if dry_run:
@@ -256,6 +258,7 @@ def send_welcome_template_for_reservation(
             "reservation_id": reservation.pk,
             "template_name": template_name,
             "language": lang,
+            "meta_language": meta_lang,
             "parameters": body_params,
             "to": phone_wa,
         }
@@ -266,7 +269,7 @@ def send_welcome_template_for_reservation(
             access_token=runtime.access_token,
             to_wa_id=phone_wa,
             template_name=template_name,
-            language_code=lang,
+            language_code=meta_lang,
             body_parameters=body_params,
             header_image_url=header_url,
         )

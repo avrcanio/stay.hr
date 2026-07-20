@@ -16,6 +16,15 @@ DEFAULT_WELCOME_TEMPLATES: dict[str, str] = {
     "de": "stay_welcome_de",
     "es": "stay_welcome_es",
     "fr": "stay_welcome_fr",
+    "it": "stay_welcome_it",
+    "pl": "stay_welcome_pl",
+    "sk": "stay_welcome_sk",
+    "nl": "stay_welcome_nl",
+    "lt": "stay_welcome_lt",
+    "ua": "stay_welcome_ua",
+    "hu": "stay_welcome_hu",
+    "cs": "stay_welcome_cs",
+    "ro": "stay_welcome_ro",
 }
 
 
@@ -32,7 +41,23 @@ def welcome_template_name(*, config: dict[str, Any], lang: str) -> str:
         name = str(welcome_map.get(lang) or welcome_map.get("en") or "").strip()
         if name:
             return name
+    # ISO 639-1 Ukrainian is "uk"; internal/country key is "ua".
+    if lang == "uk":
+        lang = "ua"
     return DEFAULT_WELCOME_TEMPLATES.get(lang) or DEFAULT_WELCOME_TEMPLATES["en"]
+
+
+# Guest/country language key → Meta template language code (ISO 639-1 / WhatsApp).
+# UA (Ukraine) uses internal key "ua"; Meta expects "uk" for Ukrainian text.
+WELCOME_META_LANGUAGE_CODES: dict[str, str] = {
+    "ua": "uk",
+}
+
+
+def welcome_meta_language_code(guest_lang: str) -> str:
+    if guest_lang == "uk":
+        guest_lang = "ua"
+    return WELCOME_META_LANGUAGE_CODES.get(guest_lang, guest_lang)
 
 
 def _first_name(reservation: Reservation) -> str:

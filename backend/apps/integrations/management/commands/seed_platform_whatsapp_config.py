@@ -75,6 +75,7 @@ class Command(BaseCommand):
                     "de": "stay_welcome_de",
                     "es": "stay_welcome_es",
                     "fr": "stay_welcome_fr",
+                    "it": "stay_welcome_it",
                 },
             },
         }

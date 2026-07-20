@@ -72,6 +72,8 @@ def language_from_country(iso2: str) -> str:
         return "cs"
     if code == "HU":
         return "hu"
+    if code == "UA":
+        return "ua"
     if code == "PT":
         return "pt"
     if code == "GR":

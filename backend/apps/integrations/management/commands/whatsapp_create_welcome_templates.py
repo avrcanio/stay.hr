@@ -33,7 +33,10 @@ class Command(BaseCommand):
             action="append",
             dest="languages",
             default=[],
-            help="Language code(s) to create: hr, en, de, es, fr. Default: all.",
+            help=(
+                "Language code(s) to create: hr, en, de, es, fr, hu, cs, ro, uk, … "
+                "Default: all."
+            ),
         )
         parser.add_argument(
             "--waba-id",
