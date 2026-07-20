@@ -2,9 +2,24 @@
 
 Operativna pravila za WhatsApp / Hospira batch OCR (`document-intake` API). Ažurirano nakon slučaja **rezervacija #51** (lipanj 2026).
 
-**Povezano:** [id-document-import.md](../development/id-document-import.md), [ai-runbook-ocr-checkin-evisitor-2026-06.md](../operations/ai-runbook-ocr-checkin-evisitor-2026-06.md), [document-intake-telemetry.md](../development/document-intake-telemetry.md) (OCR-D KPIs, `_telemetry` contract)
+**Povezano:** [id-document-import.md](../development/id-document-import.md), [ai-runbook-ocr-checkin-evisitor-2026-06.md](../operations/ai-runbook-ocr-checkin-evisitor-2026-06.md), [document-intake-telemetry.md](../development/document-intake-telemetry.md) (OCR-D KPIs, `_telemetry` contract), [ADR 0004](../architecture/adr/0004-guest-checkin-session.md) (web check-in)
+
+**Guest web check-in (2026-07):** Gosti **ne šalju** slike dokumenata preko WhatsAppa. Jedini guest kanal: `booking.{tenant}/check-in/{token}` — ručni unos ili `WEB_GUEST` OCR upload. WhatsApp šalje link i obavijesti (`GUEST_CHECKIN_WEB_ONLY=true`).
 
 **Document expectations (PR-C):** Broj očekivanih dokumenata i slotovi za intake dolaze isključivo iz [`document_expectations.py`](../../backend/apps/reservations/document_expectations.py) (`expected_document_count` → `expected_document_slots` → `missing_document_slots`). Completeness, WhatsApp incomplete poruke i apply_reply konzumiraju taj modul — ne računaju vlastita pravila.
+
+---
+
+## WEB_GUEST slot-forced matching (web check-in OCR)
+
+Kad `DocumentIntakeJob.source == web_guest` i `guest_checkin_slot_position = N`:
+
+1. Gost uploada slike na `POST /public/check-in/{token}/slots/{N}/documents/`.
+2. OCR pipeline isti kao batch — ali matching **ne koristi** fuzzy ime / „Novi gost”.
+3. `person_index=0` se **forsira** na gosta na slotu `N` (`expected_document_slots(reservation)[N-1]`).
+4. Poll `GET /public/check-in/{token}/jobs/{id}/` auto-apply kad je job `done`.
+
+Ovo sprječava bug tipa „Novi gost (1. odrasli)” kad primarni gost nema ime u OCR-u.
 
 ---
 
@@ -45,8 +60,8 @@ eVisitor se **ne šalje automatski** — i dalje ručno / gumb u Hospiri.
 
 ## Checklist recepcije (normalan flow)
 
-1. Gost pošalje fotke (WhatsApp share → Hospira).
-2. Hospira: batch upload → process → apply (prazan body je OK).
+1. Gost otvori web check-in link (email, WhatsApp Auto check-in, Channex).
+2. Po slotu: ručni unos **ili** upload slika (WEB_GUEST OCR).
 3. U eVisitor listi provjeri:
    - broj gostiju = **Osobe** na rezervaciji (`persons_count`),
    - nema **„Novi gost”** s popunjenim dokumentom negdje drugdje,

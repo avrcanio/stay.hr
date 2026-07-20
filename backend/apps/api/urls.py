@@ -18,6 +18,8 @@ from apps.api.site_context_views import SiteContextView
 from apps.api.fcm_views import FcmTokenRegisterView
 from apps.api.guest_checkin_views import (
     GuestCheckInCompleteView,
+    GuestCheckInDocumentUploadView,
+    GuestCheckInJobPollView,
     GuestCheckInProgressView,
     GuestCheckInSessionView,
     GuestCheckInSlotView,
@@ -79,6 +81,16 @@ urlpatterns = [
         "public/check-in/<uuid:token>/slots/<int:position>/",
         GuestCheckInSlotView.as_view(),
         name="public-guest-checkin-slot",
+    ),
+    path(
+        "public/check-in/<uuid:token>/slots/<int:position>/documents/",
+        GuestCheckInDocumentUploadView.as_view(),
+        name="public-guest-checkin-documents",
+    ),
+    path(
+        "public/check-in/<uuid:token>/jobs/<int:job_id>/",
+        GuestCheckInJobPollView.as_view(),
+        name="public-guest-checkin-job",
     ),
     path(
         "public/check-in/<uuid:token>/complete/",

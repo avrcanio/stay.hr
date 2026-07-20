@@ -38,6 +38,21 @@ def is_operator_wa_id(*, tenant_id: int, wa_id: str) -> bool:
     return False
 
 
+def is_operator_wa_id_any_tenant(*, wa_id: str) -> bool:
+    """True when wa_id is a configured operator on any tenant (platform WABA inbox)."""
+    wa_id = (wa_id or "").strip()
+    if not wa_id:
+        return False
+    for settings in TenantReceptionSettings.objects.only(
+        "tenant_id",
+        "whatsapp_operator_phones",
+    ):
+        for operator in normalize_operator_phones(settings):
+            if phones_match(operator["phone"], wa_id):
+                return True
+    return False
+
+
 def operator_name_for_wa_id(*, tenant_id: int, wa_id: str) -> str:
     wa_id = (wa_id or "").strip()
     for operator in operator_phones_for_tenant(tenant_id):

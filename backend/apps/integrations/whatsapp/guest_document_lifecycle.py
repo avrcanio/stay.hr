@@ -21,6 +21,7 @@ class LifecycleBlockReason:
     ALLOWED = ""
     WAIVED = "waived"
     DOCUMENTS_COMPLETE = "documents_complete"
+    WEB_CHECKIN_ONLY = "web_checkin_only"
     CHECKED_OUT = "checked_out"
     CANCELED = "canceled"
     NO_SHOW = "no_show"
@@ -48,6 +49,10 @@ def whatsapp_document_intake_lifecycle_gate_enabled() -> bool:
     return bool(settings.WHATSAPP_DOCUMENT_INTAKE_LIFECYCLE_GATE)
 
 
+def guest_checkin_web_only_enabled() -> bool:
+    return bool(getattr(settings, "GUEST_CHECKIN_WEB_ONLY", True))
+
+
 def guest_document_intake_automation_allowed(
     reservation: Reservation,
     *,
@@ -59,6 +64,9 @@ def guest_document_intake_automation_allowed(
     terminal reservation statuses are not blocked (legacy behaviour); waived and
     documents-complete checks always apply.
     """
+    if guest_checkin_web_only_enabled():
+        return False, LifecycleBlockReason.WEB_CHECKIN_ONLY
+
     if is_whatsapp_autocheckin_waived(reservation):
         return False, LifecycleBlockReason.WAIVED
 

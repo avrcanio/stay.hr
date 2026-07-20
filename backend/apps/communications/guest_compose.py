@@ -807,9 +807,37 @@ def _render_documents_fallback(reservation: Reservation, context: dict) -> str:
 
 
 def render_documents_message(reservation: Reservation) -> str:
-    """Document upload instructions after Auto check-in quick reply."""
+    """Document upload instructions after Auto check-in quick reply (legacy WA OCR)."""
     context = build_compose_context(reservation)
     return _render_documents_fallback(reservation, context)
+
+
+def render_autocheckin_web_checkin_message(
+    reservation: Reservation,
+    *,
+    checkin_url: str,
+) -> str:
+    """Web check-in link after Auto check-in (documents via booking.uzorita.hr/check-in/)."""
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    adults = context["adults_count"]
+    body = _property_guest_text(
+        reservation,
+        "autocheckin_web_checkin",
+        lang,
+        adults=adults,
+        checkin_url=checkin_url,
+    )
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
 
 
 _GUEST_WEB_CHECKIN_REMINDER = {

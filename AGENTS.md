@@ -111,6 +111,10 @@ Telemetry (OCR-D, write-only): [`docs/development/document-intake-telemetry.md`]
 
 **Daily OCR email report:** Celery `send_document_intake_quality_report` at 09:00 Europe/Zagreb. Env: `DOCUMENT_INTAKE_QUALITY_REPORT_*` (see `.env.example`). Snapshot: `data/media/ops/document_intake_report_snapshot.json`. After `.env` changes: `docker compose up -d django celery-worker celery-beat`.
 
+### Guest web check-in (document channel)
+
+**Guest document intake is web-only** (`GUEST_CHECKIN_WEB_ONLY=true`): `booking.{tenant}/check-in/{token}` — manual PATCH + `WEB_GUEST` OCR (`POST .../documents/`, `GET .../jobs/{id}/`). WhatsApp Auto check-in and inbound guest images send the web link only; no guest `DocumentIntakeJob(source=whatsapp)`. Staff Operator Toni / Hospira batch OCR unchanged. ADR: [0004](docs/architecture/adr/0004-guest-checkin-session.md).
+
 ## Gunicorn + SSE (Reception)
 
 **Thesis:** event **distribution** (Redis EventBus) is separate from **transport** (Gunicorn vs dedicated Uvicorn SSE). Full Django ASGI is optional (Phase 2c), not required for SSE scaling. See [ADR 0005](docs/architecture/adr/0005-gunicorn-sse-worker-evolution.md).

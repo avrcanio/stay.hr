@@ -164,27 +164,27 @@ _AUTOCHECKIN_GREETING = {
     "hr": (
         "Bok {name}! Vidim rezervaciju {booking_code} "
         "({check_in}–{check_out}) u {property_name}.\n\n"
-        "Pritisnite Auto check-in za brzi online check-in."
+        "Pritisnite Auto check-in — dobit ćete link na web obrazac za unos podataka i dokumenata."
     ),
     "en": (
         "Hi {name}! I see booking {booking_code} "
         "({check_in}–{check_out}) at {property_name}.\n\n"
-        "Tap Auto check-in for quick online check-in."
+        "Tap Auto check-in — you'll receive a link to our web form for guest details and documents."
     ),
     "de": (
         "Guten Tag {name}! Ich sehe Buchung {booking_code} "
         "({check_in}–{check_out}) in {property_name}.\n\n"
-        "Tippen Sie auf Autocheck-in für den Online-Check-in."
+        "Tippen Sie auf Autocheck-in — Sie erhalten einen Link zum Webformular für Gästedaten und Dokumente."
     ),
     "es": (
         "¡Hola {name}! Veo la reserva {booking_code} "
         "({check_in}–{check_out}) en {property_name}.\n\n"
-        "Pulse Auto check-in para el check-in online."
+        "Pulse Auto check-in — recibirá un enlace al formulario web para datos y documentos."
     ),
     "fr": (
         "Bonjour {name} ! Je vois la réservation {booking_code} "
         "({check_in}–{check_out}) à {property_name}.\n\n"
-        "Appuyez sur Auto check-in pour l’enregistrement en ligne."
+        "Appuyez sur Auto check-in — vous recevrez un lien vers le formulaire web pour les données et documents."
     ),
 }
 

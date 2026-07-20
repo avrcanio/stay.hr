@@ -4,18 +4,31 @@ from __future__ import annotations
 
 from django.http import Http404
 from rest_framework import status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.reservations.checkin_readiness import CheckInReadinessDTO
+from apps.reservations.checkin_readiness import CheckInReadinessDTO, slot_validation_results
 from apps.reservations.document_expectations import expected_document_slots
+from apps.reservations.guest_checkin_ocr import (
+    field_confidence_for_slot,
+    job_belongs_to_checkin_session,
+    serialize_public_job,
+)
 from apps.reservations.guest_checkin_orchestrator import (
     GuestCheckInOrchestrator,
     GuestCheckInOrchestratorError,
 )
 from apps.reservations.guest_checkin_session import get_session_by_token
-from apps.reservations.models import Guest
+from apps.reservations.guest_checkin_web_ocr_service import (
+    MAX_WEB_GUEST_FILES,
+    collect_upload_files,
+    create_web_guest_intake_job,
+    max_web_guest_file_bytes,
+    poll_and_apply_web_guest_job,
+)
+from apps.reservations.models import DocumentIntakeJob, Guest
 
 _GUEST_PUBLIC_FIELDS = (
     "first_name",
@@ -130,6 +143,35 @@ def _access_error_response(access) -> Response:
     return Response(payload, status=access.http_status)
 
 
+def _serialize_web_guest_slot(*, reservation, position: int) -> dict:
+    guests_by_id = {guest.pk: guest for guest in expected_document_slots(reservation)}
+    slot = next(
+        (item for item in slot_validation_results(reservation) if item.position == position),
+        None,
+    )
+    if slot is None:
+        return {}
+    guest = guests_by_id.get(slot.guest_id)
+    payload = {
+        "position": position,
+        "guest_id": slot.guest_id,
+        "status": slot.status.value,
+        "missing_fields": list(slot.missing_fields),
+        "guest": _serialize_guest_fields(guest) if guest is not None else {},
+    }
+    confidence = field_confidence_for_slot(reservation, position=position)
+    if confidence:
+        payload["field_confidence"] = confidence
+    return payload
+
+
+def _session_gate_or_response(session, reservation):
+    readiness, access = GuestCheckInOrchestrator.get_readiness(session, reservation)
+    if not access.allowed:
+        return None, _access_error_response(access)
+    return readiness, None
+
+
 class GuestCheckInSessionView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -224,3 +266,78 @@ class GuestCheckInCompleteView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class GuestCheckInDocumentUploadView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, token, position: int):
+        session, reservation = _load_session_or_404(token)
+        readiness, error = _session_gate_or_response(session, reservation)
+        if error is not None:
+            return error
+
+        files = collect_upload_files(request)
+        if not files:
+            return Response({"detail": "no_files"}, status=status.HTTP_400_BAD_REQUEST)
+        if len(files) > MAX_WEB_GUEST_FILES:
+            return Response({"detail": "too_many_files"}, status=status.HTTP_400_BAD_REQUEST)
+
+        max_bytes = max_web_guest_file_bytes()
+        for uploaded in files:
+            if uploaded.size > max_bytes:
+                return Response({"detail": "file_too_large"}, status=status.HTTP_400_BAD_REQUEST)
+
+        slots = readiness.slots if readiness is not None else ()
+        if position < 1 or position > len(slots):
+            return Response({"detail": "invalid_position"}, status=status.HTTP_404_NOT_FOUND)
+
+        job = create_web_guest_intake_job(
+            session=session,
+            reservation=reservation,
+            position=position,
+            files=files,
+        )
+
+        readiness, access = GuestCheckInOrchestrator.get_readiness(session, reservation)
+        return Response(
+            {
+                **_serialize_progress(readiness),
+                "job_id": job.pk,
+                "job_status": job.status,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class GuestCheckInJobPollView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, token, job_id: int):
+        session, reservation = _load_session_or_404(token)
+        readiness, error = _session_gate_or_response(session, reservation)
+        if error is not None:
+            return error
+
+        job = DocumentIntakeJob.objects.filter(pk=job_id).first()
+        if job is None or not job_belongs_to_checkin_session(job, session=session):
+            return Response({"detail": "job_not_found"}, status=status.HTTP_404_NOT_FOUND)
+
+        position = int(job.guest_checkin_slot_position or 0)
+        job = poll_and_apply_web_guest_job(
+            session=session,
+            reservation=reservation,
+            job=job,
+            position=position,
+        )
+
+        readiness, _ = GuestCheckInOrchestrator.get_readiness(session, reservation)
+        payload = {
+            **_serialize_progress(readiness),
+            **serialize_public_job(job, reservation=reservation, position=position),
+            "slot": _serialize_web_guest_slot(reservation=reservation, position=position),
+        }
+        return Response(payload)

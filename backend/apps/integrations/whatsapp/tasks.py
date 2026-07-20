@@ -6,7 +6,10 @@ import re
 from celery import shared_task
 from django.utils import timezone
 
-from apps.communications.guest_compose import render_documents_message
+from apps.communications.guest_compose import (
+    render_autocheckin_web_checkin_message,
+    render_documents_message,
+)
 from apps.communications.whatsapp_autocheckin_tasks import mark_autocheckin_engaged
 from apps.communications.models import (
     GuestMessageChannel,
@@ -36,7 +39,10 @@ from apps.integrations.whatsapp.whatsapp_guest_autocheckin import (
     reply_already_checked_in_autocheckin,
     resolve_guest_reservation,
 )
-from apps.integrations.whatsapp.whatsapp_operator import is_operator_wa_id
+from apps.integrations.whatsapp.whatsapp_operator import (
+    is_operator_wa_id,
+    is_operator_wa_id_any_tenant,
+)
 from apps.integrations.whatsapp.whatsapp_operator_service import handle_operator_inbound
 from apps.integrations.whatsapp.whatsapp_session import resolved_tenant_id_for_message
 from apps.reservations.models import ReservationVersionScope
@@ -213,10 +219,29 @@ def _maybe_send_autocheckin_documents_reply(
     if is_whatsapp_autocheckin_waived(reservation):
         return {"status": "skipped", "reason": "autocheckin_waived"}
 
+    from apps.integrations.whatsapp.guest_document_lifecycle import guest_checkin_web_only_enabled
+    from apps.reservations.guest_checkin_orchestrator import GuestCheckInOrchestrator
+    from apps.reservations.models import GuestCheckInSessionCreatedFrom
+
     if not runtime.send_credentials_ok():
         return {"status": "missing_credentials"}
 
-    body = render_documents_message(reservation)
+    session_result = GuestCheckInOrchestrator.ensure_session_and_link(
+        reservation,
+        created_from=GuestCheckInSessionCreatedFrom.WHATSAPP_AUTOCHECKIN,
+        wa_id=row.wa_id,
+    )
+    if guest_checkin_web_only_enabled():
+        body = render_autocheckin_web_checkin_message(
+            reservation,
+            checkin_url=session_result.url,
+        )
+        hint = "autocheckin web check-in"
+        success_status = "web_checkin_sent"
+    else:
+        body = render_documents_message(reservation)
+        hint = "autocheckin documents"
+        success_status = "documents_sent"
     try:
         response = send_text_message(
             phone_number_id=runtime.phone_number_id,
@@ -247,7 +272,7 @@ def _maybe_send_autocheckin_documents_reply(
         tenant_id=row.tenant_id,
         reservation=reservation,
         intent=GuestMessageIntent.CHECKIN,
-        hint="autocheckin documents",
+        hint=hint,
         language="",
         llm_body_text=body,
         final_body_text=body,
@@ -266,7 +291,7 @@ def _maybe_send_autocheckin_documents_reply(
 
     return _touch_whatsapp_autocheckin_reply(
         reservation,
-        {"status": "documents_sent", "outbound_wamid": outbound_wamid},
+        {"status": success_status, "outbound_wamid": outbound_wamid},
     )
 
 
@@ -308,6 +333,21 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
     resolved_tenant_id = resolved_tenant_id_for_message(row)
 
     routing = getattr(row, "inbound_routing", None)
+
+    # Operator flow before guest routing gate: platform WABA marks operator
+    # images as unrouted (no guest phone match), which must not block Toni/Ante.
+    if is_operator_wa_id(tenant_id=resolved_tenant_id, wa_id=row.wa_id) or is_operator_wa_id_any_tenant(
+        wa_id=row.wa_id
+    ):
+        result = handle_operator_inbound(
+            row=row,
+            integration_row=integration_row,
+            runtime=runtime,
+            action_text=_inbound_action_text(row),
+            button_id=inbound_interactive_button_id(row),
+        )
+        return {**result, "reservation_id": None, "operator_flow": True}
+
     if routing is not None and routing.status in (
         "unrouted",
         "ambiguous",
@@ -317,16 +357,6 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
             "status": "routing_blocked",
             "routing_status": routing.status,
         }
-
-    if is_operator_wa_id(tenant_id=resolved_tenant_id, wa_id=row.wa_id):
-        result = handle_operator_inbound(
-            row=row,
-            integration_row=integration_row,
-            runtime=runtime,
-            action_text=_inbound_action_text(row),
-            button_id=inbound_interactive_button_id(row),
-        )
-        return {**result, "reservation_id": None, "operator_flow": True}
 
     if routing is not None and routing.resolved_reservation_id:
         reservation = routing.resolved_reservation
@@ -368,8 +398,24 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
                 reservation=reservation,
             )
         elif not maintenance_active:
-            on_whatsapp_document_received.delay(row.pk)
-            reply_result = {"status": "auto_reply_skipped", "reason": "media"}
+            from apps.integrations.whatsapp.guest_document_lifecycle import (
+                guest_checkin_web_only_enabled,
+            )
+            from apps.integrations.whatsapp.whatsapp_web_checkin_redirect import (
+                send_guest_web_checkin_link_reply,
+            )
+
+            if guest_checkin_web_only_enabled() and reservation is not None:
+                reply_result = send_guest_web_checkin_link_reply(
+                    row=row,
+                    integration_row=integration_row,
+                    runtime=runtime,
+                    reservation=reservation,
+                    hint="wa document redirect web check-in",
+                )
+            else:
+                on_whatsapp_document_received.delay(row.pk)
+                reply_result = {"status": "auto_reply_skipped", "reason": "media"}
         else:
             reply_result = {"status": "maintenance", "reason": "no_reservation"}
     elif row.message_type in _NON_ACTIONABLE_MESSAGE_TYPES:
@@ -427,8 +473,12 @@ def process_inbound_message(message_id: int, *, profile_name: str = "") -> dict:
                     from apps.integrations.whatsapp.autocheckin_docs_deadline import (
                         schedule_autocheckin_docs_deadline,
                     )
+                    from apps.integrations.whatsapp.guest_document_lifecycle import (
+                        guest_checkin_web_only_enabled,
+                    )
 
-                    schedule_autocheckin_docs_deadline(reservation)
+                    if not guest_checkin_web_only_enabled():
+                        schedule_autocheckin_docs_deadline(reservation)
         else:
             reply_result = handle_guest_autocheckin_inbound(
                 row=row,

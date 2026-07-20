@@ -78,14 +78,16 @@ class WhatsAppAutocheckinInboundTests(TestCase):
 
         result = process_inbound_message(inbound.pk)
 
-        self.assertEqual(result["status"], "documents_sent")
+        self.assertEqual(result["status"], "web_checkin_sent")
         mock_send.assert_called_once()
         self.reservation.refresh_from_db()
         self.assertIsNotNone(self.reservation.whatsapp_autocheckin_engaged_at)
+        body = mock_send.call_args.kwargs["body"]
+        self.assertIn("check-in", body.lower())
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.tasks.send_text_message")
-    def test_quick_reply_sends_documents_text(self, mock_send):
+    def test_quick_reply_sends_web_checkin_link(self, mock_send):
         mock_send.return_value = {"messages": [{"id": "wamid.out.doc"}]}
         inbound = WhatsAppMessage.objects.create(
             tenant=self.tenant,
@@ -108,17 +110,16 @@ class WhatsAppAutocheckinInboundTests(TestCase):
 
         result = process_inbound_message(inbound.pk)
 
-        self.assertEqual(result["status"], "documents_sent")
+        self.assertEqual(result["status"], "web_checkin_sent")
         mock_send.assert_called_once()
         self.reservation.refresh_from_db()
         self.assertIsNotNone(self.reservation.whatsapp_autocheckin_engaged_at)
         body = mock_send.call_args.kwargs["body"]
-        self.assertIn("Check-in — dokumenti", body)
-        self.assertIn("2", body)
+        self.assertIn("check-in", body.lower())
 
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.tasks.send_text_message")
-    def test_template_button_sends_documents_when_auto_reply_disabled(self, mock_send):
+    def test_template_button_sends_web_checkin_when_auto_reply_disabled(self, mock_send):
         self.integration.set_config_dict(
             {
                 "provider": "360dialog",
@@ -148,14 +149,16 @@ class WhatsAppAutocheckinInboundTests(TestCase):
 
         result = process_inbound_message(inbound.pk)
 
-        self.assertEqual(result["status"], "documents_sent")
+        self.assertEqual(result["status"], "web_checkin_sent")
         mock_send.assert_called_once()
         self.reservation.refresh_from_db()
         self.assertIsNotNone(self.reservation.whatsapp_autocheckin_engaged_at)
 
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
     @patch("apps.integrations.whatsapp.tasks.send_text_message")
     @patch("apps.integrations.whatsapp.tasks.on_whatsapp_document_received.delay")
-    def test_media_skips_auto_reply(self, mock_doc_task, mock_send):
+    def test_inbound_image_sends_web_checkin_link(self, mock_doc_task, mock_send):
+        mock_send.return_value = {"messages": [{"id": "wamid.out.web.image"}]}
         inbound = WhatsAppMessage.objects.create(
             tenant=self.tenant,
             integration=self.integration,
@@ -171,9 +174,9 @@ class WhatsAppAutocheckinInboundTests(TestCase):
 
         result = process_inbound_message(inbound.pk)
 
-        self.assertEqual(result["status"], "auto_reply_skipped")
-        mock_send.assert_not_called()
-        mock_doc_task.assert_called_once_with(inbound.pk)
+        self.assertEqual(result["status"], "web_checkin_sent")
+        mock_send.assert_called_once()
+        mock_doc_task.assert_not_called()
 
     @patch("apps.integrations.whatsapp.whatsapp_document_batch.send_interactive_button_message")
     @patch("apps.integrations.whatsapp.tasks.send_text_message")

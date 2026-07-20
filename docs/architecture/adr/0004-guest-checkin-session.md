@@ -27,13 +27,15 @@ Guests complete pre-arrival identity data through a **token-scoped web wizard** 
 
 ## Context / Problem statement
 
-Hotels must collect guest identity data before arrival (eVisitor, reception workflow). Today guests often send ID photos in WhatsApp; some prefer a web form. Requirements:
+Hotels must collect guest identity data before arrival (eVisitor, reception workflow). Guests complete identity capture on the **web check-in wizard** (`booking.{tenant}/check-in/{token}`). WhatsApp distributes the link and notifications; it is **not** a document upload channel for guests.
+
+Requirements:
 
 - Secure, shareable link without guest login
 - Partial progress preserved (close browser, resume later)
 - Reception visibility without requiring guest to click "Finish"
 - Same validation rules as eVisitor submit, but **not** coupled to eVisitor mapper during wizard entry
-- Multiple intake channels (manual web, web OCR, WhatsApp OCR) without duplicating business logic
+- Multiple intake channels (manual web, web OCR) without duplicating business logic
 - One active link per reservation; staff can regenerate
 
 ---
@@ -78,18 +80,20 @@ Single cross-channel coordinator (`guest_checkin_orchestrator.py`):
 
 Wizard must not use eVisitor payload builder as validator — different concerns (UX partial state vs regulatory submit).
 
-### Three intake channels, one aggregate
+### Guest document intake channels (2026-07 amendment)
 
 ```text
 Manual web PATCH  ──┐
 WEB_GUEST OCR     ──┼──► Guest model (per slot) ──► GuestValidator ──► derived ready
-WhatsApp OCR      ──┘         ▲
-                              └── DocumentIntakeJob (reuse pipeline)
+WhatsApp (guest)  ──┘   link distribution only — no guest DocumentIntakeJob
+                              ▲
+                              └── DocumentIntakeJob (WEB_GUEST + legacy WA/Hospira staff paths)
 ```
 
 - **Manual:** `PATCH .../slots/{position}/`
-- **WEB_GUEST:** `POST .../documents/` → `DocumentIntakeJob` → apply → orchestrator
-- **WhatsApp:** existing `DocumentIntakeJob` (source WhatsApp) — unchanged; same guest slots
+- **WEB_GUEST:** `POST .../slots/{position}/documents/` → `DocumentIntakeJob(source=web_guest, guest_checkin_slot_position=N)` → slot-forced match → apply → orchestrator events
+- **WhatsApp (guest):** Auto check-in and inbound images → **web check-in URL** (`GUEST_CHECKIN_WEB_ONLY=true`). No guest WA OCR batch.
+- **WhatsApp / Hospira (staff):** Operator Toni and reception batch OCR unchanged for edge cases.
 
 eVisitor submit remains **staff-only** (reception / Hospira).
 
@@ -135,7 +139,8 @@ Implemented in `apps/api/guest_checkin_views.py`. Authentication: none (`AllowAn
 
 - Guest login / PIN / account registration
 - Automatic eVisitor submit
-- Replacing WhatsApp OCR or reception UI
+- Replacing reception UI or staff Hospira batch OCR
+- Guest WhatsApp document upload (retired 2026-07; web check-in only)
 - Offline wizard
 - Guest portal for booking changes
 - Channex as required MVP channel (implemented PR-C after wizard validation)

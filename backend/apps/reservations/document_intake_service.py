@@ -233,8 +233,16 @@ def process_document_intake_job(ctx: DocumentIntakeContext) -> None:
 
         if persons:
             from apps.reservations.document_intake_audit import run_document_intake_matching_pipeline
+            from apps.reservations.document_intake_web_guest import (
+                is_web_guest_slot_forced_job,
+                run_web_guest_matching_pipeline,
+            )
 
-            if ctx.is_reservation_scoped:
+            if is_web_guest_slot_forced_job(ctx):
+                if reservation is None:
+                    reservation = ctx.reservation
+                matches = run_web_guest_matching_pipeline(ctx=ctx, persons=persons)
+            elif ctx.is_reservation_scoped:
                 if reservation is None:
                     reservation = ctx.reservation
                 matches = run_document_intake_matching_pipeline(
@@ -420,11 +428,19 @@ def apply_document_intake_job(
     }
 
     if not selection_map:
-        matches = _prepare_intake_matches(
-            ctx=ctx,
-            persons=persons,
-            matches=matches,
+        from apps.reservations.document_intake_web_guest import (
+            is_web_guest_slot_forced_job,
+            run_web_guest_matching_pipeline,
         )
+
+        if is_web_guest_slot_forced_job(ctx):
+            matches = run_web_guest_matching_pipeline(ctx=ctx, persons=persons)
+        else:
+            matches = _prepare_intake_matches(
+                ctx=ctx,
+                persons=persons,
+                matches=matches,
+            )
         job.matches = matches
         job.save(update_fields=["matches", "updated_at"])
 

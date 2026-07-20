@@ -120,4 +120,4 @@ Detalji: [whatsapp-38598203090-mauro-diliddo-5585518759-hr.md](./whatsapp-385982
 
 ---
 
-Povezano: [guest-messages-channels.md](./guest-messages-channels.md), [whatsapp-checkin-template.md](./whatsapp-checkin-template.md)
+Povezano: [guest-messages-channels.md](./guest-messages-channels.md), [whatsapp-checkin-template.md](./whatsapp-checkin-template.md), [operator-document-intake-audit-checklist.md](./operator-document-intake-audit-checklist.md) (audit datuma + recovery; **ne dirati checked_out**)

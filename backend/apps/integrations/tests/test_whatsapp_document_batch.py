@@ -39,6 +39,7 @@ from apps.tenants.models import Tenant
     STAY_INTEGRATION_FERNET_KEY=TEST_FERNET_KEY,
     CELERY_TASK_ALWAYS_EAGER=True,
     CELERY_TASK_EAGER_PROPAGATES=True,
+    GUEST_CHECKIN_WEB_ONLY=False,
 )
 class WhatsAppDocumentBatchTests(TestCase):
     def setUp(self):

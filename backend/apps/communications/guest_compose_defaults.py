@@ -57,6 +57,44 @@ PARKING_TEXTS = {
     ),
 }
 
+AUTOCHECKIN_WEB_CHECKIN_TEXTS = {
+    "hr": (
+        "Check-in — web obrazac\n"
+        "Molimo dovršite online check-in na sigurnom web obrascu prije dolaska. "
+        "Tu možete ručno unijeti podatke ili uploadati fotografije dokumenata "
+        "({adults} odrasli/a):\n{checkin_url}\n\n"
+        "WhatsApp više ne prima slike dokumenata — koristite link iznad."
+    ),
+    "en": (
+        "Check-in — web form\n"
+        "Please complete online check-in on our secure web form before arrival. "
+        "You can enter details manually or upload ID photos there "
+        "({adults} adult(s)):\n{checkin_url}\n\n"
+        "WhatsApp no longer accepts document photos — please use the link above."
+    ),
+    "de": (
+        "Check-in — Webformular\n"
+        "Bitte schließen Sie den Online-Check-in vor der Anreise über unser sicheres "
+        "Webformular ab. Dort können Sie Daten manuell eingeben oder Ausweisfotos "
+        "hochladen ({adults} Erwachsene):\n{checkin_url}\n\n"
+        "WhatsApp akzeptiert keine Dokumentfotos mehr — bitte den Link oben verwenden."
+    ),
+    "es": (
+        "Check-in — formulario web\n"
+        "Complete el check-in online en nuestro formulario seguro antes de la llegada. "
+        "Puede introducir los datos manualmente o subir fotos del documento "
+        "({adults} adulto(s)):\n{checkin_url}\n\n"
+        "WhatsApp ya no acepta fotos de documentos — use el enlace de arriba."
+    ),
+    "fr": (
+        "Check-in — formulaire web\n"
+        "Veuillez finaliser l'enregistrement en ligne sur notre formulaire sécurisé avant "
+        "votre arrivée. Vous pouvez saisir les données manuellement ou y téléverser les "
+        "photos des pièces d'identité ({adults} adulte(s)) :\n{checkin_url}\n\n"
+        "WhatsApp n'accepte plus les photos de documents — utilisez le lien ci-dessus."
+    ),
+}
+
 DOCUMENTS_TEXTS = {
     "hr": (
         "Check-in — dokumenti\n"
@@ -850,6 +888,7 @@ DEFAULT_TEXTS: dict[str, dict[str, str]] = {
     "entrance": ENTRANCE_TEXTS,
     "parking": PARKING_TEXTS,
     "documents": DOCUMENTS_TEXTS,
+    "autocheckin_web_checkin": AUTOCHECKIN_WEB_CHECKIN_TEXTS,
     "documents_batch_confirm": DOCUMENTS_BATCH_CONFIRM,
     "documents_batch_confirm_yes": DOCUMENTS_BATCH_CONFIRM_YES,
     "documents_batch_confirm_no": DOCUMENTS_BATCH_CONFIRM_NO,
