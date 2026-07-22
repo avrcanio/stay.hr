@@ -44,6 +44,7 @@ from apps.integrations.whatsapp.welcome_template import (
     welcome_template_name,
 )
 from apps.properties.models import Property
+from apps.reservations.guest_checkin_session import reservation_has_completed_web_checkin
 from apps.reservations.models import (
     DocumentIntakeJob,
     DocumentIntakeJobSource,
@@ -102,6 +103,13 @@ def send_autocheckin_intro_email(
     *,
     dry_run: bool = False,
 ) -> dict:
+    if reservation_has_completed_web_checkin(reservation):
+        return {
+            "status": "skipped",
+            "reason": "web_checkin_completed",
+            "reservation_id": reservation.pk,
+        }
+
     recipient = _guest_recipient(reservation)
     if not recipient:
         return {"status": "skipped", "reason": "no_email", "reservation_id": reservation.pk}
@@ -193,6 +201,8 @@ def iter_due_autocheckin_intro_emails(
             .select_related("property", "tenant")
         )
         for reservation in qs:
+            if reservation_has_completed_web_checkin(reservation):
+                continue
             if _guest_recipient(reservation):
                 reservations.append(reservation)
     return reservations
@@ -223,6 +233,13 @@ def send_welcome_template_for_reservation(
 
     if reservation.whatsapp_welcome_sent_at is not None:
         return {"status": "already_sent", "reservation_id": reservation.pk}
+
+    if reservation_has_completed_web_checkin(reservation):
+        return {
+            "status": "skipped",
+            "reason": "web_checkin_completed",
+            "reservation_id": reservation.pk,
+        }
 
     if reservation.whatsapp_autocheckin_waived_at is not None:
         return {"status": "skipped", "reason": "autocheckin_waived", "reservation_id": reservation.pk}
@@ -362,6 +379,8 @@ def iter_due_autocheckin_reservations(
             .prefetch_related("guests")
         )
         for reservation in qs:
+            if reservation_has_completed_web_checkin(reservation):
+                continue
             if _is_due_for_autocheckin_welcome(reservation, on_date=on_date):
                 integration_row, runtime = resolve_whatsapp_integration(reservation.tenant)
                 if integration_row is None or runtime is None or not runtime.send_credentials_ok():

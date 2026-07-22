@@ -124,6 +124,17 @@ def get_active_session(reservation: Reservation) -> GuestCheckInSession | None:
     )
 
 
+def reservation_has_completed_web_checkin(reservation: Reservation) -> bool:
+    """True if any GuestCheckInSession for this reservation is completed.
+
+    Does not filter by ``created_from`` — Channex, email, reception, and WA
+    links all lead to the same HTML form. Active/ready sessions do not count.
+    """
+    return reservation.guest_checkin_sessions.filter(
+        status=GuestCheckInSessionStatus.COMPLETED,
+    ).exists()
+
+
 @transaction.atomic
 def ensure_active_session(
     reservation: Reservation,

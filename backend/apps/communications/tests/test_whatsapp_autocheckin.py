@@ -4,6 +4,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from apps.communications.guest_compose import render_autocheckin_whatsapp_intro_email_html
 from apps.communications.whatsapp_autocheckin_tasks import (
@@ -21,7 +22,12 @@ from apps.integrations.tests.test_whatsapp_webhook import TEST_FERNET_KEY
 from apps.integrations.whatsapp.welcome_template import build_welcome_template_parameters
 from apps.properties.models import Property
 from apps.reservations.booking_lifecycle import confirm_web_booking
-from apps.reservations.models import Guest, Reservation
+from apps.reservations.models import (
+    GuestCheckInSession,
+    GuestCheckInSessionCreatedFrom,
+    GuestCheckInSessionStatus,
+    Reservation,
+)
 from apps.tenants.models import Tenant
 
 TEST_D360_KEY = "test-d360-key"
@@ -206,6 +212,68 @@ class WhatsAppAutocheckinWelcomeTests(TestCase):
 
         due = iter_due_autocheckin_reservations()
         self.assertEqual(due, [])
+
+    def _create_completed_web_checkin(self, *, created_from: str) -> GuestCheckInSession:
+        now = timezone.now()
+        return GuestCheckInSession.objects.create(
+            tenant_id=self.tenant.pk,
+            reservation=self.reservation,
+            status=GuestCheckInSessionStatus.COMPLETED,
+            opens_at=now - timedelta(days=1),
+            expires_at=now + timedelta(days=2),
+            completed_at=now,
+            created_from=created_from,
+        )
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.communications.whatsapp_autocheckin_tasks.send_template_message")
+    def test_skip_welcome_when_web_checkin_completed_channex(self, mock_send):
+        self._create_completed_web_checkin(created_from=GuestCheckInSessionCreatedFrom.CHANNEX)
+
+        result = send_welcome_template_for_reservation(self.reservation)
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "web_checkin_completed")
+        mock_send.assert_not_called()
+        self.reservation.refresh_from_db()
+        self.assertIsNone(self.reservation.whatsapp_welcome_sent_at)
+
+    @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})
+    @patch("apps.communications.whatsapp_autocheckin_tasks.send_template_message")
+    def test_skip_welcome_when_web_checkin_completed_email(self, mock_send):
+        self._create_completed_web_checkin(created_from=GuestCheckInSessionCreatedFrom.EMAIL)
+
+        result = send_welcome_template_for_reservation(self.reservation)
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "web_checkin_completed")
+        mock_send.assert_not_called()
+
+    @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")
+    def test_completed_web_checkin_excluded_from_due_welcome(self, mock_now):
+        mock_now.return_value = datetime(2026, 6, 7, 8, 15, tzinfo=ZAGREB)
+        self._create_completed_web_checkin(created_from=GuestCheckInSessionCreatedFrom.CHANNEX)
+
+        due = iter_due_autocheckin_reservations()
+        self.assertEqual(due, [])
+
+    @patch("apps.communications.whatsapp_autocheckin_tasks.property_local_now")
+    def test_completed_web_checkin_excluded_from_due_intro(self, mock_now):
+        mock_now.return_value = datetime(2026, 6, 7, 7, 30, tzinfo=ZAGREB)
+        self._create_completed_web_checkin(created_from=GuestCheckInSessionCreatedFrom.EMAIL)
+
+        due = iter_due_autocheckin_intro_emails()
+        self.assertEqual(due, [])
+
+    @patch("apps.communications.guest_message_send.send_guest_text_email")
+    def test_skip_intro_email_when_web_checkin_completed(self, mock_email):
+        self._create_completed_web_checkin(created_from=GuestCheckInSessionCreatedFrom.CHANNEX)
+
+        result = send_autocheckin_intro_email(self.reservation)
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "web_checkin_completed")
+        mock_email.assert_not_called()
 
     @patch("apps.communications.guest_message_send.send_guest_text_email")
     @patch.dict("os.environ", {"D360_API_KEY": TEST_D360_KEY})

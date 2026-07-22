@@ -2,7 +2,7 @@
 
 Operativni predložak za traženje dokumenata i slanje detalja dolaska **prije** check-ina. U Hospiri oba koraka koriste **postojeći Generiraj** (deterministički template, bez LLM). Zatim u zasebnoj poruci priložiti sliku ulaza.
 
-**Slika ulaza:** `backend/assets/whatsapp/uzorita_entrance.jpg` (znak „Restaurant Uzorita”, ROOMS, kapija s lozom) — automatski se šalje nakon post-check-in auto-odgovora na parking/dolazak
+**Slika ulaza:** `backend/assets/whatsapp/uzorita_entrance.jpg` (znak „Restaurant UZORITA”, pločica 58 / 4★, crna kapija s lozom; ažurirano 2026-07-22) — automatski se šalje nakon post-check-in auto-odgovora na parking/dolazak
 
 **Povezano:** [ai-runbook-ocr-checkin-evisitor-2026-06.md](./ai-runbook-ocr-checkin-evisitor-2026-06.md), [id-document-import.md](../development/id-document-import.md)
 
@@ -17,6 +17,8 @@ python manage.py seed_uzorita_guest_info --tenant-slug uzorita --property-slug u
 Schema i helperi: `backend/apps/properties/guest_info.py`, podaci: `backend/apps/properties/uzorita_guest_info.py`.
 
 **Flutter chat (timeline + tri kanala):** [guest-messages-flutter.md](../development/guest-messages-flutter.md)
+
+**Ops — web check-in vs WhatsApp welcome:** Ako rezervacija već ima `GuestCheckInSession` sa `status=completed` (web obrazac završen — Channex, email, recepcija ili WA link), beat **ne šalje** Meta welcome template ni intro email tog dana (`reason=web_checkin_completed`). Aktivna / ready sesija ne blokira.
 
 ---
 
