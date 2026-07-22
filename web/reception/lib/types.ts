@@ -76,6 +76,16 @@ export type GuestLite = {
 
 export type EvisitorSummary = "none" | "incomplete" | "complete" | "checked_out";
 
+export type CheckinProgress = {
+  required_slots: number;
+  ready_slots: number;
+  waiting_positions: number[];
+  session_status: string | null;
+  effective_status: string | null;
+  last_activity_at: string | null;
+  checkin_url: string | null;
+};
+
 export type EvisitorProgress = {
   required: number;
   sent: number;
@@ -200,6 +210,7 @@ export type ReservationDetail = Reservation & {
   confirmation_pdf_url: string;
   evisitor_summary?: EvisitorSummary;
   evisitor_progress?: EvisitorProgress;
+  checkin_progress?: CheckinProgress;
   check_in_allowed?: boolean;
   check_in_blocked_code?: "wrong_date" | "room_occupied" | "no_unit" | null;
   payment_status?: string;

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { BookingPdfImportForm } from "@/app/_components/BookingPdfImportForm";
 import { CountryFlag } from "@/app/_components/CountryFlag";
+import { GuestCheckInProgressSection } from "@/app/_components/GuestCheckInProgressSection";
 import { GuestList } from "@/app/_components/GuestList";
 import { GuestMessagesPanel } from "@/app/_components/GuestMessagesPanel";
 import { GuestReviewsPanel } from "@/app/_components/GuestReviewsPanel";
@@ -271,6 +272,15 @@ export function ReservationDetailPanel({ reservationId, embedded = false, onUpda
           <dd className="font-medium">{reservation.booker_phone || tc("dash")}</dd>
         </div>
       </dl>
+
+      {reservation.checkin_progress ? (
+        <GuestCheckInProgressSection
+          reservationId={reservation.id}
+          reservationStatus={reservation.status}
+          progress={reservation.checkin_progress}
+          onUpdated={() => load({ background: true })}
+        />
+      ) : null}
 
       <ReservationFinancialSection reservation={reservation} />
 
