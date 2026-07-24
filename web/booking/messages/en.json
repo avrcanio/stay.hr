@@ -390,5 +390,33 @@
       "document_number": "document number",
       "address": "address"
     }
+  },
+  "guestPortal": {
+    "subtitle": "Stay information for your reservation",
+    "loading": "Loading…",
+    "loadFailed": "Guest information is not available right now.",
+    "notOpenTitle": "Not open yet",
+    "notOpenBody": "This link will open a few days before arrival.",
+    "expiredTitle": "This link is no longer valid",
+    "expiredBody": "Please contact reception for a new link.",
+    "openMaps": "Open in Maps",
+    "entranceImageAlt": "Property entrance",
+    "wifiSsid": "WiFi",
+    "wifiPassword": "Password",
+    "phone": "Phone",
+    "whatsapp": "WhatsApp",
+    "hours": "Hours",
+    "sections": {
+      "welcome": "Welcome",
+      "arrival": "Arrival",
+      "parking": "Parking",
+      "wifi": "WiFi",
+      "breakfast": "Breakfast",
+      "contact": "Contact",
+      "keyGuide": "Key pickup"
+    },
+    "room": "Room",
+    "keyLabel": "Key",
+    "keyGuideStepAlt": "Key guide step {step}"
   }
 }

@@ -3,7 +3,7 @@ from datetime import time
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from apps.properties.models import AfterHoursArrivalPolicy, Property
+from apps.properties.models import AfterHoursArrivalPolicy, Property, SelfServiceMode
 from apps.properties.guest_info import normalize_guest_info
 from apps.properties.uzorita_guest_info import UZORITA_GUEST_INFO
 from apps.tenants.models import Tenant
@@ -40,12 +40,14 @@ class Command(BaseCommand):
 
         normalized = normalize_guest_info(UZORITA_GUEST_INFO)
         text_keys = sorted((normalized.get("texts") or {}).keys())
+        guide_steps = len((normalized.get("guide") or {}).get("steps") or [])
 
         if options["dry_run"]:
             self.stdout.write(
                 self.style.WARNING(
                     f"Dry run — would set guest_info on {prop.name} "
-                    f"({len(text_keys)} text keys, maps={normalized['links']['maps_url']})"
+                    f"({len(text_keys)} text keys, maps={normalized['links']['maps_url']}, "
+                    f"guide_steps={guide_steps}, self_service_mode=schedule weekdays=[1])"
                 )
             )
             return
@@ -56,14 +58,27 @@ class Command(BaseCommand):
         prop.after_hours_contact_phone = "+385998388513"
         prop.guest_arrival_auto_reply_enabled = True
         prop.guest_parking_auto_reply_enabled = True
+        # PR-C: key guide visible on Tuesdays only (Python weekday 1).
+        prop.self_service_mode = SelfServiceMode.SCHEDULE
+        prop.self_service_config = {"weekdays": [1]}
+        contact = prop.contact if isinstance(prop.contact, dict) else {}
+        contact = {
+            **contact,
+            "phone": contact.get("phone") or "+385998388513",
+            "whatsapp": contact.get("whatsapp") or "+385998388513",
+        }
+        prop.contact = contact
         prop.save(
             update_fields=[
                 "guest_info",
+                "contact",
                 "check_in_latest_time",
                 "after_hours_arrival_policy",
                 "after_hours_contact_phone",
                 "guest_arrival_auto_reply_enabled",
                 "guest_parking_auto_reply_enabled",
+                "self_service_mode",
+                "self_service_config",
                 "updated_at",
             ]
         )
@@ -71,6 +86,7 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"Updated guest_info for property {prop.slug} "
-                f"(tenant {tenant.slug}, {len(text_keys)} text keys)."
+                f"(tenant {tenant.slug}, {len(text_keys)} text keys, "
+                f"{guide_steps} guide steps, self_service_mode=schedule weekdays=[1])."
             )
         )

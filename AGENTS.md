@@ -123,11 +123,12 @@ Telemetry (OCR-D, write-only): [`docs/development/document-intake-telemetry.md`]
 - Status: `GET /api/v1/reception/system/status/` — **reception:read**; `metrics_scope=worker_process` (not global). Fields: `build.git_sha`, `build.started_at`, `build.hostname`.
 - Benchmark: `./scripts/benchmark-health-latency.sh` — p50/p95/p99 (`BENCHMARK_LIGHT=1` for CI; `OPS_CI_ARTIFACT_DIR` for artifacts).
 - Load test before sign-off: `./scripts/load-test-gunicorn-sse.sh` (`LOAD_TEST_LIGHT=1` for CI; requires `RECEPTION_API_TOKEN`, `LOAD_TEST_RESERVATION_ID`).
-- **3–7 day monitoring checklist:** [gunicorn-sse-monitoring.md](docs/operations/gunicorn-sse-monitoring.md). ADR: [0005](docs/architecture/adr/0005-gunicorn-sse-worker-evolution.md).
+- **Monitoring checklist:** [gunicorn-sse-monitoring.md](docs/operations/gunicorn-sse-monitoring.md). ADR: [0005](docs/architecture/adr/0005-gunicorn-sse-worker-evolution.md).
+- **Lifecycle instrumentation (permanent):** `stream_id` registry, `invariant_delta` / `sse_invariant_breach`, BFF AbortSignal logs (`bff_sse_*`), Django `sse_stream_opened`/`closed`, and `GET /system/status` SSE block stay **on through Phase 2a (Redis) and 2b (Uvicorn)** — do not strip when changing the event bus or transport. Daily observe remains useful: `./scripts/observe-sse-lifecycle.sh --append-log` → [sse-lifecycle-observation-log.md](docs/operations/sse-lifecycle-observation-log.md). **No calendar “N days PASS” gate** blocks Redis; if leak/saturation returns → stop and analyze with these tools; if it does not recur → continue Phase 2a.
 - **Postmortem:** [2026-07-08 SSE worker exhaustion](docs/operations/incidents/2026-07-08-sse-worker-exhaustion.md).
 - One-off `manage.py` / tests: use **`django-run`** profile (`docker compose --profile test-run run --rm django-run …`) — no Traefik labels.
-- **Future flags** (comment stubs in `.env.example`; no code until Phase 2a/2b): `RESERVATION_VERSION_EVENT_BUS=in_process|redis`, `SSE_TRANSPORT=gunicorn|uvicorn`.
-- Phase 2a (Redis EventBus) → Phase 2b (dedicated Uvicorn SSE) if ADR triggers met and validation gates passed — see ADR phase 2 trigger criteria.
+- **Flags:** `RESERVATION_VERSION_EVENT_BUS=in_process|redis` (Phase 2a; default `in_process` in `base.py`). Rollback: set `in_process`, then `docker compose up -d django celery-worker`. Phase 2b stub only: `SSE_TRANSPORT=gunicorn|uvicorn`.
+- Phase 2a (Redis EventBus) → Phase 2b (dedicated Uvicorn SSE) if ADR triggers met — see ADR phase 2 trigger criteria. Instrumentation above is a prerequisite for both phases, not a temporary observation-only feature.
 
 ## Daily ops report
 

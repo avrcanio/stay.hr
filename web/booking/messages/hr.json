@@ -390,5 +390,33 @@
       "document_number": "broj dokumenta",
       "address": "adresa"
     }
+  },
+  "guestPortal": {
+    "subtitle": "Informacije za vaš boravak",
+    "loading": "Učitavanje…",
+    "loadFailed": "Informacije za goste trenutno nisu dostupne.",
+    "notOpenTitle": "Još nije otvoreno",
+    "notOpenBody": "Ovaj link bit će dostupan nekoliko dana prije dolaska.",
+    "expiredTitle": "Link više nije valjan",
+    "expiredBody": "Obratite se recepciji za novi link.",
+    "openMaps": "Otvori u Kartama",
+    "entranceImageAlt": "Ulaz u objekt",
+    "wifiSsid": "WiFi",
+    "wifiPassword": "Lozinka",
+    "phone": "Telefon",
+    "whatsapp": "WhatsApp",
+    "hours": "Radno vrijeme",
+    "sections": {
+      "welcome": "Dobrodošli",
+      "arrival": "Dolazak",
+      "parking": "Parkiranje",
+      "wifi": "WiFi",
+      "breakfast": "Doručak",
+      "contact": "Kontakt",
+      "keyGuide": "Preuzimanje ključa"
+    },
+    "room": "Soba",
+    "keyLabel": "Ključ",
+    "keyGuideStepAlt": "Korak za ključ {step}"
   }
 }

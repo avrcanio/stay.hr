@@ -3,10 +3,16 @@
 
 resolve_git_sha() {
   local root="${1:-.}"
+  local sha=""
   if [[ -n "${STAY_GIT_SHA:-}" ]]; then
     printf '%s' "$STAY_GIT_SHA"
-  elif command -v git >/dev/null 2>&1 && git -C "$root" rev-parse --short HEAD 2>/dev/null; then
-    git -C "$root" rev-parse --short HEAD
+  elif command -v git >/dev/null 2>&1; then
+    sha="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || true)"
+    if [[ -n "$sha" ]]; then
+      printf '%s' "$sha"
+    else
+      printf 'unknown'
+    fi
   else
     printf 'unknown'
   fi

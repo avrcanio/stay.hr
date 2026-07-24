@@ -45,6 +45,12 @@ class DockerSignalsCollector:
                     status=Severity.WARN,
                     display="missing file",
                 ),
+                MetricResult(
+                    key="docker.sse_invariant_breach",
+                    value=None,
+                    status=Severity.WARN,
+                    display="missing file",
+                ),
             ]
             return ReportSection(
                 title=self.title,
@@ -98,6 +104,19 @@ class DockerSignalsCollector:
                     display=str(value),
                 )
             )
+
+        # Permanent SSE lifecycle instrumentation (ADR 0005): any sse_invariant_breach
+        # in container logs is CRIT — keep through Redis/Uvicorn phases.
+        breach_count = int(metrics.get("sse_invariant_breach", 0))
+        breach_status = Severity.CRIT if breach_count > 0 else Severity.OK
+        rows.append(
+            MetricResult(
+                key="docker.sse_invariant_breach",
+                value=breach_count,
+                status=breach_status,
+                display=str(breach_count),
+            )
+        )
 
         generated_at = payload.get("generated_at", "unknown")
         summary = f"Host file {path.name}, generated_at={generated_at}. Experimental — host-dependent."

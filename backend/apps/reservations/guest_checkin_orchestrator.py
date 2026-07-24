@@ -190,6 +190,18 @@ class GuestCheckInOrchestrator:
         mark_session_completed(session)
         emit_guest_session_completed(session=session, reservation=reservation)
         readiness = build_checkin_readiness(session, reservation)
+
+        reservation_id = reservation.pk
+        session_id = session.pk
+
+        def _enqueue_portal_link() -> None:
+            from apps.reservations.guest_checkin_tasks import (
+                send_guest_portal_link_after_checkin,
+            )
+
+            send_guest_portal_link_after_checkin.delay(reservation_id, session_id)
+
+        transaction.on_commit(_enqueue_portal_link)
         return CompleteSessionResult(session=session, readiness=readiness)
 
     @staticmethod

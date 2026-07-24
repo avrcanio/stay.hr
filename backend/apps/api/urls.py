@@ -24,6 +24,11 @@ from apps.api.guest_checkin_views import (
     GuestCheckInSessionView,
     GuestCheckInSlotView,
 )
+from apps.api.guest_portal_views import (
+    GuestPortalEntranceImageView,
+    GuestPortalKeyGuideStepImageView,
+    GuestPortalView,
+)
 
 urlpatterns = [
     path("auth/reception-login/", ReceptionLoginView.as_view(), name="reception-login"),
@@ -96,5 +101,20 @@ urlpatterns = [
         "public/check-in/<uuid:token>/complete/",
         GuestCheckInCompleteView.as_view(),
         name="public-guest-checkin-complete",
+    ),
+    path(
+        "public/guest-portal/<uuid:token>/",
+        GuestPortalView.as_view(),
+        name="public-guest-portal",
+    ),
+    path(
+        "public/guest-portal/<uuid:token>/entrance/",
+        GuestPortalEntranceImageView.as_view(),
+        name="public-guest-portal-entrance",
+    ),
+    path(
+        "public/guest-portal/<uuid:token>/steps/<int:index>/",
+        GuestPortalKeyGuideStepImageView.as_view(),
+        name="public-guest-portal-key-guide-step",
     ),
 ]

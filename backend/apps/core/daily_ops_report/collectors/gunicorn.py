@@ -88,6 +88,28 @@ class GunicornCollector:
                 )
             )
 
+        # Permanent SSE lifecycle instrumentation (ADR 0005): keep through Redis/Uvicorn.
+        # opened − closed − active == 0
+        invariant_delta = int(sse.get("invariant_delta") or 0)
+        invariant_ok = bool(sse.get("invariant_ok", invariant_delta == 0))
+        invariant_status = Severity.OK if invariant_ok and invariant_delta == 0 else Severity.CRIT
+        rows.append(
+            MetricResult(
+                key="sse.invariant_delta",
+                value=invariant_delta,
+                status=invariant_status,
+                display=f"{invariant_delta} (reporter process)",
+            )
+        )
+        rows.append(
+            MetricResult(
+                key="sse.invariant_ok",
+                value=1 if invariant_ok else 0,
+                status=invariant_status,
+                display="true" if invariant_ok else "false",
+            )
+        )
+
         avg_duration = sse.get("average_duration_seconds")
         avg_display = (
             f"{avg_duration}s (reporter process)"
@@ -100,6 +122,56 @@ class GunicornCollector:
                 value=avg_duration,
                 status=Severity.OK,
                 display=avg_display,
+            )
+        )
+
+        event_bus = payload.get("event_bus") or {}
+        bus_backend = str(event_bus.get("backend") or "in_process")
+        rows.append(
+            MetricResult(
+                key="event_bus.backend",
+                value=bus_backend,
+                status=Severity.OK,
+                display=bus_backend,
+            )
+        )
+        reconnect = int(event_bus.get("redis_reconnect_count") or 0)
+        reconnect_status = Severity.OK
+        if bus_backend == "redis" and reconnect > 0:
+            reconnect_status = Severity.WARN
+        rows.append(
+            MetricResult(
+                key="event_bus.redis_reconnect_count",
+                value=reconnect,
+                status=reconnect_status,
+                display=str(reconnect),
+            )
+        )
+        for counter_key in (
+            "publish_count",
+            "receive_count",
+            "local_fallback_count",
+            "dedupe_drop_count",
+        ):
+            numeric = int(event_bus.get(counter_key) or 0)
+            status = Severity.OK
+            if counter_key == "local_fallback_count" and numeric > 0:
+                status = Severity.WARN
+            rows.append(
+                MetricResult(
+                    key=f"event_bus.{counter_key}",
+                    value=numeric,
+                    status=status,
+                    display=f"{numeric} (reporter process)",
+                )
+            )
+        last_fallback = event_bus.get("last_fallback_at")
+        rows.append(
+            MetricResult(
+                key="event_bus.last_fallback_at",
+                value=last_fallback,
+                status=Severity.WARN if last_fallback else Severity.OK,
+                display=str(last_fallback) if last_fallback else "null",
             )
         )
 

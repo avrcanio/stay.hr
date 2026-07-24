@@ -13,6 +13,13 @@ class AfterHoursArrivalPolicy(models.TextChoices):
     NOT_ALLOWED = "not_allowed", "Entry not allowed after latest time"
 
 
+class SelfServiceMode(models.TextChoices):
+    OFF = "off", "Off"
+    ALWAYS = "always", "Always"
+    SCHEDULE = "schedule", "Weekly schedule"
+    CALENDAR = "calendar", "Calendar dates"
+
+
 class Property(TenantScopedModel):
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=64)
@@ -50,6 +57,23 @@ class Property(TenantScopedModel):
     guest_parking_auto_reply_enabled = models.BooleanField(
         default=True,
         help_text="Auto-reply when guest asks about parking (WhatsApp, email, Channex).",
+    )
+    self_service_mode = models.CharField(
+        max_length=16,
+        choices=SelfServiceMode.choices,
+        default=SelfServiceMode.OFF,
+        help_text=(
+            "When the guest-portal key guide card is shown: "
+            "off, always, weekday schedule, or explicit calendar dates."
+        ),
+    )
+    self_service_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            'Schedule: {"weekdays": [1]} (Python weekday, Tuesday=1). '
+            'Calendar: {"dates": ["YYYY-MM-DD", ...]}.'
+        ),
     )
     whatsapp_autocheckin_enabled = models.BooleanField(default=False)
     whatsapp_autocheckin_time = models.TimeField(default=time(8, 0))

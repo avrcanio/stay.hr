@@ -232,6 +232,12 @@ REST_FRAMEWORK = {
 
 REDIS_URL = env("REDIS_URL", default="redis://redis:6379/0")
 
+# ADR 0005 Phase 2a — ReservationVersionEventBus (in_process | redis).
+# Rollback: set in_process and recreate django + celery-worker.
+RESERVATION_VERSION_EVENT_BUS = env(
+    "RESERVATION_VERSION_EVENT_BUS", default="in_process"
+)
+
 CELERY_BROKER_URL = env("CELERY_BROKER_URL", default=REDIS_URL)
 CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default=REDIS_URL)
 CELERY_ACCEPT_CONTENT = ["json"]

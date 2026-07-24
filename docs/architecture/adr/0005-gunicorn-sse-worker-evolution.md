@@ -8,7 +8,7 @@
 
 ## Status
 
-Accepted (2026-07) · amended 2026-07 (roadmap refinement + operational tuning)
+Accepted (2026-07) · amended 2026-07 (roadmap refinement + operational tuning) · amended 2026-07-23 (Phase 1 lifecycle closed; instrumentation permanent across Phase 2a/2b)
 
 ## Context
 
@@ -28,7 +28,7 @@ Worker exhaustion from long-lived SSE on Gunicorn sync workers is solved by **Ph
 
 1. **Configurable Gunicorn** via env vars (`GUNICORN_*`) and `scripts/run-gunicorn.sh` (not entrypoint).
 2. **Default production profile:** 8 sync workers, `--timeout 3600` (long-lived SSE; not a normal HTTP timeout), `--max-requests 1000` + jitter, access log to stdout.
-3. **Observability:** in-process SSE connection counters (**per worker process** — not global; reset on worker recycle/restart), structured `sse_stream_opened` / `sse_stream_closed` logs, `GET /api/v1/reception/system/status/` (**reception:read** — `schema_version: 1`, `metrics_scope`, `build.git_sha`, `build.started_at`, `build.hostname`).
+3. **Observability:** in-process SSE connection counters (**per worker process** — not global; reset on worker recycle/restart), structured `sse_stream_opened` / `sse_stream_closed` logs, `GET /api/v1/reception/system/status/` (**reception:read** — `schema_version: 2`, `metrics_scope`, `build.*`, raw `sse`/`event_bus`/`database`, derived `components.*.status` + `reason`).
 4. **Load test gate:** `scripts/load-test-gunicorn-sse.sh` must PASS before sign-off after worker changes (`LOAD_TEST_LIGHT=1` for CI smoke).
 5. **Benchmark:** `scripts/benchmark-health-latency.sh` — record p50/p95/p99 before and after changes (`BENCHMARK_LIGHT=1` for CI; artifacts via `OPS_CI_ARTIFACT_DIR`).
 6. **Monitoring:** 3–7 day checklist in [gunicorn-sse-monitoring.md](../../operations/gunicorn-sse-monitoring.md).
@@ -57,10 +57,29 @@ Tuning reduces incident frequency but does **not** replace Phase 2.
 | `connections_closed_total` | Cumulative closes (counter) |
 | `closed_streams_sample_count` | Streams included in average (equals closed count) |
 | `average_duration_seconds` | Mean stream lifetime; **`null` until first close** |
+| `active_stream_count` | Live streams in per-worker registry (`len(_streams)`) |
+| `active_streams` | Compact list: `stream_id`, reservation, scope, `opened_at`, `last_heartbeat` |
+| `invariant_ok` | `opened − closed == active` and matches registry |
+| `invariant_delta` | `opened − closed − active` (**0** = healthy) |
 
 **Reset behaviour:** counters are in-process only. Gunicorn `--max-requests` worker recycle or container restart resets all SSE counters to zero on that worker.
 
 **Future (ASGI / Prometheus exporter):** `workers_total`, `workers_busy`, `workers_idle` — not available accurately with sync Gunicorn; add when moving to dedicated Uvicorn SSE (Phase 2b) or a metrics sidecar.
+
+### Phase 1 lifecycle instrumentation — permanent (do not remove)
+
+Phase 1 lifecycle work is **closed**. The following stay enabled for the life of the SSE path — including Redis EventBus (2a) and dedicated Uvicorn SSE (2b):
+
+| Layer | Must keep |
+|-------|-----------|
+| BFF | AbortSignal → upstream abort; `bff_sse_proxy_start` / `bff_sse_upstream_connected` / `bff_sse_client_aborted` |
+| Django stream | `stream_id`, `X-SSE-Stream-Id`, `sse_stream_opened` / `sse_stream_closed` (+ `close_reason`) |
+| Registry + invariant | per-worker `_streams`, `register`/`close`/`touch`, `check_sse_invariant`, `sse_invariant_breach` |
+| Status + ops | `GET /system/status` → `sse.*` (`invariant_delta`, `active_streams`, …); daily ops CRIT on breach |
+
+Redis replaces **in-process fan-out**, not disconnect proof. Uvicorn moves **transport**, not the need to prove streams close. Stripping any of the above during Phase 2/3 is a regression.
+
+**Observation rule (not a calendar gate):** no arbitrary “N consecutive PASS days” blocks Phase 2a. Use instrumentation during normal operation; if leak or saturation reappears → stop and analyze; if it does not recur → proceed with Phase 2a in parallel.
 
 ## Phase model
 
@@ -132,13 +151,14 @@ flowchart TB
 
 ## Gate to start Phase 2a
 
-Phase 2a architectural work starts only when **all** are true:
+Phase 2a architectural work may proceed when:
 
-1. **Incident closed** — [postmortem](../../operations/incidents/2026-07-08-sse-worker-exhaustion.md) merged and ops sign-off
-2. **Production validation complete** — Phase 1 runbook window (3–7 days) passed without regression
-3. **ADR triggers justify architectural work** — measurable criteria below
+1. **Incident closed** — [postmortem](../../operations/incidents/2026-07-08-sse-worker-exhaustion.md) merged and ops aware
+2. **Lifecycle instrumentation still on** — registry, invariant, BFF/Django logs, `/system/status` (see permanent instrumentation above)
+3. **No active unresolved leak/saturation** — if `invariant_delta != 0`, `sse_invariant_breach`, or worker exhaustion recurs, **stop and analyze** before enabling Redis; otherwise continue development
+4. **ADR triggers** (below) still guide *urgency* of Redis, but a fixed calendar “3–7 PASS days” window is **not** a blocker
 
-Merge postmortem alone is **not** sufficient.
+Merge postmortem alone is **not** sufficient if instrumentation was removed or a live leak is open.
 
 ## Phase 2 trigger criteria (measurable)
 
@@ -170,7 +190,7 @@ Proceed to **Phase 2c (full Django ASGI)** only when whole-app async is independ
 
 Local/staging: `redis` + `gunicorn`. Production: `SSE_TRANSPORT=uvicorn` only after post-2a validation passes.
 
-Comment stubs in `.env.example`; no `base.py` defaults until Phase 2a/2b code lands.
+Comment stubs for Phase 2b in `.env.example`; Phase 2a flag is live in `base.py` (`RESERVATION_VERSION_EVENT_BUS`, default `in_process`).
 
 ## `ReservationVersionEventBus` abstraction
 
@@ -254,6 +274,7 @@ See [gunicorn-sse-monitoring.md](../../operations/gunicorn-sse-monitoring.md).
 
 ### Post-Phase 2a (14 days)
 
+- Lifecycle instrumentation still present (registry / invariant / opened-closed) — Redis is distribution only
 - Push reliability (touch → SSE within 2 s)
 - Celery-originated publishes delivered to SSE
 - SSE reconnect rate (`sse_stream_opened`/`closed` ratio)
@@ -262,6 +283,7 @@ See [gunicorn-sse-monitoring.md](../../operations/gunicorn-sse-monitoring.md).
 
 ### Post-Phase 2b (14 days)
 
+- Lifecycle instrumentation on the SSE service (not stripped during transport split)
 - Gunicorn worker pool no longer saturated by SSE under normal load
 - SSE active count on Uvicorn service vs Gunicorn REST health
 - Rollback drill: `SSE_TRANSPORT=gunicorn` restores prior routing

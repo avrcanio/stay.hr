@@ -3,8 +3,12 @@
     "title": "Stay.hr Reservas",
     "description": "Reserva de alojamiento"
   },
-  "nav": { "booking": "Reserva" },
-  "language": { "label": "Idioma" },
+  "nav": {
+    "booking": "Reserva"
+  },
+  "language": {
+    "label": "Idioma"
+  },
   "home": {
     "selectDates": "Seleccione las fechas de estancia y envíe una solicitud de reserva.",
     "checkAvailability": "Comprobar disponibilidad",
@@ -121,5 +125,35 @@
       "address": "dirección"
     }
   },
-  "common": { "error": "Error" }
+  "common": {
+    "error": "Error"
+  },
+  "guestPortal": {
+    "subtitle": "Información de su estancia",
+    "loading": "Cargando…",
+    "loadFailed": "La información para huéspedes no está disponible ahora.",
+    "notOpenTitle": "Aún no disponible",
+    "notOpenBody": "Este enlace se abrirá unos días antes de la llegada.",
+    "expiredTitle": "Este enlace ya no es válido",
+    "expiredBody": "Contacte con recepción para obtener un nuevo enlace.",
+    "openMaps": "Abrir en Mapas",
+    "entranceImageAlt": "Entrada del alojamiento",
+    "wifiSsid": "WiFi",
+    "wifiPassword": "Contraseña",
+    "phone": "Teléfono",
+    "whatsapp": "WhatsApp",
+    "hours": "Horario",
+    "sections": {
+      "welcome": "Bienvenida",
+      "arrival": "Llegada",
+      "parking": "Aparcamiento",
+      "wifi": "WiFi",
+      "breakfast": "Desayuno",
+      "contact": "Contacto",
+      "keyGuide": "Recogida de llave"
+    },
+    "room": "Habitación",
+    "keyLabel": "Llave",
+    "keyGuideStepAlt": "Paso de la guía {step}"
+  }
 }

@@ -752,6 +752,65 @@ class GuestCheckInSession(TenantScopedModel):
         )
 
 
+class GuestPortalAccessStatus(models.TextChoices):
+    ACTIVE = "active", "Active"
+    REVOKED = "revoked", "Revoked"
+
+
+class GuestPortalAccessCreatedFrom(models.TextChoices):
+    WHATSAPP = "whatsapp", "WhatsApp"
+    EMAIL = "email", "Email"
+    RECEPTION_MANUAL = "reception_manual", "Reception manual"
+    SYSTEM = "system", "System"
+
+
+class GuestPortalAccess(TenantScopedModel):
+    """Token-scoped guest portal link (one active per reservation; valid through stay)."""
+
+    reservation = models.ForeignKey(
+        Reservation,
+        on_delete=models.CASCADE,
+        related_name="guest_portal_accesses",
+    )
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    status = models.CharField(
+        max_length=16,
+        choices=GuestPortalAccessStatus.choices,
+        default=GuestPortalAccessStatus.ACTIVE,
+    )
+    opens_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    created_from = models.CharField(
+        max_length=32,
+        choices=GuestPortalAccessCreatedFrom.choices,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+        indexes = [
+            models.Index(
+                fields=["reservation", "status"],
+                name="reservation_reserva_6f2a1c_idx",
+            ),
+            models.Index(fields=["token"], name="reservation_token_c8e4d1_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reservation"],
+                condition=models.Q(status=GuestPortalAccessStatus.ACTIVE),
+                name="reservations_guest_portal_one_active_per_reservation",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"GuestPortalAccess #{self.pk} reservation={self.reservation_id} "
+            f"status={self.status}"
+        )
+
+
 class MonthlyStatisticsOverride(TenantScopedModel):
     """Ručni mjesečni prihod/noći/provizija; nadjačava automatski zbroj iz rezervacija."""
 

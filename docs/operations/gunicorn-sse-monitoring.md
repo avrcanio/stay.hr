@@ -23,16 +23,42 @@ To restore SSE on detail views later: remove explicit `transport: "poll"` from t
 
 `opened` vs `closed` log totals are **per worker** and only increment on that worker process. Zero `sse_stream_closed` during saturation can mean many tabs still open **or** a disconnect cleanup gap.
 
+**Invariant:** `connections_opened_total − connections_closed_total = active_connections` (and `active_stream_count`). Example: opened=400, closed=387 ⇒ **13** living streams. Alarm when `invariant_delta != 0` or `active_connections > 0` long after load-test teardown.
+
+Structured fields (correlate one connection end-to-end):
+
+| Field | Where |
+|-------|--------|
+| `stream_id` | `sse_stream_opened` / `sse_stream_closed`, `X-SSE-Stream-Id`, `connected` SSE payload |
+| `close_reason` | `client_disconnect` \| `exception` \| `unknown` on `sse_stream_closed` |
+| `opened_at` / `closed_at` | ISO-8601 UTC on both log lines |
+| `last_heartbeat` | Per-stream registry via `/system/status` → `sse.active_streams[]` |
+| BFF (reception) | `bff_sse_proxy_start`, `bff_sse_upstream_connected`, `bff_sse_client_aborted` with `upstream_abort_wired: true` |
+
+`/system/status` SSE block (per worker):
+
+| Field | Healthy |
+|-------|---------|
+| `active_connections` / `active_stream_count` | Match; fall to **0** after deliberate close |
+| `active_streams` | Compact list of live streams (`stream_id`, reservation, scope, timestamps) |
+| `invariant_ok` | **true** |
+| `invariant_delta` | **0** (`opened − closed − active`) |
+| `components.sse.status` | **healthy** (derived; `invariant_breach` if delta ≠ 0) |
+| `components.event_bus.status` | **healthy** (or `warning`/`critical` + `reason` from raw EventBus fields) |
+| `components.database.status` | **healthy** |
+| Log `sse_invariant_breach` | **absent** |
+
 Verify cleanup after a deliberate tab close:
 
-1. Hard-refresh Reception so detail panels use poll (no new SSE from detail).
-2. From a test client or browser devtools, open **one** SSE stream (e.g. list view or manual `EventSource` to `reservation-versions/stream/`).
-3. Confirm `sse_stream_opened` in django logs for that `reservation_id` / `scope`.
+1. Hard-refresh Reception so detail panels use poll (no new SSE from `messages`/`payments`) — keep checkin SSE when deliberately testing that path.
+2. From a test client or browser, open **one** SSE stream.
+3. Confirm `sse_stream_opened` with a `stream_id`.
 4. Close the tab or call `EventSource.close()`.
-5. Within ~30 s (next heartbeat), confirm `sse_stream_closed` for the same worker PID.
+5. Within ~30 s (next heartbeat write), confirm `sse_stream_closed` for the **same** `stream_id` and `close_reason=client_disconnect`.
+6. Confirm `/system/status` → `invariant_delta == 0` and `active_connections == 0`.
+7. Lifecycle proof: `./scripts/prove-sse-proxy-disconnect.sh` — Phase A (direct Django) + Phase B (BFF with AbortSignal wired).
 
-If step 5 never fires after a clean single-tab test, file a follow-up bug for WSGI disconnect detection — independent of the poll hotfix.
-
+If step 5 never fires after a clean single-tab test, file a follow-up for WSGI disconnect detection — independent of the poll hotfix. If BFF logs `bff_sse_client_aborted` with `upstream_abort_wired: true` but Django never closes that `stream_id`, investigate AbortSignal propagation or a proxy buffering layer.
 ## Quick checks
 
 ```bash
@@ -69,7 +95,8 @@ curl -s -H "Authorization: Bearer $RECEPTION_API_TOKEN" \
 | Active Gunicorn workers | `docker compose top django` | ~1 master + `GUNICORN_WORKERS` workers | Fewer workers after crash loop |
 | Active SSE (per worker) | `GET /system/status` → `sse.active_connections` | Below worker count under normal load | **> 0** after load test teardown → leak; **> 30** aggregated → Phase 2 |
 | Peak SSE | `sse.peak_connections` | Trend stable after deploy | Sustained **> 30** aggregated → Phase 2 |
-| SSE lifetime | `sse.average_duration_seconds`, opened/closed totals | Stable | Drift or leak (opened >> closed) |
+| SSE invariant | `sse.invariant_delta`, `sse.invariant_ok` | **delta=0**, `ok=true` | `invariant_delta != 0` or `sse_invariant_breach` log → leak/drift |
+| SSE lifetime | `sse.average_duration_seconds`, opened/closed totals | Stable; opened−closed=active | Drift or leak (opened >> closed) |
 | Health p95 | `benchmark-health-latency.sh` | **< 500 ms** | **> 500 ms** sustained → Phase 2 trigger |
 | Worker timeout | `docker compose logs django \| rg "WORKER TIMEOUT"` | **0** | Any hit → Phase 2 trigger |
 | SSE lifecycle | `docker compose logs django \| rg "sse_stream_"` | Opens/closes match usage | Stuck opens, very short durations |
@@ -77,7 +104,6 @@ curl -s -H "Authorization: Bearer $RECEPTION_API_TOKEN" \
 | CPU / memory | `docker stats stay_django --no-stream` | Stable | Sustained high CPU with low traffic |
 | Push vs poll | Operator feedback | Updates within ~1 s | Delays ~5 s only → poll fallback; shorter delays needed → Phase 2a |
 | Redis reconnect (Phase 2a+) | `redis_reconnect_count` metric / logs | Stable, near zero | Rising → Redis connectivity problem, not SSE transport |
-
 ## Load test (after any Gunicorn env change)
 
 ```bash
@@ -101,7 +127,31 @@ LOAD_TEST_LIGHT=1 OPS_CI_ARTIFACT_DIR=./ci-artifacts RECEPTION_API_TOKEN=... LOA
 
 Artifacts include `timestamp`, `git_sha`, and latency percentiles for cross-commit comparison.
 
-## Post-Phase 1 validation (3–7 days)
+## Phase 1 lifecycle instrumentation — permanent
+
+Phase 1 lifecycle is **closed**. Keep these on through Phase **2a (Redis)** and **2b (Uvicorn)** — Redis/Uvicorn do not replace disconnect proof:
+
+| Layer | Keep |
+|-------|------|
+| BFF | AbortSignal; `bff_sse_proxy_start` / `bff_sse_upstream_connected` / `bff_sse_client_aborted` |
+| Django | `stream_id`, `sse_stream_opened` / `sse_stream_closed`, registry, `check_sse_invariant` |
+| Status / ops | `/system/status` → `sse.*`; daily ops CRIT on `sse_invariant_breach` |
+
+**Rule:** no calendar “N days PASS” gate blocks Redis. During normal use, if leak or saturation returns → stop and analyze (`stream_id`, `invariant_delta`, registry). If it does not recur → continue Phase 2a. Observation scripts remain optional diagnostics, not a Phase 2a lock.
+
+Optional daily snapshot: `./scripts/observe-sse-lifecycle.sh --append-log` → [sse-lifecycle-observation-log.md](sse-lifecycle-observation-log.md).
+
+**Healthy signals:**
+
+- [ ] `sse.invariant_delta == 0` / `invariant_ok == true` on `GET /system/status`
+- [ ] `components.sse` / `components.event_bus` / `components.database` are **healthy** (or known `warning` with `reason`)
+- [ ] No `sse_invariant_breach` in django logs (`docker compose logs django | rg sse_invariant_breach`)
+- [ ] `active_connections` / registry list matches real Reception tabs (or falls to 0 when idle)
+- [ ] `opened ≈ closed + active` (docker log totals / `docker_signals.json`)
+
+Daily ops email also surfaces `sse.invariant_delta` / `docker.sse_invariant_breach` (**CRIT** on breach).
+
+## Post-Phase 1 validation (capacity / incident)
 
 After [2026-07-08 incident mitigation](incidents/2026-07-08-sse-worker-exhaustion.md) or any Gunicorn env change:
 
@@ -109,13 +159,16 @@ After [2026-07-08 incident mitigation](incidents/2026-07-08-sse-worker-exhaustio
 - [ ] Health latency p95 **< 500 ms**
 - [ ] Aggregated active SSE **< 30** under normal Reception load
 - [ ] Load test **PASS**
-- [ ] SSE opened/closed ratio stable (no leak)
-- [ ] Ops sign-off → incident closed; Phase 2a gate may proceed if ADR triggers also met
+- [ ] SSE opened/closed ratio stable (no leak); `invariant_delta == 0`
+- [ ] Phase 1 lifecycle gate: single-tab + BFF AbortSignal + direct Django close proofs
+- [ ] Lifecycle instrumentation still present (not stripped for “cleanup”)
+- [ ] Ops aware → Phase 2a may proceed if no open leak and ADR triggers / product need justify Redis
 
 ## Post-Phase 2a validation (14 days)
 
 After enabling `RESERVATION_VERSION_EVENT_BUS=redis`:
 
+- [ ] **Lifecycle instrumentation still on** (registry, invariant, BFF/Django logs, `/system/status`) — Redis does not replace disconnect proof
 - [ ] Push reliability: `touch` → SSE delivery within **2 s**
 - [ ] Celery-originated publishes delivered to SSE clients
 - [ ] SSE reconnect rate stable (`sse_stream_opened` / `sse_stream_closed` ratio)
@@ -128,6 +181,7 @@ After enabling `RESERVATION_VERSION_EVENT_BUS=redis`:
 
 After enabling `SSE_TRANSPORT=uvicorn` (dedicated Uvicorn SSE service):
 
+- [ ] **Lifecycle instrumentation still on** on the SSE service (stream registry / invariant / opened-closed); REST `/system/status` on Gunicorn remains useful for capacity
 - [ ] Gunicorn worker pool no longer saturated by SSE under normal load
 - [ ] SSE active count tracked on Uvicorn service; Gunicorn REST `/health/` unaffected
 - [ ] REST endpoints never routed to Uvicorn (only `reservation-versions/stream/`)
@@ -138,7 +192,7 @@ After enabling `SSE_TRANSPORT=uvicorn` (dedicated Uvicorn SSE service):
 
 ### Phase 2a — Redis EventBus (distribution)
 
-Escalate when push reliability is business-critical or ADR triggers met **and** Phase 2a gate passed (incident closed + Phase 1 validation + triggers):
+Escalate when push reliability is business-critical or ADR triggers met **and** lifecycle instrumentation is still on (no open unresolved leak):
 
 - `RESERVATION_VERSION_EVENT_BUS=redis`
 - Channel: `stay:v1:reservation_version:{tenant_slug}`

@@ -165,3 +165,4 @@ def process_document_intake_job_task(job_id: int) -> None:
 
 
 from apps.reservations.reports.tasks import send_property_financial_reports_monthly  # noqa: E402,F401
+from apps.reservations import guest_checkin_tasks  # noqa: E402,F401 — register Celery tasks

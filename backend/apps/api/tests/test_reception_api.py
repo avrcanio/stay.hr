@@ -20,11 +20,24 @@ from apps.reservations.models import (
     ReservationVersionScope,
 )
 from apps.reservations.reservation_version import touch_reservation_version
+from apps.reservations.reservation_version_events import reset_sse_connection_state_for_tests
 from apps.tenants.models import RECEPTION_DEVICE_SCOPES, ApiApplication, Tenant
+
+
+def _close_sse_streaming_content(response) -> None:
+    """End the SSE generator without HttpResponse.close() (avoids request_finished→DB close).
+
+    ``response.streaming_content`` is a ``map()`` wrapper; close the underlying
+    ``_iterator`` so ``GeneratorExit`` runs the stream ``finally`` block.
+    """
+    iterator = getattr(response, "_iterator", None)
+    if iterator is not None and hasattr(iterator, "close"):
+        iterator.close()
 
 
 class ReceptionAPITests(TestCase):
     def setUp(self):
+        reset_sse_connection_state_for_tests()
         self.tenant = Tenant.objects.create(name="Uzorita", slug="uzorita")
         self.property = Property.objects.create(
             tenant=self.tenant,
@@ -83,7 +96,7 @@ class ReceptionAPITests(TestCase):
         response = self.client.get("/api/v1/reception/system/status/", **self.auth)
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["schema_version"], 1)
+        self.assertEqual(data["schema_version"], 2)
         self.assertEqual(data["metrics_scope"], "worker_process")
         self.assertIn("build", data)
         self.assertIn("git_sha", data["build"])
@@ -100,8 +113,44 @@ class ReceptionAPITests(TestCase):
         self.assertIn("connections_closed_total", data["sse"])
         self.assertIn("closed_streams_sample_count", data["sse"])
         self.assertIn("average_duration_seconds", data["sse"])
+        self.assertIn("active_stream_count", data["sse"])
+        self.assertIn("active_streams", data["sse"])
+        self.assertIn("invariant_ok", data["sse"])
+        self.assertIn("invariant_delta", data["sse"])
         self.assertIsNone(data["sse"]["average_duration_seconds"])
         self.assertEqual(data["sse"]["closed_streams_sample_count"], 0)
+        self.assertEqual(data["sse"]["invariant_delta"], 0)
+        self.assertTrue(data["sse"]["invariant_ok"])
+        self.assertEqual(data["sse"]["active_stream_count"], 0)
+        self.assertEqual(data["sse"]["active_streams"], [])
+        self.assertIn("event_bus", data)
+        self.assertEqual(data["event_bus"]["backend"], "in_process")
+        self.assertTrue(data["event_bus"]["available"])
+        self.assertEqual(data["event_bus"]["redis_reconnect_count"], 0)
+        self.assertEqual(data["event_bus"]["publish_count"], 0)
+        self.assertEqual(data["event_bus"]["receive_count"], 0)
+        self.assertEqual(data["event_bus"]["local_fallback_count"], 0)
+        self.assertEqual(data["event_bus"]["dedupe_drop_count"], 0)
+        self.assertIsNone(data["event_bus"]["last_publish_at"])
+        self.assertIsNone(data["event_bus"]["last_receive_at"])
+        self.assertIsNone(data["event_bus"]["last_fallback_at"])
+        self.assertIsNone(data["event_bus"]["last_dedupe_drop_at"])
+        self.assertIn("database", data)
+        self.assertTrue(data["database"]["ok"])
+        self.assertIsInstance(data["database"]["latency_ms"], (int, float))
+        self.assertIn("components", data)
+        self.assertEqual(
+            data["components"]["event_bus"],
+            {"status": "healthy", "reason": None},
+        )
+        self.assertEqual(
+            data["components"]["sse"],
+            {"status": "healthy", "reason": None},
+        )
+        self.assertEqual(
+            data["components"]["database"],
+            {"status": "healthy", "reason": None},
+        )
 
     def test_timeline_requires_token(self):
         response = self.client.get("/api/v1/reception/reservations/")
@@ -1165,9 +1214,12 @@ class ReceptionAPITests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/event-stream", response["Content-Type"])
+        self.assertTrue(response.get("X-SSE-Stream-Id"))
         first_chunk = next(response.streaming_content).decode("utf-8")
         self.assertIn("event: connected", first_chunk)
         self.assertIn('"scope":"messages"', first_chunk)
+        self.assertIn('"stream_id":', first_chunk)
+        _close_sse_streaming_content(response)
 
     @patch.dict(os.environ, {"GUNICORN_WORKERS": "2"}, clear=False)
     @patch(
@@ -1183,18 +1235,81 @@ class ReceptionAPITests(TestCase):
         self.assertIn("poll fallback", response.json()["detail"])
 
     def test_reservation_version_stream_closed_on_client_disconnect(self):
+        from apps.reservations.reservation_version_events import (
+            get_sse_connection_stats,
+            reset_sse_connection_state_for_tests,
+        )
+
+        reset_sse_connection_state_for_tests()
         with self.assertLogs("apps.api.reception_views", level="INFO") as logs:
             response = self.client.get(
                 f"/api/v1/reception/reservation-versions/stream/?reservation_id={self.reservation.id}&scope=messages",
                 **self.auth,
             )
             self.assertEqual(response.status_code, 200)
+            stream_id = response.get("X-SSE-Stream-Id")
+            self.assertTrue(stream_id)
+            mid = get_sse_connection_stats()
+            self.assertEqual(mid["active_connections"], 1)
+            self.assertEqual(mid["active_stream_count"], 1)
+            self.assertTrue(mid["invariant_ok"])
+            self.assertEqual(mid["invariant_delta"], 0)
+            self.assertEqual(mid["active_streams"][0]["stream_id"], stream_id)
             next(response.streaming_content)
-            response.close()
+            _close_sse_streaming_content(response)
+        closed = [line for line in logs.output if "sse_stream_closed" in line]
+        self.assertTrue(closed, logs.output)
         self.assertTrue(
-            any("sse_stream_closed" in line for line in logs.output),
-            logs.output,
+            any(f"stream_id={stream_id}" in line for line in closed),
+            closed,
         )
+        self.assertTrue(
+            any("close_reason=client_disconnect" in line for line in closed),
+            closed,
+        )
+        after = get_sse_connection_stats()
+        self.assertEqual(after["active_connections"], 0)
+        self.assertEqual(after["active_stream_count"], 0)
+        self.assertEqual(after["active_streams"], [])
+        self.assertEqual(after["invariant_delta"], 0)
+        self.assertTrue(after["invariant_ok"])
+        self.assertEqual(after["connections_opened_total"], 1)
+        self.assertEqual(after["connections_closed_total"], 1)
+
+    def test_reservation_version_stream_finally_always_cleans_up(self):
+        """finally must always unsubscribe + record close + registry close."""
+        from apps.reservations.reservation_version_event_bus import (
+            get_reservation_version_event_bus,
+        )
+        from apps.reservations.reservation_version_events import (
+            reset_sse_connection_state_for_tests,
+        )
+
+        reset_sse_connection_state_for_tests()
+        event_bus = get_reservation_version_event_bus()
+        with (
+            patch.object(event_bus, "unsubscribe") as mock_unsub,
+            patch("apps.api.reception_views.record_sse_stream_closed") as mock_record,
+            patch("apps.api.reception_views.close_sse_stream") as mock_close,
+            patch("apps.api.reception_views.check_sse_invariant") as mock_invariant,
+        ):
+            # Real subscribe/register still run so the stream starts; cleanup is mocked.
+            response = self.client.get(
+                f"/api/v1/reception/reservation-versions/stream/?reservation_id={self.reservation.id}&scope=messages",
+                **self.auth,
+            )
+            self.assertEqual(response.status_code, 200)
+            stream_id = response.get("X-SSE-Stream-Id")
+            next(response.streaming_content)
+            _close_sse_streaming_content(response)
+            mock_record.assert_called_once()
+            mock_unsub.assert_called_once()
+            mock_close.assert_called_once()
+            self.assertEqual(mock_close.call_args.args[0], stream_id)
+            self.assertEqual(mock_close.call_args.args[1], "client_disconnect")
+            # open + close each call check_sse_invariant
+            self.assertGreaterEqual(mock_invariant.call_count, 2)
+        reset_sse_connection_state_for_tests()
 
     def test_monthly_statistics(self):
         self.reservation.status = Reservation.Status.CHECKED_IN

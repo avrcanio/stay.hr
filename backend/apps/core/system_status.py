@@ -1,20 +1,48 @@
-"""Shared system status payload for API and daily ops collectors."""
+"""Shared system status payload for API and daily ops collectors.
+
+SSE block (``get_sse_connection_stats``) is permanent lifecycle
+instrumentation (ADR 0005) — keep through Redis EventBus and Uvicorn SSE.
+
+``components`` derives healthy|warning|critical + reason from existing
+fields (no new counters) for automated health checks.
+"""
 
 from __future__ import annotations
 
 import os
+import time
 
+from django.db import connection
+
+from apps.core.component_health import build_components_status
 from apps.core.runtime_stats import (
     SYSTEM_STATUS_SCHEMA_VERSION,
     build_info_from_env,
     gunicorn_config_from_env,
     worker_uptime_seconds,
 )
+from apps.reservations.reservation_version_event_bus import get_event_bus_status
 from apps.reservations.reservation_version_events import get_sse_connection_stats
+
+
+def probe_database_status() -> dict:
+    """Thin connectivity snapshot (not a counter) for component derivation."""
+    try:
+        start = time.perf_counter()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+        latency_ms = round((time.perf_counter() - start) * 1000.0, 2)
+        return {"ok": True, "latency_ms": latency_ms}
+    except Exception:
+        return {"ok": False, "latency_ms": None}
 
 
 def build_system_status_payload(*, reporter_process: str | None = None) -> dict:
     gunicorn_config = gunicorn_config_from_env()
+    sse = get_sse_connection_stats()
+    event_bus = get_event_bus_status()
+    database = probe_database_status()
     payload: dict = {
         "schema_version": SYSTEM_STATUS_SCHEMA_VERSION,
         "metrics_scope": "worker_process",
@@ -25,7 +53,14 @@ def build_system_status_payload(*, reporter_process: str | None = None) -> dict:
             "uptime_seconds": worker_uptime_seconds(),
             "timeout": int(os.environ.get("GUNICORN_TIMEOUT", "3600")),
         },
-        "sse": get_sse_connection_stats(),
+        "sse": sse,
+        "event_bus": event_bus,
+        "database": database,
+        "components": build_components_status(
+            event_bus=event_bus,
+            sse=sse,
+            database=database,
+        ),
     }
     if reporter_process:
         payload["reporter_process"] = reporter_process

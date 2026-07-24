@@ -38,6 +38,7 @@ count_pattern() {
 WORKER_TIMEOUT_COUNT="$(count_pattern 'WORKER TIMEOUT')"
 SSE_OPENED="$(count_pattern 'sse_stream_opened')"
 SSE_CLOSED="$(count_pattern 'sse_stream_closed')"
+SSE_INVARIANT_BREACH="$(count_pattern 'sse_invariant_breach')"
 
 python3 - <<PY
 import json
@@ -51,6 +52,7 @@ payload = {
         "worker_timeout_count": int("${WORKER_TIMEOUT_COUNT}"),
         "sse_stream_opened": int("${SSE_OPENED}"),
         "sse_stream_closed": int("${SSE_CLOSED}"),
+        "sse_invariant_breach": int("${SSE_INVARIANT_BREACH}"),
     },
 }
 Path("${OUTPUT_FILE}").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

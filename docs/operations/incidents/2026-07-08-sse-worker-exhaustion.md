@@ -123,7 +123,7 @@ Separate from Phase 2 architecture — keeps Reception REST healthy while Redis 
 | Complete 3–7 day Phase 1 validation ([gunicorn-sse-monitoring.md](../gunicorn-sse-monitoring.md)) | Ops | **In progress** |
 | Merge ADR 0005 amendment (phases 2a/2b/2c, EventBus contract) | Engineering | Done |
 | Gate Phase 2a on: incident closed + validation + ADR triggers | Engineering / Ops | Pending validation |
-| Implement `ReservationVersionEventBus` (Redis) | Engineering | Phase 2a — not started |
+| Implement `ReservationVersionEventBus` (Redis) | Engineering | Phase 2a — implemented (enable via `RESERVATION_VERSION_EVENT_BUS=redis`) |
 | Implement dedicated Uvicorn SSE service | Engineering | Phase 2b — not started |
 
 ---

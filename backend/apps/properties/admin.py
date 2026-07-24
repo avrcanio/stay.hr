@@ -59,7 +59,12 @@ class PropertyAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         "unit_count",
         "updated_at",
     )
-    list_filter = ("tenant", "tourist_tax_zone", "tourist_tax_category")
+    list_filter = (
+        "tenant",
+        "self_service_mode",
+        "tourist_tax_zone",
+        "tourist_tax_category",
+    )
     search_fields = ("name", "slug", "tenant__name", "tenant__slug")
     prepopulated_fields = {"slug": ("name",)}
     raw_id_fields = ("tenant",)
@@ -102,11 +107,14 @@ class PropertyAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                     "after_hours_contact_phone",
                     "guest_arrival_auto_reply_enabled",
                     "guest_parking_auto_reply_enabled",
+                    "self_service_mode",
+                    "self_service_config",
                 ),
                 "description": (
                     "Prozor dolaska za auto-odgovore gostu. "
                     "check_in_latest_time = zadnji sat samostalnog ulaska; "
-                    "after_hours policy određuje odgovor izvan prozora."
+                    "after_hours policy određuje odgovor izvan prozora. "
+                    "self_service_mode = prikaz key-guide kartice na guest portalu."
                 ),
             },
         ),

@@ -8,7 +8,10 @@ import mimetypes
 import os
 import queue
 import time
+import uuid
 from datetime import date as date_type
+from datetime import datetime
+from datetime import timezone as dt_timezone
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -75,12 +78,17 @@ from apps.reservations.sync_versions import (
     sync_versions_etag,
     valid_reservation_version_scopes,
 )
+from apps.reservations.reservation_version_event_bus import (
+    get_reservation_version_event_bus,
+)
 from apps.reservations.reservation_version_events import (
+    check_sse_invariant,
+    close_sse_stream,
     format_sse,
     get_sse_connection_stats,
     record_sse_stream_closed,
-    subscribe,
-    unsubscribe,
+    register_sse_stream,
+    touch_sse_stream,
 )
 from apps.core.system_status import build_system_status_payload
 
@@ -252,10 +260,20 @@ class ReceptionSyncVersionsView(ReceptionReadView):
 
 
 SSE_HEARTBEAT_SECONDS = 25
+# WSGI sync cannot observe a readable-closed socket without a write. Disconnect
+# is detected on the next heartbeat/event yield (BrokenPipe / GeneratorExit),
+# so close follows within one heartbeat interval after the client is gone.
+#
+# Permanent lifecycle instrumentation (ADR 0005): stream_id registry, opened/closed
+# logs, check_sse_invariant, X-SSE-Stream-Id — keep through Redis (2a) and Uvicorn (2b).
 
 
 class ReceptionReservationVersionStreamView(ReceptionReadView):
-    """SSE stream for scoped reservation version changes (v2 transport)."""
+    """SSE stream for scoped reservation version changes (v2 transport).
+
+    Lifecycle instrumentation (registry, invariant, structured logs) is permanent —
+    do not strip when introducing Redis EventBus or a dedicated Uvicorn SSE service.
+    """
 
     def get(self, request):
         reservation_id_param = request.query_params.get("reservation_id")
@@ -317,51 +335,108 @@ class ReceptionReservationVersionStreamView(ReceptionReadView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        event_queue = subscribe(reservation_id, scope)
+        event_bus = get_reservation_version_event_bus()
+        event_queue = event_bus.subscribe(reservation_id, scope)
         initial_version = payload["versions"][scope]
         worker_pid = os.getpid()
         client_ip = _sse_client_ip(request)
+        stream_id = uuid.uuid4().hex
+        opened_at = datetime.now(dt_timezone.utc).isoformat()
+        register_sse_stream(
+            stream_id,
+            reservation_id=reservation_id,
+            scope=scope,
+            worker_pid=worker_pid,
+            opened_at=opened_at,
+        )
+        check_sse_invariant()
 
         def event_stream():
             started_at = time.monotonic()
+            close_reason = "unknown"
             logger.info(
-                "sse_stream_opened reservation_id=%s scope=%s worker_pid=%s client=%s",
+                "sse_stream_opened stream_id=%s reservation_id=%s scope=%s "
+                "worker_pid=%s client=%s opened_at=%s",
+                stream_id,
                 reservation_id,
                 scope,
                 worker_pid,
                 client_ip,
+                opened_at,
             )
             try:
                 yield format_sse(
                     "connected",
                     {
+                        "stream_id": stream_id,
                         "reservation_id": reservation_id,
                         "scope": scope,
                         "version": initial_version,
+                        "opened_at": opened_at,
                     },
                 )
+                touch_sse_stream(stream_id)
                 while True:
                     try:
                         event = event_queue.get(timeout=SSE_HEARTBEAT_SECONDS)
                     except queue.Empty:
+                        # Heartbeat write is the proactive disconnect probe under WSGI.
                         yield ": heartbeat\n\n"
+                        touch_sse_stream(stream_id)
                         continue
                     yield format_sse("reservation_version_changed", event)
+                    touch_sse_stream(stream_id)
+            except GeneratorExit:
+                # WSGI/test client closed the streaming response (or upstream abort).
+                close_reason = "client_disconnect"
+                raise
+            except (BrokenPipeError, ConnectionResetError):
+                close_reason = "client_disconnect"
+            except OSError as exc:
+                # EPIPE / ECONNRESET when writing heartbeat to a gone client.
+                if getattr(exc, "errno", None) in {32, 104}:
+                    close_reason = "client_disconnect"
+                else:
+                    close_reason = "exception"
+                    logger.exception(
+                        "sse_stream_error stream_id=%s reservation_id=%s scope=%s",
+                        stream_id,
+                        reservation_id,
+                        scope,
+                    )
+            except Exception:
+                close_reason = "exception"
+                logger.exception(
+                    "sse_stream_error stream_id=%s reservation_id=%s scope=%s",
+                    stream_id,
+                    reservation_id,
+                    scope,
+                )
             finally:
                 duration_s = time.monotonic() - started_at
+                closed_at = datetime.now(dt_timezone.utc).isoformat()
                 logger.info(
-                    "sse_stream_closed reservation_id=%s scope=%s worker_pid=%s duration_s=%s",
+                    "sse_stream_closed stream_id=%s reservation_id=%s scope=%s "
+                    "worker_pid=%s duration_s=%s opened_at=%s closed_at=%s "
+                    "close_reason=%s",
+                    stream_id,
                     reservation_id,
                     scope,
                     worker_pid,
                     int(duration_s),
+                    opened_at,
+                    closed_at,
+                    close_reason,
                 )
                 record_sse_stream_closed(duration_s)
-                unsubscribe(reservation_id, scope, event_queue)
+                event_bus.unsubscribe(reservation_id, scope, event_queue)
+                close_sse_stream(stream_id, close_reason)
+                check_sse_invariant()
 
         response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
+        response["X-SSE-Stream-Id"] = stream_id
         return response
 
 

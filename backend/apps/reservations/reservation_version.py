@@ -7,7 +7,11 @@ import logging
 from django.db.models import F
 
 from apps.reservations.models import ReservationVersion, ReservationVersionScope
-from apps.reservations.reservation_version_events import emit_reservation_version_event
+from apps.reservations.reservation_version_event_bus import (
+    get_event_bus_backend_name,
+    get_reservation_version_event_bus,
+    resolve_tenant_slug,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,14 +21,19 @@ def publish_reservation_version_changed(
     scope: ReservationVersionScope,
     version: int,
 ) -> None:
-    """Fan-out to SSE subscribers; keep touch latency minimal (in-process only)."""
+    """Fan-out to SSE subscribers via the configured EventBus (ADR 0005)."""
     logger.debug(
         "publish reservation_version_changed reservation=%s scope=%s version=%s",
         reservation_id,
         scope,
         version,
     )
-    emit_reservation_version_event(reservation_id, scope.value, version)
+    bus = get_reservation_version_event_bus()
+    # Avoid an extra DB hop for the default in-process bus (touch latency budget).
+    tenant_slug = ""
+    if get_event_bus_backend_name() == "redis":
+        tenant_slug = resolve_tenant_slug(reservation_id)
+    bus.publish(reservation_id, scope.value, version, tenant_slug)
 
 
 def touch_reservation_version(

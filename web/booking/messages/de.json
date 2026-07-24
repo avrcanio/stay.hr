@@ -3,8 +3,12 @@
     "title": "Stay.hr Buchung",
     "description": "Unterkunft buchen"
   },
-  "nav": { "booking": "Buchung" },
-  "language": { "label": "Sprache" },
+  "nav": {
+    "booking": "Buchung"
+  },
+  "language": {
+    "label": "Sprache"
+  },
   "home": {
     "selectDates": "Wählen Sie Ihre Aufenthaltsdaten und senden Sie eine Buchungsanfrage.",
     "checkAvailability": "Verfügbarkeit prüfen",
@@ -121,5 +125,35 @@
       "address": "Adresse"
     }
   },
-  "common": { "error": "Fehler" }
+  "common": {
+    "error": "Fehler"
+  },
+  "guestPortal": {
+    "subtitle": "Informationen zu Ihrem Aufenthalt",
+    "loading": "Wird geladen…",
+    "loadFailed": "Gästeinformationen sind derzeit nicht verfügbar.",
+    "notOpenTitle": "Noch nicht geöffnet",
+    "notOpenBody": "Dieser Link öffnet sich einige Tage vor der Anreise.",
+    "expiredTitle": "Dieser Link ist nicht mehr gültig",
+    "expiredBody": "Bitte kontaktieren Sie die Rezeption für einen neuen Link.",
+    "openMaps": "In Karten öffnen",
+    "entranceImageAlt": "Eingang der Unterkunft",
+    "wifiSsid": "WLAN",
+    "wifiPassword": "Passwort",
+    "phone": "Telefon",
+    "whatsapp": "WhatsApp",
+    "hours": "Öffnungszeiten",
+    "sections": {
+      "welcome": "Willkommen",
+      "arrival": "Anreise",
+      "parking": "Parken",
+      "wifi": "WLAN",
+      "breakfast": "Frühstück",
+      "contact": "Kontakt",
+      "keyGuide": "Schlüsselabholung"
+    },
+    "room": "Zimmer",
+    "keyLabel": "Schlüssel",
+    "keyGuideStepAlt": "Schlüssel-Schritt {step}"
+  }
 }

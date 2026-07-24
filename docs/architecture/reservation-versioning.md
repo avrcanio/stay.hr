@@ -174,7 +174,7 @@ Frontend: poll ~5 s while tab visible; full `/messages` fetch only on version ch
 
 ## SSE transport (v2)
 
-Push is implemented in `publish_reservation_version_changed()` via in-process fan-out (`reservation_version_events.py`). The phased evolution roadmap separates **event distribution** (Redis EventBus) from **transport** (Gunicorn vs dedicated Uvicorn SSE) — see [ADR 0005](adr/0005-gunicorn-sse-worker-evolution.md).
+Push is implemented in `publish_reservation_version_changed()` via `ReservationVersionEventBus` (`reservation_version_event_bus.py`). Default backend is **in-process** fan-out; set `RESERVATION_VERSION_EVENT_BUS=redis` for multi-worker / Celery delivery (ADR 0005 Phase 2a). Redis replaces distribution only — SSE lifecycle instrumentation stays on.
 
 **Endpoint:** `GET /api/v1/reception/reservation-versions/stream/?reservation_id=&scope=`
 
@@ -188,7 +188,7 @@ Push is implemented in `publish_reservation_version_changed()` via in-process fa
 |-------|--------------|-------------------|
 | **Phase 1** (now) | Gunicorn sync workers + in-process fan-out; poll fallback | Unchanged |
 | **Phase 1 operational tuning** | `GUNICORN_WORKERS=12`; `GuestMessagesPanel` → `transport: "poll"` (1 SSE per reservation detail) | Unchanged |
-| **Phase 2a** | `ReservationVersionEventBus` → Redis (`stay:v1:reservation_version:{tenant_slug}`) | Unchanged |
+| **Phase 2a** | `ReservationVersionEventBus` → Redis (`stay:v1:reservation_version:{tenant_slug}`); flag `RESERVATION_VERSION_EVENT_BUS` | Unchanged |
 | **Phase 2b** | Dedicated Uvicorn SSE service; Gunicorn REST only | Unchanged |
 | **Phase 2c** (optional) | Full Django ASGI | Only if independently justified |
 
@@ -196,7 +196,7 @@ Push is implemented in `publish_reservation_version_changed()` via in-process fa
 
 **Observability (Phase 1):**
 
-- `GET /api/v1/reception/system/status/` — **reception:read** (operational; not public). `schema_version: 1`, Gunicorn config, worker PID/uptime, SSE counters (`active`, `peak`, `connections_opened_total`, `connections_closed_total`, `average_duration_seconds`) — per worker.
+- `GET /api/v1/reception/system/status/` — **reception:read** (operational; not public). `schema_version: 2`, Gunicorn config, worker PID/uptime, SSE counters (`active`, `peak`, `connections_opened_total`, `connections_closed_total`, `average_duration_seconds`), EventBus raw fields, thin `database` probe, and derived `components.{event_bus,sse,database}` (`healthy`|`warning`|`critical` + `reason`) — per worker.
 - Structured logs: `sse_stream_opened`, `sse_stream_closed` with `duration_s`, `worker_pid`
 - Gunicorn env: `GUNICORN_*` via `scripts/run-gunicorn.sh`; monitoring checklist: [gunicorn-sse-monitoring.md](../operations/gunicorn-sse-monitoring.md)
 - Incident postmortem: [2026-07-08 SSE worker exhaustion](../operations/incidents/2026-07-08-sse-worker-exhaustion.md)

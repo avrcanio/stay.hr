@@ -16,6 +16,7 @@ on:
       - 'scripts/ops-common.sh'
       - 'backend/apps/core/runtime_stats.py'
       - 'backend/apps/reservations/reservation_version_events.py'
+      - 'backend/apps/reservations/reservation_version_event_bus.py'
       - 'backend/apps/api/reception_views.py'
       - '.github/workflows/gunicorn-perf-smoke.yml'
 

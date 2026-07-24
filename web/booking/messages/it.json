@@ -3,8 +3,12 @@
     "title": "Stay.hr Prenotazione",
     "description": "Prenotazione alloggio"
   },
-  "nav": { "booking": "Prenotazione" },
-  "language": { "label": "Lingua" },
+  "nav": {
+    "booking": "Prenotazione"
+  },
+  "language": {
+    "label": "Lingua"
+  },
   "home": {
     "selectDates": "Seleziona le date del soggiorno e invia una richiesta di prenotazione.",
     "checkAvailability": "Verifica disponibilità",
@@ -121,5 +125,35 @@
       "address": "indirizzo"
     }
   },
-  "common": { "error": "Errore" }
+  "common": {
+    "error": "Errore"
+  },
+  "guestPortal": {
+    "subtitle": "Informazioni per il vostro soggiorno",
+    "loading": "Caricamento…",
+    "loadFailed": "Le informazioni per gli ospiti non sono disponibili al momento.",
+    "notOpenTitle": "Non ancora aperto",
+    "notOpenBody": "Questo link si aprirà alcuni giorni prima dell’arrivo.",
+    "expiredTitle": "Questo link non è più valido",
+    "expiredBody": "Contattate la reception per un nuovo link.",
+    "openMaps": "Apri in Mappe",
+    "entranceImageAlt": "Ingresso della struttura",
+    "wifiSsid": "WiFi",
+    "wifiPassword": "Password",
+    "phone": "Telefono",
+    "whatsapp": "WhatsApp",
+    "hours": "Orari",
+    "sections": {
+      "welcome": "Benvenuti",
+      "arrival": "Arrivo",
+      "parking": "Parcheggio",
+      "wifi": "WiFi",
+      "breakfast": "Colazione",
+      "contact": "Contatto",
+      "keyGuide": "Ritiro chiave"
+    },
+    "room": "Camera",
+    "keyLabel": "Chiave",
+    "keyGuideStepAlt": "Passo guida chiave {step}"
+  }
 }

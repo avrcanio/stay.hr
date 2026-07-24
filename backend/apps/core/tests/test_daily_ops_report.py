@@ -12,6 +12,7 @@ from django.test import TestCase, override_settings
 
 from apps.core.daily_ops_report.collectors.disk import DiskCollector
 from apps.core.daily_ops_report.collectors.docker_signals import DockerSignalsCollector
+from apps.core.daily_ops_report.collectors.gunicorn import GunicornCollector
 from apps.core.daily_ops_report.export import SCHEMA_VERSION, export_json, metrics_from_snapshot
 from apps.core.daily_ops_report.format import format_markdown, format_metric_delta
 from apps.core.daily_ops_report.orchestrator import run_collectors
@@ -89,6 +90,7 @@ class DockerSignalsCollectorTests(TestCase):
                 "worker_timeout_count": 2,
                 "sse_stream_opened": 10,
                 "sse_stream_closed": 9,
+                "sse_invariant_breach": 0,
             },
         }
         path = report_dir() / "docker_signals.json"
@@ -98,6 +100,101 @@ class DockerSignalsCollectorTests(TestCase):
         timeout_row = next(row for row in section.rows if row.key == "docker.worker_timeout_count")
         self.assertEqual(timeout_row.value, 2)
         self.assertEqual(timeout_row.status, Severity.WARN)
+        breach_row = next(row for row in section.rows if row.key == "docker.sse_invariant_breach")
+        self.assertEqual(breach_row.value, 0)
+        self.assertEqual(breach_row.status, Severity.OK)
+
+    def test_invariant_breach_is_crit(self):
+        payload = {
+            "generated_at": "2026-07-23T16:00:00+02:00",
+            "metrics": {
+                "worker_timeout_count": 0,
+                "sse_stream_opened": 5,
+                "sse_stream_closed": 5,
+                "sse_invariant_breach": 1,
+            },
+        }
+        path = report_dir() / "docker_signals.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        section = DockerSignalsCollector().collect()
+        breach_row = next(row for row in section.rows if row.key == "docker.sse_invariant_breach")
+        self.assertEqual(breach_row.value, 1)
+        self.assertEqual(breach_row.status, Severity.CRIT)
+        self.assertEqual(section.severity, Severity.CRIT)
+
+
+@override_settings(MEDIA_ROOT=TEST_MEDIA)
+class GunicornCollectorTests(TestCase):
+    def test_invariant_rows_ok_when_delta_zero(self):
+        payload = {
+            "schema_version": 1,
+            "metrics_scope": "worker_process",
+            "build": {"git_sha": "abc", "started_at": "2026-07-23T00:00:00+00:00", "hostname": "t"},
+            "gunicorn": {
+                "workers": 8,
+                "worker_class": "sync",
+                "pid": 1,
+                "uptime_seconds": 10,
+                "timeout": 3600,
+            },
+            "sse": {
+                "active_connections": 1,
+                "peak_connections": 2,
+                "connections_opened_total": 5,
+                "connections_closed_total": 4,
+                "average_duration_seconds": 12.0,
+                "active_stream_count": 1,
+                "active_streams": [],
+                "invariant_ok": True,
+                "invariant_delta": 0,
+            },
+        }
+        with patch(
+            "apps.core.daily_ops_report.collectors.gunicorn.build_system_status_payload",
+            return_value=payload,
+        ):
+            section = GunicornCollector().collect()
+        delta_row = next(row for row in section.rows if row.key == "sse.invariant_delta")
+        ok_row = next(row for row in section.rows if row.key == "sse.invariant_ok")
+        self.assertEqual(delta_row.value, 0)
+        self.assertEqual(delta_row.status, Severity.OK)
+        self.assertEqual(ok_row.value, 1)
+        self.assertEqual(ok_row.status, Severity.OK)
+
+    def test_invariant_breach_is_crit(self):
+        payload = {
+            "schema_version": 1,
+            "metrics_scope": "worker_process",
+            "build": {"git_sha": "abc", "started_at": "2026-07-23T00:00:00+00:00", "hostname": "t"},
+            "gunicorn": {
+                "workers": 8,
+                "worker_class": "sync",
+                "pid": 1,
+                "uptime_seconds": 10,
+                "timeout": 3600,
+            },
+            "sse": {
+                "active_connections": 0,
+                "peak_connections": 1,
+                "connections_opened_total": 5,
+                "connections_closed_total": 3,
+                "average_duration_seconds": None,
+                "active_stream_count": 0,
+                "active_streams": [],
+                "invariant_ok": False,
+                "invariant_delta": 2,
+            },
+        }
+        with patch(
+            "apps.core.daily_ops_report.collectors.gunicorn.build_system_status_payload",
+            return_value=payload,
+        ):
+            section = GunicornCollector().collect()
+        delta_row = next(row for row in section.rows if row.key == "sse.invariant_delta")
+        self.assertEqual(delta_row.value, 2)
+        self.assertEqual(delta_row.status, Severity.CRIT)
+        self.assertEqual(section.severity, Severity.CRIT)
 
 
 @override_settings(MEDIA_ROOT=TEST_MEDIA, DAILY_OPS_REPORT_KEEP_DAYS=90)
@@ -192,9 +289,23 @@ class DailyOpsTaskTests(TestCase):
 class SystemStatusServiceTests(TestCase):
     def test_build_system_status_payload_shape(self):
         payload = build_system_status_payload(reporter_process="test")
-        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["schema_version"], 2)
         self.assertIn("gunicorn", payload)
         self.assertIn("sse", payload)
+        self.assertIn("event_bus", payload)
+        self.assertEqual(payload["event_bus"]["backend"], "in_process")
+        self.assertEqual(payload["event_bus"]["publish_count"], 0)
+        self.assertEqual(payload["event_bus"]["receive_count"], 0)
+        self.assertEqual(payload["event_bus"]["local_fallback_count"], 0)
+        self.assertEqual(payload["event_bus"]["dedupe_drop_count"], 0)
+        self.assertIn("database", payload)
+        self.assertTrue(payload["database"]["ok"])
+        self.assertEqual(
+            payload["components"]["event_bus"]["status"],
+            "healthy",
+        )
+        self.assertEqual(payload["components"]["sse"]["status"], "healthy")
+        self.assertEqual(payload["components"]["database"]["status"], "healthy")
         self.assertEqual(payload["reporter_process"], "test")
 
 

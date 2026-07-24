@@ -12,7 +12,8 @@ import socket
 import time
 from datetime import datetime, timezone
 
-SYSTEM_STATUS_SCHEMA_VERSION = 1
+# Bumped when adding top-level ``components`` (+ thin ``database`` probe).
+SYSTEM_STATUS_SCHEMA_VERSION = 2
 
 _STARTED_AT_MONO = time.monotonic()
 _STARTED_AT_ISO = datetime.now(timezone.utc).isoformat()

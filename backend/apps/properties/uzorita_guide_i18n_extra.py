@@ -512,9 +512,7 @@ EXTRA_STEP_CAPTIONS: list[dict[str, str]] = [
     },
 ]
 
-EXTRA_BREAKFAST_HOURS: dict[str, str] = {
-    lang: "7:30–9:30" for lang in EXTRA_GUIDE_LANGS
-}
+EXTRA_BREAKFAST_HOURS = "7:30–9:30"
 
 
 def apply_extra_guide_translations(guide: dict) -> None:
@@ -536,5 +534,5 @@ def apply_extra_guide_translations(guide: dict) -> None:
 
 def apply_extra_breakfast_fact(facts: dict) -> None:
     breakfast = facts.setdefault("breakfast", {})
-    if isinstance(breakfast, dict):
-        breakfast.update(EXTRA_BREAKFAST_HOURS)
+    if isinstance(breakfast, dict) and not str(breakfast.get("hours") or "").strip():
+        breakfast["hours"] = EXTRA_BREAKFAST_HOURS

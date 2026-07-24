@@ -23,6 +23,34 @@ from apps.properties.models import Property
 
 GUEST_INFO_TEXT_KEYS = frozenset(DEFAULT_TEXTS.keys())
 
+GUIDE_SECTION_KEYS = frozenset(
+    {
+        "intro",
+        "entrance",
+        "cabinet",
+        "key",
+        "stairs",
+        "breakfast",
+        "parking",
+        "documents",
+        "checkout",
+        "contact",
+    }
+)
+
+DEFAULT_GUIDE_SECTION_ORDER = [
+    "intro",
+    "entrance",
+    "cabinet",
+    "key",
+    "stairs",
+    "breakfast",
+    "parking",
+    "documents",
+    "checkout",
+    "contact",
+]
+
 LOCALIZED_FACT_KEYS = frozenset(
     {
         "key_handover",
@@ -65,6 +93,101 @@ def _normalize_localized(raw: Any) -> dict[str, str]:
         for lang in TEMPLATE_LANGS
         if str(raw.get(lang) or "").strip()
     }
+
+
+def _normalize_guide_localized(raw: Any) -> dict[str, str]:
+    """Keep any ISO-ish language key (guide extras include it/nl/uk beyond TEMPLATE_LANGS)."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str] = {}
+    for key, value in raw.items():
+        lang = str(key or "").strip().lower().split("-")[0]
+        if len(lang) != 2 or not lang.isalpha():
+            continue
+        text = str(value or "").strip()
+        if text:
+            out[lang] = text
+    return out
+
+
+def _normalize_guide_steps(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    steps: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        section = str(item.get("section") or "").strip()
+        if section and section not in GUIDE_SECTION_KEYS:
+            continue
+        image = str(item.get("image") or "").strip()
+        caption = _normalize_guide_localized(item.get("caption"))
+        step: dict[str, Any] = {}
+        if section:
+            step["section"] = section
+        if image:
+            step["image"] = image
+        if caption:
+            step["caption"] = caption
+        if step:
+            steps.append(step)
+    return steps
+
+
+def _normalize_guide(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+    sections_raw = raw.get("sections") if isinstance(raw.get("sections"), dict) else {}
+    normalized_sections: dict[str, dict[str, str]] = {}
+    for key, block in sections_raw.items():
+        section_key = str(key or "").strip()
+        if section_key not in GUIDE_SECTION_KEYS:
+            continue
+        if isinstance(block, dict):
+            localized = _normalize_guide_localized(block)
+            if localized:
+                normalized_sections[section_key] = localized
+
+    order_raw = raw.get("order")
+    if isinstance(order_raw, list):
+        order = [
+            str(key).strip()
+            for key in order_raw
+            if str(key).strip() in normalized_sections
+        ]
+    else:
+        order = [key for key in DEFAULT_GUIDE_SECTION_ORDER if key in normalized_sections]
+
+    enabled_raw = raw.get("enabled") if isinstance(raw.get("enabled"), dict) else {}
+    enabled: dict[str, bool] = {}
+    for key in order:
+        if key in enabled_raw:
+            enabled[key] = bool(enabled_raw[key])
+        else:
+            enabled[key] = True
+
+    steps = _normalize_guide_steps(raw.get("steps"))
+    guide: dict[str, Any] = {}
+    if normalized_sections:
+        guide["sections"] = normalized_sections
+    if order:
+        guide["order"] = order
+    if enabled:
+        guide["enabled"] = enabled
+    if steps:
+        guide["steps"] = steps
+    return guide
+
+
+def _normalize_breakfast_fact(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+    localized = _normalize_localized(raw)
+    hours = str(raw.get("hours") or "").strip()
+    breakfast: dict[str, Any] = dict(localized)
+    if hours:
+        breakfast["hours"] = hours
+    return breakfast
 
 
 ParkingVariant = Literal["standard", "post_checkin"]
@@ -142,6 +265,7 @@ def normalize_guest_info(raw: Any) -> dict[str, Any]:
     assets = data.get("assets") if isinstance(data.get("assets"), dict) else {}
     facts = data.get("facts") if isinstance(data.get("facts"), dict) else {}
     texts = data.get("texts") if isinstance(data.get("texts"), dict) else {}
+    guide = _normalize_guide(data.get("guide"))
 
     normalized_texts: dict[str, dict[str, str]] = {}
     for key in GUEST_INFO_TEXT_KEYS:
@@ -157,6 +281,11 @@ def normalize_guest_info(raw: Any) -> dict[str, Any]:
         "wifi": _normalize_wifi(facts.get("wifi")),
     }
     for fact_key in LOCALIZED_FACT_KEYS:
+        if fact_key == "breakfast":
+            breakfast = _normalize_breakfast_fact(facts.get("breakfast"))
+            if breakfast:
+                normalized_facts["breakfast"] = breakfast
+            continue
         localized = _normalize_localized(facts.get(fact_key))
         if localized:
             normalized_facts[fact_key] = localized
@@ -165,7 +294,7 @@ def normalize_guest_info(raw: Any) -> dict[str, Any]:
     if parking_facts:
         normalized_facts["parking"] = parking_facts
 
-    return {
+    result: dict[str, Any] = {
         "links": {
             "maps_url": str(links.get("maps_url") or "").strip(),
         },
@@ -175,6 +304,48 @@ def normalize_guest_info(raw: Any) -> dict[str, Any]:
         "facts": normalized_facts,
         "texts": normalized_texts,
     }
+    if guide:
+        result["guide"] = guide
+    return result
+
+
+def guide_from_guest_info(raw: Any) -> dict[str, Any]:
+    info = normalize_guest_info(raw)
+    guide = info.get("guide")
+    return guide if isinstance(guide, dict) else {}
+
+
+def guide_section_text(property: Property, section_key: str, lang: str) -> str:
+    guide = guide_from_guest_info(property.guest_info)
+    sections = guide.get("sections") or {}
+    block = sections.get(section_key)
+    if isinstance(block, dict):
+        return _text_for_lang(block, lang)
+    return ""
+
+
+def effective_unit_key_label(unit) -> str:
+    """Return key-tag label for a unit (explicit key_label if present, else code heuristic)."""
+    if unit is None:
+        return ""
+    explicit = str(getattr(unit, "key_label", "") or "").strip()
+    if explicit:
+        return explicit
+    code = str(getattr(unit, "code", "") or "").strip()
+    if len(code) >= 2 and code[0].isalpha() and code[1:].isdigit():
+        return code[1:]
+    return code
+
+
+def breakfast_hours_from_guest_info(raw: Any, lang: str = "en") -> str:
+    info = normalize_guest_info(raw)
+    breakfast = (info.get("facts") or {}).get("breakfast")
+    if isinstance(breakfast, dict):
+        hours = str(breakfast.get("hours") or "").strip()
+        if hours:
+            return hours
+    del lang
+    return ""
 
 
 def _text_for_lang(texts: dict[str, str], lang: str) -> str:

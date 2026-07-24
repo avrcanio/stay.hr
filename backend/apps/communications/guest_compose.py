@@ -6,6 +6,7 @@ import html
 import json
 import logging
 from decimal import Decimal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from apps.ai.provider import (
     GuestComposeError,
@@ -24,7 +25,11 @@ from apps.communications.guest_arrival_policy import (
     is_after_hours_not_allowed,
     is_late_arrival,
 )
-from apps.communications.guest_language_constants import TEMPLATE_LANGS
+from apps.communications.guest_language_constants import (
+    LLM_REPLY_LANGS,
+    TEMPLATE_LANGS,
+    normalize_iso639_1,
+)
 from apps.communications.guest_language_context import GuestLanguageContext, LanguageMode
 from apps.communications.guest_language_resolver import (
     GuestLanguageResolver,
@@ -60,6 +65,8 @@ HINT_ARRIVAL_AUTO_REPLY = "arrival auto reply"
 HINT_PARKING_AUTO_REPLY = "parking auto reply"
 HINT_WHATSAPP_AUTOCHECKIN_MAINTENANCE = "whatsapp autocheckin maintenance"
 HINT_GUEST_WEB_CHECKIN_REMINDER = "guest web checkin reminder"
+HINT_GUEST_PORTAL_LINK = "guest_portal_link"
+HINT_GUEST_PORTAL_LINK_URL = "guest_portal_link url"
 
 FOOTER = "Managed by stay.hr — https://stay.hr/"
 
@@ -155,6 +162,18 @@ from apps.properties.guest_info import (
     guest_text,
     render_parking_reply_text,
 )
+
+
+def append_guest_checkin_lang(url: str, lang: str | None) -> str:
+    """Append or replace ``lang`` query param with a valid ISO 639-1 code."""
+    code = normalize_iso639_1(lang)
+    if not code or code not in LLM_REPLY_LANGS:
+        return url
+    parts = urlsplit(url)
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "lang"]
+    query.append(("lang", code))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
 
 def _text_for_lang(texts: dict[str, str], lang: str) -> str:
     return texts.get(lang) or texts["en"]
@@ -821,12 +840,13 @@ def render_autocheckin_web_checkin_message(
     context = build_compose_context(reservation)
     lang = context["language"]
     adults = context["adults_count"]
+    localized_url = append_guest_checkin_lang(checkin_url, lang)
     body = _property_guest_text(
         reservation,
         "autocheckin_web_checkin",
         lang,
         adults=adults,
-        checkin_url=checkin_url,
+        checkin_url=localized_url,
     )
     return "\n".join(
         [
@@ -919,6 +939,33 @@ _CHANNEX_GUEST_CHECKIN_LINK = {
     ),
 }
 
+_GUEST_PORTAL_LINK_CTA = {
+    "hr": "Sve informacije o dolasku:",
+    "en": "All arrival information:",
+    "de": "Alle Anreiseinformationen:",
+    "es": "Toda la información de llegada:",
+    "fr": "Toutes les informations d'arrivée :",
+    "it": "Tutte le informazioni sull'arrivo:",
+}
+
+_GUEST_PORTAL_LINK_CTA_LABEL = {
+    "hr": "Otvori info portal",
+    "en": "Open guest portal",
+    "de": "Gästeportal öffnen",
+    "es": "Abrir portal del huésped",
+    "fr": "Ouvrir le portail invité",
+    "it": "Apri portale ospite",
+}
+
+_GUEST_PORTAL_LINK_EMAIL_SUBJECT = {
+    "hr": "Informacije o dolasku — {property_name}",
+    "en": "Arrival information — {property_name}",
+    "de": "Anreiseinformationen — {property_name}",
+    "es": "Información de llegada — {property_name}",
+    "fr": "Informations d'arrivée — {property_name}",
+    "it": "Informazioni di arrivo — {property_name}",
+}
+
 
 def guest_web_checkin_reminder_hint(*, days_before: int) -> str:
     return f"{HINT_GUEST_WEB_CHECKIN_REMINDER} d{max(int(days_before), 0)}"
@@ -932,8 +979,9 @@ def render_guest_web_checkin_reminder_message(
     """Pre-arrival reminder with guest web check-in link."""
     context = build_compose_context(reservation)
     lang = context["language"]
+    localized_url = append_guest_checkin_lang(checkin_url, lang)
     body = _text_for_lang(_GUEST_WEB_CHECKIN_REMINDER, lang).format(
-        checkin_url=checkin_url,
+        checkin_url=localized_url,
         check_in=context["check_in"],
         booking_code=context["booking_code"] or str(reservation.pk),
     )
@@ -964,8 +1012,9 @@ def render_channex_guest_checkin_link_message(
     """OTA inbox message with guest web check-in link (Channex channel)."""
     context = build_compose_context(reservation)
     lang = context["language"]
+    localized_url = append_guest_checkin_lang(checkin_url, lang)
     body = _text_for_lang(_CHANNEX_GUEST_CHECKIN_LINK, lang).format(
-        checkin_url=checkin_url,
+        checkin_url=localized_url,
         booking_code=context["booking_code"] or str(reservation.pk),
     )
     return "\n".join(
@@ -976,6 +1025,71 @@ def render_channex_guest_checkin_link_message(
             context["property_name"],
             "",
             FOOTER,
+        ]
+    )
+
+
+def render_guest_portal_link_message(
+    reservation: Reservation,
+    *,
+    portal_url: str = "",
+) -> str:
+    """Short CTA + sign-off (no URL) for guest portal link (post web check-in)."""
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    body = _text_for_lang(_GUEST_PORTAL_LINK_CTA, lang)
+    return "\n".join(
+        [
+            body,
+            "",
+            _text_for_lang(SIGN_OFF, lang),
+            context["property_name"],
+            "",
+            FOOTER,
+        ]
+    )
+
+
+def render_guest_portal_link_url_only(
+    reservation: Reservation,
+    *,
+    portal_url: str,
+) -> str:
+    """Localized guest portal URL only (second message for BOOKING / WhatsApp)."""
+    context = build_compose_context(reservation)
+    return append_guest_checkin_lang(portal_url, context["language"])
+
+
+def guest_portal_link_email_subject(reservation: Reservation) -> str:
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    template = _text_for_lang(_GUEST_PORTAL_LINK_EMAIL_SUBJECT, lang)
+    return template.format(property_name=context["property_name"])
+
+
+def render_guest_portal_link_email_html(
+    reservation: Reservation,
+    *,
+    portal_url: str,
+) -> str:
+    """HTML email with portal CTA button (same button pattern as autocheck-in intro)."""
+    context = build_compose_context(reservation)
+    lang = context["language"]
+    localized_url = append_guest_checkin_lang(portal_url, lang)
+    property_name = html.escape(context["property_name"] or "")
+    sign_off = html.escape(_text_for_lang(SIGN_OFF, lang))
+    footer = html.escape(FOOTER)
+    plain_cta = html.escape(_text_for_lang(_GUEST_PORTAL_LINK_CTA, lang))
+    cta = _whatsapp_cta_button_html(
+        href=localized_url or "",
+        label=_text_for_lang(_GUEST_PORTAL_LINK_CTA_LABEL, lang),
+    )
+    return "\n".join(
+        [
+            f"<p>{plain_cta}</p>",
+            f"<p>{cta}</p>",
+            f"<p>{sign_off}<br>{property_name}</p>",
+            f'<p style="color:#666;font-size:12px;">{footer}</p>',
         ]
     )
 

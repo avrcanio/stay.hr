@@ -98,3 +98,14 @@ def log_guest_checkin_metrics() -> dict:
     }
     logger.info("guest_checkin metrics snapshot=%s", payload)
     return payload
+
+
+@shared_task(name="reservations.send_guest_portal_link_after_checkin")
+def send_guest_portal_link_after_checkin(reservation_id: int, session_id: int) -> dict:
+    """After web check-in complete: ensure portal access and send link on the same channel."""
+    from apps.communications.guest_portal_distribute import send_guest_portal_link_for_session
+
+    return send_guest_portal_link_for_session(
+        reservation_id=reservation_id,
+        session_id=session_id,
+    )

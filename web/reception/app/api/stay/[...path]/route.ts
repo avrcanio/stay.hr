@@ -14,6 +14,39 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
   const url = new URL(request.url);
   const query = url.search;
   const path = buildDjangoApiPath(pathSegments);
+  const relativePath = pathSegments.filter(Boolean).join("/");
+  const isSsePath = relativePath.includes("reservation-versions/stream");
+
+  // SSE: wire client AbortSignal into upstream fetch so EventSource.close()/tab close
+  // cancels Django and frees the Gunicorn worker (ADR 0005 Phase 1 lifecycle).
+  // Permanent: keep AbortSignal + bff_sse_* logs through Redis (2a) and Uvicorn (2b).
+  if (isSsePath) {
+    const abortedAtStart = request.signal.aborted;
+    console.info(
+      JSON.stringify({
+        event: "bff_sse_proxy_start",
+        path: relativePath,
+        query,
+        signal_aborted: abortedAtStart,
+        upstream_abort_wired: true,
+      }),
+    );
+    request.signal.addEventListener(
+      "abort",
+      () => {
+        console.info(
+          JSON.stringify({
+            event: "bff_sse_client_aborted",
+            path: relativePath,
+            query,
+            upstream_abort_wired: true,
+            note: "client gone; upstream fetch aborted by BFF",
+          }),
+        );
+      },
+      { once: true },
+    );
+  }
 
   const headers: Record<string, string> = { ...authHeaders };
 
@@ -23,6 +56,10 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
     cache: "no-store",
     redirect: "manual",
   };
+
+  if (isSsePath) {
+    init.signal = request.signal;
+  }
 
   if (request.method !== "GET" && request.method !== "HEAD") {
     const contentType = request.headers.get("content-type") || "";
@@ -55,6 +92,7 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
   const isEventStream = contentType.includes("text/event-stream");
 
   if (isEventStream && upstream.body) {
+    const streamId = upstream.headers.get("x-sse-stream-id");
     const responseHeaders: Record<string, string> = {
       "Content-Type": "text/event-stream",
       "Cache-Control": upstream.headers.get("cache-control") || "no-cache",
@@ -64,6 +102,18 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
     if (buffering) {
       responseHeaders["X-Accel-Buffering"] = buffering;
     }
+    if (streamId) {
+      responseHeaders["X-SSE-Stream-Id"] = streamId;
+    }
+    console.info(
+      JSON.stringify({
+        event: "bff_sse_upstream_connected",
+        path: relativePath,
+        query,
+        stream_id: streamId,
+        upstream_abort_wired: true,
+      }),
+    );
     return new NextResponse(upstream.body, {
       status: upstream.status,
       headers: responseHeaders,
@@ -80,7 +130,6 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
   const responseHeaders: Record<string, string> = {
     "Content-Type": contentType,
   };
-  const relativePath = pathSegments.filter(Boolean).join("/");
   if (relativePath.includes("reception/reviews")) {
     responseHeaders["Cache-Control"] = "no-store, no-cache, must-revalidate";
     responseHeaders["Pragma"] = "no-cache";
